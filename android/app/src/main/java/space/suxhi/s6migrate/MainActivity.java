@@ -819,7 +819,9 @@ public class MainActivity extends Activity {
                     + "echo CHG=$(cat /sys/class/power_supply/battery/status 2>/dev/null);"
                     + "for f in" + names + "; do [ -f " + q(fdir) + "/$f.verified ] && echo VERIFIED=$f;"
                     + " [ -f " + q(fdir) + "/$f.partial ] && echo PARTIAL=$f=$(stat -c %s " + q(fdir) + "/$f.partial); done;"
-                    + "echo FREE=$(df -k " + q(drive) + " | tail -1 | tr -s ' ' | cut -d' ' -f4)";
+                    + "echo FREE=$(df -k " + q(drive) + " | tail -1 | tr -s ' ' | cut -d' ' -f4);"
+                    + "L=" + q(drive + "/S6Migrate/switch-log.txt") + "; [ -f \"$L\" ] && { grep -q S6MIGRATE-REHEARSAL-PASSED \"$L\" && echo LAST=passed"
+                    + " || echo LAST=$(grep -m1 STOPPED \"$L\" | cut -c1-200); }";
             final Map<String, String> v = new HashMap<>();
             final Set<String> verified = new HashSet<>();
             final long[] partialBytes = {0};
@@ -859,6 +861,9 @@ public class MainActivity extends Activity {
         long freeKb = parse(v.getOrDefault("FREE", "0"));
         long needKb = Math.max(0, need - partialBytes) / 1024 + 204800;
 
+        String last = v.get("LAST");
+        if (last != null) body.addView(checkRow("passed".equals(last), "passed".equals(last)
+                ? "Last rehearsal in TWRP passed" : "Last TWRP run stopped", "passed".equals(last) ? null : last));
         body.addView(checkRow(modelOk, "Galaxy Tab S6 Wi-Fi (SM-T860)", modelOk ? null : "This tablet reports '" + model + "'. The switch only supports the SM-T860."));
         body.addView(checkRow(batOk, "Battery " + bat + "%" + (charging ? ", charging" : ""), batOk ? (charging ? null : "Plug in the charger during the switch.") : "Charge to at least 60% and keep the charger plugged in."));
         body.addView(checkRow(pkgOk, "Your package from " + folderOf(switchPkg[1]) + " (" + parse(switchPkg[2]) + " items, " + human(parse(switchPkg[3])) + ")",
@@ -1041,6 +1046,11 @@ public class MainActivity extends Activity {
                 + "settings and apps back.\n\nIt takes about 30-40 minutes. Keep the charger plugged in and the drive connected. "
                 + "Don't press any buttons in TWRP.", 15, false));
         body.addView(text("\nIf anything fails before step 3, TWRP says \"Nothing was erased\" and you can go back to Android.", 14, false));
+        body.addView(text("\nRecommended first: a rehearsal. TWRP runs every check and returns to Android without erasing anything.", 15, true));
+        Button reh = new Button(this);
+        reh.setText("Rehearse first (nothing is erased)");
+        reh.setOnClickListener(x -> prepareSwitch(true));
+        body.addView(reh);
         screen("Ready to switch", null, body, false, "Switch to Fedora", () -> {
             EditText et = new EditText(this);
             et.setHint("Type SWITCH");
@@ -1065,7 +1075,9 @@ public class MainActivity extends Activity {
         z.closeEntry();
     }
 
-    void prepareSwitch() {
+    void prepareSwitch() { prepareSwitch(false); }
+
+    void prepareSwitch(boolean rehearsal) {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.addView(new ProgressBar(this));
@@ -1085,6 +1097,11 @@ public class MainActivity extends Activity {
                     zipAsset(z, "s6migrate/s6-android", "s6-android.sh");
                     zipAsset(z, "s6migrate/s6-firstrun", "switch/s6-firstrun");
                     zipAsset(z, "s6migrate/s6migrate-firstrun.desktop", "switch/s6migrate-firstrun.desktop");
+                    if (rehearsal) {
+                        z.putNextEntry(new ZipEntry("s6migrate/REHEARSAL"));
+                        z.write("checks only, nothing is erased\n".getBytes("UTF-8"));
+                        z.closeEntry();
+                    }
                 }
                 final List<String> out = new ArrayList<>();
                 runRoot("{ mountpoint -q /cache || mount /cache || mount -t ext4 $(readlink -f /dev/block/by-name/cache) /cache; } 2>/dev/null;"
@@ -1104,7 +1121,10 @@ public class MainActivity extends Activity {
                     screen("Switch not started", null, b, false, null, null, "Back", this::switchStart);
                     return;
                 }
-                b.addView(text("Everything is ready. When you tap Restart, the tablet starts TWRP and the switch runs by itself.\n\n"
+                b.addView(text(rehearsal
+                        ? "Rehearsal ready. When you tap Restart, TWRP runs every check (about 5 minutes), erases nothing, and restarts into Android. "
+                        + "Open S6 Migrate afterwards to see the result.\n\nIf TWRP asks for a password: tap Cancel."
+                        : "Everything is ready. When you tap Restart, the tablet starts TWRP and the switch runs by itself.\n\n"
                         + "If TWRP asks for a password: tap Cancel.\nDon't touch anything else until Fedora starts.", 16, false));
                 screen("Ready", null, b, false, "Restart into TWRP", () -> {
                     try { runRoot("reboot recovery", l -> { }); } catch (Exception ignored) { }

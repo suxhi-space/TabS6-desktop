@@ -269,3 +269,10 @@ The companion app will put these behind buttons and notify when something needs 
 | **Memory: Android only while you use it** | Done: `tools/migrate/s6-android.sh`. Starts with the first Android app, stops after `IDLE_MIN` minutes (default 5) without an Android window (counted through KWin; if windows cannot be counted it never stops on a guess), "Stop Android apps" in the menu, `s6-android status` shows memory use. Installed by restore |
 | Open a Linux file in an Android app (Dolphin "Open with") | Planned: generate MIME associations from each Android app's VIEW intent filters, launching `waydroid app intent android.intent.action.VIEW <file in shared folder>` |
 | KDE file dialog when an Android app asks for a file | Planned research: a small "picker bridge" Android app inside Waydroid that takes over GET_CONTENT / OPEN_DOCUMENT and asks the host's KDE file dialog (xdg-desktop-portal) over the Waydroid network bridge, returning the file through a shared folder |
+
+**Rehearsal (app 0.2.1):** "Rehearse first" queues the same ZIP with a `REHEARSAL` marker. In TWRP it
+finds the drive, verifies the Fedora download, runs the installer's `prepare` (no partition writes),
+saves the boot backup, writes `S6MIGRATE-REHEARSAL-PASSED` to `S6Migrate/switch-log.txt`, resets the
+bootloader control block and restarts into Android. The app's switch screen shows the last result.
+Do a rehearsal before the real switch: it proves TWRP runs the queued ZIP, has the needed tools, and
+can read the drive, without erasing anything.

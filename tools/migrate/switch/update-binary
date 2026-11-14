@@ -57,6 +57,10 @@ if [ -n "$ZIP" ] && [ "${S6S_TEST:-0}" != 1 ]; then
   unzip -o "$ZIP" -d "$W/zip" >/dev/null 2>&1 || die "could not unpack the switch package"
 fi
 
+REHEARSAL=0
+{ [ -f "$W/zip/s6migrate/REHEARSAL" ] || [ -f "${S6S_PAYLOAD:-/nonexistent}/REHEARSAL" ]; } && REHEARSAL=1
+[ $REHEARSAL = 1 ] && ui "REHEARSAL: runs every check, then returns to Android. Nothing is erased."
+
 # ---------------------------------------------------------------- 1. find the drive
 ui "1/6 Looking for your USB drive or microSD card..."
 find_drive() {
@@ -110,6 +114,17 @@ BK="$DRIVE/S6Migrate/android-backup-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BK" && cp "$INST"/android-backup/* "$BK"/ || die "could not save the Android boot backup to the drive"
 ui "   checks passed; Android boot backup saved to ${BK##*/}"
 progress 0.2
+
+if [ $REHEARSAL = 1 ]; then
+  ui " "
+  ui "REHEARSAL PASSED. Nothing was erased."
+  ui "Everything the switch needs works in this TWRP. Restarting into Android in 15 seconds..."
+  echo "S6MIGRATE-REHEARSAL-PASSED $(date)" >> "$LOG"
+  cp "$LOG" "$DRIVE/S6Migrate/switch-log.txt" 2>/dev/null
+  clear_bcb
+  if [ "${S6S_TEST:-0}" != 1 ]; then sleep 15; reboot; fi
+  exit 0
+fi
 
 # ---------------------------------------------------------------- 4. write Fedora (erases Android)
 ui "4/6 Installing Fedora. Android is replaced now (10-20 minutes)..."

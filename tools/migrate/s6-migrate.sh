@@ -38,7 +38,8 @@ case "$MODEL" in SM-T860*) ;; *) echo "Warning: this is '$MODEL', not an SM-T860
 
 # ------------------------------------------------------------------ scan (root, read-only)
 cat > "$W/scan.sh" <<'SCAN'
-RP="$1"; MEDIA="$RP/data/media/0"; OUTDIR="$2"
+# scan.sh RP [OUTDIR] - read-only inventory for the Migration Assistant (Android sh, run as root)
+RP="$1"; MEDIA="$RP/data/media/0"; OUTDIR="${2:-}"
 kb() { du -sk "$1" 2>/dev/null | cut -f1; }
 pm list packages -3 -U 2>/dev/null | while read -r a b; do
   pkg=${a#package:}; uid=${b#uid:}
@@ -58,12 +59,19 @@ done
 for m in "$RP"/mnt/media_rw/*; do
   [ -d "$m" ] || continue
   free=$(df -k "$m" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)
-  fs=$(grep " ${m#$RP} " /proc/mounts 2>/dev/null | head -1 | cut -d' ' -f3)
-  echo "SD|$m|${free:-0}|${fs:-?}"
+  mnt=$(grep " ${m#$RP} " /proc/mounts 2>/dev/null | head -1)
+  fs=$(echo "$mnt" | cut -d' ' -f3); src=$(echo "$mnt" | cut -d' ' -f1)
+  case "$src" in *public:179,*) kind=microSD ;; *public:8,*|*public:259,*) kind=USB ;; *) kind=external ;; esac
+  echo "VOL|$m|${free:-0}|${fs:-?}|$kind"
 done
+fst=$(grep -h -E '[[:space:]]/data[[:space:]]' "$RP"/vendor/etc/fstab.* 2>/dev/null | grep -v '^[[:space:]]*#' | head -1)
+case "$fst" in *metadata_encryption*) me=yes ;; *) me=no ;; esac
+echo "CRYPTO|$(getprop ro.crypto.state)|$(getprop ro.crypto.volume.filenames_mode)|$me"
+PR="$RP/data/linux-probe/probe.bin"
+[ -f "$PR" ] && echo "PROBE|$(sha256sum "$PR" | cut -d' ' -f1)"
 echo "INTFREE|$(df -k "$RP/data" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)"
 KS="$RP/data/misc/keystore/persistent.sqlite"
-[ -f "$KS" ] && cp "$KS" "$OUTDIR/ks.sqlite" && chmod 644 "$OUTDIR/ks.sqlite"
+[ -n "$OUTDIR" ] && [ -f "$KS" ] && cp "$KS" "$OUTDIR/ks.sqlite" && chmod 644 "$OUTDIR/ks.sqlite"
 SCAN
 
 echo "Scanning apps and folders (read-only, can take a minute)..."
@@ -136,16 +144,47 @@ for ((i=0; i<${#APP_PKG[@]}; i++)); do [ "${APP_SEL[$i]}" = 1 ] && { TOTAL=$((TO
 for ((i=0; i<${#DIR_NAME[@]}; i++)); do [ "${DIR_SEL[$i]}" = 1 ] && { TOTAL=$((TOTAL+DIR_KB[$i])); NDIRS=$((NDIRS+1)); }; done
 [ $((NAPPS+NDIRS)) -gt 0 ] || { echo "Nothing selected."; exit 0; }
 
+# ------------------------------------------------------------------ space check
+FEDORA_IMAGE_KB=18874368      # installed Fedora root (t860-fedora v2026.10.29), 18 GiB
+FEDORA_DOWNLOAD_KB=5254172    # compressed download incl. installer, 5.0 GiB
+FEDORA_HEADROOM_KB=4194304    # working room for Linux, 4 GiB
+MARGIN=$((TOTAL/20 + 102400))
+INTFREE=$(sed -n 's/^INTFREE|//p' "$W/scan.txt"); INTFREE=${INTFREE:-0}
+IFS='|' read -r _ CSTATE CMODE CMETA < <(grep '^CRYPTO|' "$W/scan.txt")
+PROBE_SUM=$(sed -n 's/^PROBE|//p' "$W/scan.txt")
+fits() { [ "$1" -ge "$2" ] && echo "fits" || echo "short by $(hr $(($2-$1)))"; }
+clear 2>/dev/null; echo "Space check"; line
+echo "Selected: $NAPPS apps, $NDIRS folders = $(hr $TOTAL)"
+echo
+echo "Plan A (pack to a card or USB drive):"
+while IFS='|' read -r t m free fs kind; do
+  [ "$t" = VOL ] || continue
+  echo "  $kind ${m##*/}: $(hr "$free") free"
+  echo "     pack only:                $(fits "$free" $((TOTAL+MARGIN)))"
+  echo "     pack + Fedora download:   $(fits "$free" $((TOTAL+MARGIN+FEDORA_DOWNLOAD_KB)))   (needed for the one-button switch)"
+done < "$W/scan.txt"
+grep -q '^VOL|' "$W/scan.txt" || echo "  No microSD card or USB drive found. Plug one in for Plan A."
+echo
+NEEDB=$((FEDORA_IMAGE_KB + TOTAL + MARGIN + FEDORA_HEADROOM_KB))
+echo "Plan B (Linux next to Android, inside internal storage):"
+echo "  internal free $(hr "$INTFREE"), needs $(hr $NEEDB) (Fedora 18 GB + selection + 4 GB room): $(fits "$INTFREE" $NEEDB)"
+if [ "${CMETA:-no}" = yes ]; then echo "  encryption: whole-partition (metadata) encryption -> Plan B is NOT possible on this tablet"
+else echo "  encryption: file-based (${CMODE:-unknown}) -> Plan B possible in principle"; fi
+if [ -n "$PROBE_SUM" ]; then echo "  TWRP test file present (hash ${PROBE_SUM:0:8}); confirm it in TWRP to finish the Plan B check"
+else echo "  TWRP test not set up yet: run tools/recon/s6-plaintext-probe.sh create"; fi
+line
+ask "Press Enter to choose where to pack... " >/dev/null
+
 # ------------------------------------------------------------------ destination
 clear 2>/dev/null; echo "Step 3/4: where to put the package"; line
 echo "Selected: $NAPPS apps, $NDIRS folders, about $(hr $TOTAL)"
 echo
 DEST_PATH=(); DEST_FREE=(); DEST_LABEL=()
-while IFS='|' read -r t m free fs; do
-  [ "$t" = SD ] || continue
-  DEST_PATH+=("$m/S6Migrate"); DEST_FREE+=("$free"); DEST_LABEL+=("microSD card ($fs), $(hr "$free") free")
+while IFS='|' read -r t m free fs kind; do
+  [ "$t" = VOL ] || continue
+  case "$kind" in microSD) lab="microSD card" ;; USB) lab="USB drive" ;; *) lab="External storage" ;; esac
+  DEST_PATH+=("$m/S6Migrate"); DEST_FREE+=("$free"); DEST_LABEL+=("$lab ($fs, ${m##*/}), $(hr "$free") free. Only an S6Migrate folder is added; nothing is erased")
 done < "$W/scan.txt"
-INTFREE=$(sed -n 's/^INTFREE|//p' "$W/scan.txt")
 DEST_PATH+=("$MEDIA/S6Migrate"); DEST_FREE+=("${INTFREE:-0}")
 DEST_LABEL+=("Internal storage, $(hr "${INTFREE:-0}") free (you must copy it to a computer before switching OS: internal storage is erased)")
 for ((i=0; i<${#DEST_PATH[@]}; i++)); do echo "  $((i+1)). ${DEST_LABEL[$i]}"; done
@@ -177,6 +216,7 @@ echo "Apps are force-stopped briefly while their data is copied. Nothing is dele
 
 # ------------------------------------------------------------------ pack (root)
 cat > "$W/pack.sh" <<'PACK'
+# pack.sh RP PLAN OUT PART - packs the plan into OUT (Android sh, run as root). Reads Android data only.
 RP="$1"; MEDIA="$RP/data/media/0"; PLAN="$2"; OUT="$3"; PART="$4"
 fail() { echo "ERROR: $*"; exit 1; }
 mkdir -p "$OUT/apps" "$OUT/files" || fail "cannot create $OUT"
@@ -215,6 +255,20 @@ while IFS='|' read -r t a b c; do
   esac
 done < "$PLAN"
 cp "$PLAN" "$OUT/plan.txt"
+cat > "$OUT/README.txt" <<'EOF2'
+Tab S6 Migration Assistant package
+
+apps/<package>/apk/*.apk            the app (base + split APKs)
+apps/<package>/data.tar.aaa...      app private data (/data/data/<package>)
+apps/<package>/data_de.tar.aaa...   device-encrypted data (/data/user_de/0/<package>)
+apps/<package>/extdata.tar.aaa...   /sdcard/Android/data/<package>
+apps/<package>/obb.tar.aaa...       /sdcard/Android/obb/<package>
+apps/<package>/meta.txt             package, uid, version, keystore warning
+files/<name>.tar.aaa...             folders from internal storage (index.txt maps names)
+SHA256SUMS                          checksums of every file
+
+Archives are split into parts; join them with:  cat NAME.tar.* | tar -xf -
+EOF2
 ( cd "$OUT" && find . -type f ! -name SHA256SUMS | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS )
 # Internal storage files must belong to media_rw (1023) to stay readable over MTP/adb; no-op on FAT/exFAT cards.
 chown -R 1023:1023 "${OUT%/*}" 2>/dev/null
@@ -226,21 +280,6 @@ echo "Packing..."
 root "sh '$W/pack.sh' '$RP' '$W/plan.txt' '$OUT' '$PART_SIZE'" | tee "$W/pack.log"
 STATUS=$(tail -1 "$W/pack.log")
 
-cat > "$W/README.txt" <<EOF
-Tab S6 Migration Assistant package (v$VERSION), created $STAMP
-
-apps/<package>/apk/*.apk           the app (base + split APKs)
-apps/<package>/data.tar.aaa...        app private data (/data/data/<package>)
-apps/<package>/data_de.tar.aaa...     device-encrypted data (/data/user_de/0/<package>)
-apps/<package>/extdata.tar.aaa...     /sdcard/Android/data/<package>
-apps/<package>/obb.tar.aaa...         /sdcard/Android/obb/<package>
-files/<name>.tar.aaa...               folders from internal storage (index.txt maps names)
-SHA256SUMS                         checksums of every file above
-
-Archives are split into parts; join them with:  cat NAME.tar.* | tar -xf -
-Restore into Fedora/Waydroid is done by the assistant's next version (v0.2).
-EOF
-root "cp '$W/README.txt' '$OUT/README.txt'"
 
 line
 if [ "$STATUS" = PACK-OK ]; then

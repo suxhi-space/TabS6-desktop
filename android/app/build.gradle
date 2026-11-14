@@ -1,0 +1,30 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'space.suxhi.s6migrate'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'space.suxhi.s6migrate'
+        minSdk 30
+        targetSdk 34
+        versionCode 2
+        versionName '0.1.1'
+    }
+    // A fixed development key so new builds install over old ones. Not a secret: personal, sideloaded app.
+    signingConfigs {
+        dev {
+            storeFile file('s6migrate-dev.jks')
+            storePassword 's6migrate'
+            keyAlias 's6migrate'
+            keyPassword 's6migrate'
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig signingConfigs.dev }
+        debug { signingConfig signingConfigs.dev }
+    }
+    // The root scripts are shared with the Termux tool: tools/migrate/lib/{scan,pack}.sh
+    sourceSets { main { assets.srcDirs += ['../../tools/migrate/lib'] } }
+    lint { checkReleaseBuilds false; abortOnError false }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

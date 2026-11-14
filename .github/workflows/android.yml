@@ -1,0 +1,59 @@
+name: Build S6 Migrate app
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'tools/migrate/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to publish the APK as the "s6migrate-latest" pre-release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shared root scripts are in sync with the Termux tool
+        run: tools/migrate/check-sync.sh
+
+      - name: Shell syntax
+        run: |
+          bash -n tools/migrate/s6-migrate.sh
+          sh -n tools/migrate/lib/scan.sh
+          sh -n tools/migrate/lib/pack.sh
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: |
+          VER=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" android/app/build.gradle)
+          cp android/app/build/outputs/apk/release/app-release.apk "S6Migrate-v$VER.apk"
+          echo "APK=S6Migrate-v$VER.apk" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: S6Migrate-apk
+          path: ${{ env.APK }}
+
+      - name: Publish as the s6migrate-latest pre-release (tap to download on the tablet)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete s6migrate-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create s6migrate-latest "$APK" --prerelease --target "$GITHUB_SHA" \
+            --title "S6 Migrate (latest build)" \
+            --notes "Built from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}. Install on the tablet; allow installs from your browser when asked."

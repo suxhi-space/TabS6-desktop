@@ -559,11 +559,33 @@ public class MainActivity extends Activity {
         TextView status = text("Starting...", 16, true);
         ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(total);
+        TextView written = text("", 14, false);
         TextView log = text("", 12, false);
         log.setTypeface(Typeface.MONOSPACE);
         body.addView(status);
         body.addView(bar);
+        body.addView(written);
         body.addView(log);
+        final long expectedKb = selectedKb();
+        final long startMs = System.currentTimeMillis();
+        // Live "written so far" counter, so a big item does not look frozen.
+        new Thread(() -> {
+            while (busy) {
+                try {
+                    Thread.sleep(4000);
+                    final long[] kb = {0};
+                    runRoot("du -sk " + q(out) + " 2>/dev/null", l -> kb[0] = parse(l.split("\\s+")[0]));
+                    long secs = Math.max(1, (System.currentTimeMillis() - startMs) / 1000);
+                    long rate = kb[0] / secs; // KB/s
+                    String eta = rate > 0 && expectedKb > kb[0]
+                            ? ", about " + Math.max(1, (expectedKb - kb[0]) / rate / 60) + " min left" : "";
+                    String s = "Written so far: " + human(kb[0]) + " of about " + human(expectedKb)
+                            + (rate > 0 ? " (" + human(rate) + "/s" + eta + ")" : "");
+                    ui.post(() -> { if (busy) written.setText(s); });
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
         screen("Packing", "Keep this screen open. It stays on until packing finishes.", body, false,
                 null, null, null, null);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

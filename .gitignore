@@ -1,0 +1,12 @@
+# Device-private output: serials, device trees, partition images, calibration. Never commit.
+recon-out/
+s6-backup/
+*.img
+*.dtb
+*.tar
+*.tar.md5
+*.ipsw
+*.dmg
+
+# Third-party reference checkouts
+ext/

@@ -33,21 +33,34 @@ findings and read-only tools. No boot or flash code yet, by design.
 | [docs/migration-assistant.md](docs/migration-assistant.md) | Design for a tool that moves your files, apps and data from Android to Linux for you |
 | [docs/phase1-test-plan.md](docs/phase1-test-plan.md) | Step-by-step Phase 1 plan with expected outcomes, rollback procedures and abort criteria |
 
-## Your next step
+## Your next step: one command
 
-With the tablet booted into Android (your rooted GSI is fine), USB debugging on and
-Magisk granting root to the shell:
+1. On the tablet: Settings → Developer options → **USB debugging** on. Plug it into your
+   computer and accept the prompt. In Magisk → Superuser, allow **Shell** when asked.
+2. On your computer (Windows: open **Git Bash**; it comes with Git for Windows), with
+   [platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb`) installed:
 
 ```bash
-tools/recon/s6-recon.sh      # read-only survey; writes recon-out/<time>/summary.txt
-tools/recon/s6-backup.sh     # read-only, SHA-256-verified partition backup to s6-backup/
+git clone https://github.com/suxhi-space/TabS6-desktop.git
+cd TabS6-desktop
+git checkout claude/android-tablet-desktop-ui-755uqh
+./tools/recon/collect.sh
 ```
 
-Both scripts only read from the tablet. Their output contains your serial number and
-device identity, so keep it private (`.gitignore` already excludes it). Then share
-`summary.txt` (redact the serial) so Phase 1 can be planned for your unit's exact state.
-The most important line is the **`misc command field`**: if it says `boot-recovery`, read
-Step 0b of the test plan before doing anything else.
+`collect.sh` surveys the tablet (read-only), builds a **scrubbed report** (serial number, MAC
+and e-mail addresses removed; no raw device tree, kernel log or partition images), shows you
+the whole report, and uploads it only after you type `yes`. The upload is a single file on its
+own temporary branch, `recon-upload`, with a generic author name. It also offers to run the
+Design B test (one 1 MiB test file). Full raw output stays on your computer in `recon-out/`.
+
+Then tell Claude "recon uploaded". Remove the branch afterwards with
+`git push origin --delete recon-upload`.
+
+Before any flashing, also run the verified backup (stays on your computer, never uploaded):
+
+```bash
+./tools/recon/s6-backup.sh
+```
 
 ## Ground rules
 

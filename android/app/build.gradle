@@ -7,8 +7,8 @@ android {
         applicationId 'space.suxhi.s6migrate'
         minSdk 30
         targetSdk 34
-        versionCode 13
-        versionName '0.2.4'
+        versionCode 14
+        versionName '0.3.0'
     }
     // A fixed development key so new builds install over old ones. Not a secret: personal, sideloaded app.
     signingConfigs {
@@ -25,7 +25,7 @@ android {
     }
     // The root scripts are shared with the Termux tool: tools/migrate/lib/{scan,pack}.sh
     // Shared root scripts at the asset root; the Fedora-side tools and TWRP script under their own paths.
-    sourceSets { main { assets.srcDirs += ['../../tools/migrate/lib', '../../tools/migrate'] } }
+    sourceSets { main { assets.srcDirs += ['../../tools/migrate/lib', '../../tools/migrate', 'src/main/fontassets'] } }
     lint { checkReleaseBuilds false; abortOnError false }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }

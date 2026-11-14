@@ -302,3 +302,20 @@ can read the drive, without erasing anything.
   - TWRP uses the drive with a *finished* download (`s6-download.env` present). An unfinished download on another drive is ignored.
   - The package and the download may be on different drives.
 - **TWRP step 5 problems no longer stop the switch:** a problem installing the S6 Migrate tools on Fedora is logged as a warning, and the switch still finishes so the tablet boots.
+
+## The upgrade wizard (app 0.3.0)
+
+The app follows the concept design: a sidebar with six steps on the tablet (a step bar in narrow windows), Fedora blue, Red Hat fonts, light or dark to match the tablet.
+
+1. **Introduction:** readiness checks (model, root, card or drive, battery, pre-release note) and your saved packages, each with *Check for changes*.
+2. **What to keep:** choose *Selected apps and files*, *Files only* or *Start fresh*, then pick apps and folders. The footer shows the space left on the drive as you pick. Each folder shows where it goes on Fedora; tap *Change* to choose another place (saved as `destinations.txt`).
+3. **Apps on Fedora:** the Flathub lookup runs here, and **only for the apps you chose** (cached 14 days, *Skip* allowed).
+   - Each app with a Linux version offers *Keep Android app*, *Use <Linux app>* or *Both*.
+   - Apps staying behind that have a Linux version on the hand-picked list can still get it: tick *Install* (a `LINUX` plan line, nothing packed).
+4. **Space check:** Plan A lists every card or USB drive with a bar for your stuff plus the Fedora download, and you pick the drive. Plan B (Linux next to Android) shows what it would need; it is not built yet.
+5. **Summary:** what is kept, which Android and Linux apps you get, where folders go, and what Fedora sets up. *Pack now* packs and verifies.
+6. **Upgrade:** checks, Fedora download drive and download, rehearsal, and the typed SWITCH confirmation.
+
+**Manual start in TWRP.** Some TWRP builds (seen with 3.7.0_9-15_mentalmuso on a GSI) open their main menu instead of running `/cache/recovery/openrecoveryscript`.
+- The app now also puts the ZIP on the card or drive as `S6Migrate/S6Migrate-rehearsal.zip` or `S6Migrate-UPGRADE.zip`, and shows the steps: Install, Select Storage, S6Migrate folder, the ZIP, then swipe.
+- When the app opens again and finds the old request still queued from before the restart, it says TWRP didn't run it and removes the request.

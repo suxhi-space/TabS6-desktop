@@ -33,6 +33,12 @@ projects below. Thank you.
 [Kamoso](https://apps.kde.org/kamoso/), [KDE Connect](https://kdeconnect.kde.org), and KDE's Gwenview, Dolphin, Okular and KCalc.
 The list is in [`tools/migrate/lib/alternatives.tsv`](tools/migrate/lib/alternatives.tsv); suggestions welcome.
 
+## App look
+
+The app uses the [Red Hat Display and Red Hat Text](https://github.com/RedHatOfficial/RedHatFont) fonts by Red Hat,
+under the SIL Open Font License 1.1 (bundled as `android/app/src/main/fontassets/fonts/OFL.txt`), and Fedora's blue.
+It uses no Fedora, Microsoft or Apple logos.
+
 ## Research references (Apple OS track)
 
 [UniXNU](https://github.com/UniXNU/UniXNU), [iPadOS-nabu](https://github.com/mytiantian001/iPadOS-nabu),

@@ -33,6 +33,17 @@ jobs:
           # TWRP's shell (mksh) can't redirect to two-digit file descriptors: write via /proc/self/fd/$OUTFD
           ! grep -n '>&"\?\$OUTFD' tools/migrate/switch/update-binary
           bash -n tools/migrate/switch/s6-firstrun
+          bash -n tools/migrate/fedora/s6-helper
+          bash -n tools/migrate/fedora/s6-update
+          bash -n tools/migrate/fedora/s6-look
+          bash -n tools/migrate/fedora/system/s6-setup-session
+          python3 -m py_compile tools/migrate/fedora/app/s6ui.py tools/migrate/fedora/app/setup.py tools/migrate/fedora/app/companion.py
+
+      - name: Switch script with Fedora files embedded (every file on the install list exists)
+        run: |
+          python3 tools/migrate/switch/build-payload.py rehearsal /tmp/ub-rehearsal
+          python3 tools/migrate/switch/build-payload.py switch /tmp/ub-switch
+          sh -n /tmp/ub-rehearsal && sh -n /tmp/ub-switch
 
       - uses: actions/setup-java@v4
         with:

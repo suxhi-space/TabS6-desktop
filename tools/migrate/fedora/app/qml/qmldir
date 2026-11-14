@@ -1,0 +1,12 @@
+singleton Theme 1.0 Theme.qml
+Btn 1.0 Btn.qml
+Card 1.0 Card.qml
+Glyph 1.0 Glyph.qml
+Field 1.0 Field.qml
+Choice 1.0 Choice.qml
+Toggle 1.0 Toggle.qml
+TaskRow 1.0 TaskRow.qml
+Frame 1.0 Frame.qml
+Label2 1.0 Label2.qml
+LayoutPreview 1.0 LayoutPreview.qml
+LayoutPicker 1.0 LayoutPicker.qml

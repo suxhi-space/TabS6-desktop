@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=S6 Companion
+GenericName=Tablet tools and help
+Comment=Android apps, updates, fixes and tools for your Galaxy Tab S6
+Exec=/usr/local/bin/s6-companion
+Icon=preferences-system
+Categories=System;Settings;
+Keywords=android;waydroid;tablet;fix;update;help;welcome;

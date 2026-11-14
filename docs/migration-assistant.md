@@ -339,3 +339,96 @@ The app follows the concept design: a sidebar with six steps on the tablet (a st
 - Restarted into Android. Nothing was written to the tablet's partitions.
 
 Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore on Fedora.
+
+## Fedora side: S6 Setup and S6 Companion (0.4.0)
+
+### First start (S6 Setup, before any desktop)
+
+- **How it starts:**
+  - TWRP (step 5) adds a temporary account, `s6setup`, and points SDDM's automatic login at it, through `/etc/sddm.conf.d/zz-s6migrate.conf`, and `/etc/sddm.conf` if the image sets a user there.
+  - That session opens S6 Setup full screen: Python and Qt Quick, both already in the image (`python3-pyside6`, Qt 6.11).
+  - It has its own on-screen keyboard (`qt6-qtvirtualkeyboard`).
+- **Seven steps:**
+  1. Welcome: bring my stuff, or start fresh.
+  2. Wi-Fi: the Android networks are added automatically.
+  3. Your account: name, user name, password; log in automatically; remove the public `fedora` account.
+  4. Your tablet: device name, time zone, language, Android app support, Google Play. Filled in from Android.
+  5. Look and feel: layout, size, light or dark, tune-ups, media codecs.
+  6. Moving in: progress for each task and each package part.
+  7. All set.
+- **Hand-over:** "Start using Fedora" switches automatic login to your account and restarts the login manager. The setup account and its permission rule are then removed.
+- **Fallback:** if S6 Setup can't start at all, the tablet goes back to the `fedora` account with the old text assistant (`s6-firstrun`).
+- **Root helper:** root work goes through `/usr/local/libexec/s6migrate/s6-helper` via pkexec.
+  - Polkit rule `49-s6migrate.rules`: the setup account needs no password; admins (`wheel`) are asked once.
+  - Every argument is checked.
+  - During the first run, your account has temporary passwordless `sudo`, so the steps run without prompts. S6 Companion removes it when the first run finishes.
+
+### After login (S6 Companion)
+
+A welcome and tools app, always in the menu, with "Open when I log in" as an option.
+
+- **First login:** finishes the move.
+  - Wallpaper and settings from Android.
+  - Your layout and size.
+  - Android for apps (Waydroid image, with or without Google Play).
+  - Your Android apps and their data, from every part of the package.
+- **Pages:**
+  - **Home:** status and tips.
+  - **Look:** five layouts, Size Standard / Larger / Largest, light or dark.
+  - **Android apps:** start, stop, auto-stop minutes, check and fix, update Android.
+  - **Updates:** Fedora updates through Discover, Flatpak, the tablet system (below) and S6 Migrate itself.
+  - **Tune-ups:** each one on or off.
+  - **Fixes:** Wi-Fi, Bluetooth, rotation, sound, touch keyboard, Android apps.
+  - **Your stuff:** bring files, apps or settings over again; open folders.
+  - **About:** credits.
+
+**Layouts** (`s6-look`, through Plasma's scripting interface; neutral names, no look-alikes of other systems):
+
+| Layout | What it is |
+|---|---|
+| Touch | One tall floating bar (default) |
+| Centered taskbar | App icons in the middle of the bottom bar |
+| Traditional | Full-width bar, menu on the left, window names |
+| Top bar and dock | Menu and clock on top, a dock below |
+| Plasma default | KDE's standard desktop |
+
+**Size** is relative to the tablet's original screen scale (+0, +25%, +50%). Larger and Largest also turn on Plasma's touch mode.
+
+**Tune-ups** (`s6-helper tune NAME on|off`; files in `*.d` folders, so they're easy to undo):
+
+| Tune-up | What it changes |
+|---|---|
+| Memory | zram-friendly sysctl settings |
+| Logs | journald capped at 200 MB |
+| Shutdown | 15-second stop timeout |
+| Downloads | 10 parallel downloads in dnf5 |
+| Background | abrt and the dnf makecache timer stopped |
+| Protect | `excludepkgs=sddm,sddm-wayland-plasma,iio-sensor-proxy`, because t860-fedora customises the login screen and sensor service |
+| Codecs | RPM Fusion and full ffmpeg |
+| Indexing | File search indexing (Baloo) off by default; per user |
+
+### Tablet system updates (`s6-update`)
+
+- **Check:** compares `/etc/t860-release` and `uname -r` with the newest t860-fedora release (GitHub API), and shows its release notes.
+- **Update:**
+  1. Download the release, verified against its `manifest.json`.
+  2. Unpack the system image, and take the new modules and tablet tools out with `debugfs` (no mounting).
+  3. Take the new `Image`, `gts6.dtb` and loader entry from the installer's ESP image.
+  4. **Before** installing anything, save the running kernel as LAST KNOWN GOOD with t860-fedora's own `tabs6-kernel snapshot`.
+  5. Install.
+- **Keep or roll back:** after a restart, S6 Companion asks "Everything works: keep it" (`tabs6-kernel snapshot`) or "Go back" (`tabs6-kernel rollback`). If the tablet doesn't start, hold Volume Down at power-on and pick LAST KNOWN GOOD.
+- **S6 Migrate itself:** `s6-update self` refreshes S6 Migrate's own Fedora files from this repository (once it is public).
+
+### Split packages
+
+- **Packing:** when no single card or drive has room, the space check offers "Split it across your drives". The biggest items go to the drive with the most room. Each part is a folder with the same date name, plus `parts.txt`.
+- **TWRP:** collects every part and stops before erasing anything if a part is missing. Card parts are copied into Fedora; USB parts are read on first start.
+- **Old packages:** the Summary step can delete older packages once the new one has packed and checked out. Saved packages also have a Delete option.
+
+### How it was checked
+
+- The switch script (with all 36 Fedora files embedded) ran end to end against mock drives under mksh and a bare busybox toolset.
+- The setup and companion screens were rendered offscreen (mock mode) in light, dark, landscape and portrait.
+- The restore modes and helper actions were tested against throwaway folders.
+
+Not yet run on the tablet: SDDM automatic login into the setup account, pkexec and polkit, Plasma layout scripts, `kscreen-doctor` scaling, and `s6-update system`.

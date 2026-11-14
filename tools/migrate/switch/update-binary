@@ -82,7 +82,10 @@ ui "1/6 Looking for your USB drive and microSD card..."
 list_drives() {
   local m dev n=0
   if [ -n "${S6S_MOUNTS:-}" ]; then
-    for m in $S6S_MOUNTS; do [ -d "$m/S6Migrate" ] && echo "$m|"; done
+    for m in $S6S_MOUNTS; do        # test hook: "path" or "path=device"
+      d=${m#*=}; [ "$d" = "$m" ] && d=""; m=${m%%=*}
+      [ -d "$m/S6Migrate" ] && echo "$m|$d"
+    done
   else
     while read -r dev m rest; do       # plain shell: some TWRP builds have no awk
       [ -d "$m/S6Migrate" ] && echo "$m|$dev"
@@ -103,20 +106,36 @@ list_drives() {
   done
 }
 list_drives > "$W/drives"
-DRIVE=""; PKG=""; PKG_DEV=""
+DRIVE=""; PKG=""; PKG_DEV=""; PKGID=""
 while IFS='|' read -r m dev; do
   # the drive with the finished Fedora download (s6-download.env is written only once every file is verified)
   [ -z "$DRIVE" ] && [ -f "$m/S6Migrate/fedora/s6-download.env" ] && DRIVE=$m
   for p in "$m"/S6Migrate/2*/; do        # the newest package on any drive
     p=${p%/}; [ -f "$p/plan.txt" ] || continue
-    if [ -z "$PKG" ] || [ "${p##*/}" \> "${PKG##*/}" ]; then PKG=$p; PKG_DEV=$dev; fi
+    if [ -z "$PKGID" ] || [ "${p##*/}" \> "$PKGID" ]; then PKGID=${p##*/}; PKG=$p; PKG_DEV=$dev; fi
   done
 done < "$W/drives"
+# A package can be split across drives: every folder with the newest name is one part ("<path>|<device>").
+: > "$W/parts"
+if [ -n "$PKGID" ]; then
+  while IFS='|' read -r m dev; do
+    [ -f "$m/S6Migrate/$PKGID/plan.txt" ] && echo "$m/S6Migrate/$PKGID|$dev" >> "$W/parts"
+  done < "$W/drives"
+fi
+NPARTS=$(grep -c . "$W/parts")
+WANT=$(sed -n 's/^parts=//p' "$PKG/parts.txt" 2>/dev/null | head -n 1)
 [ -n "$DRIVE" ] || die "no drive with a finished Fedora download (S6Migrate/fedora) found. Plug in the drive and try again."
 F="$DRIVE/S6Migrate/fedora"
 echo "$PKG_DEV" > "$W/drive_dev"
 ui "   Fedora download on: $DRIVE"
-[ -n "$PKG" ] && ui "   your package: ${PKG##*/} on ${PKG%/S6Migrate/*}" || ui "   no package found: Fedora will start empty"
+if [ -n "$PKG" ]; then
+  while IFS='|' read -r p dev; do ui "   your package: ${p##*/} on ${p%/S6Migrate/*}"; done < "$W/parts"
+  if [ -n "$WANT" ] && [ "$NPARTS" -lt "$WANT" ]; then
+    die "your package is split across $WANT drives, but only $NPARTS are plugged in. Plug in the other drive (or card) and try again."
+  fi
+else
+  ui "   no package found: Fedora will start empty"
+fi
 progress 0.05
 
 # ---------------------------------------------------------------- 2. verify the download
@@ -181,23 +200,80 @@ if [ -z "${S6S_ROOTMNT:-}" ]; then
 fi
 if [ $ROOT_OK = 1 ]; then
   SRC="$W/zip/s6migrate"; [ -d "$SRC" ] || SRC="${S6S_PAYLOAD:-$SRC}"
-  mkdir -p "$ROOT/usr/local/bin" "$ROOT/usr/local/share/s6migrate" "$ROOT/etc/xdg/autostart" "$ROOT/var/lib/s6migrate"
-  for t in s6-restore s6-firstrun s6-doctor s6-android; do
-    cp "$SRC/$t" "$ROOT/usr/local/bin/$t" && chmod 755 "$ROOT/usr/local/bin/$t" || warn "could not add $t"
+  mkdir -p "$ROOT/var/lib/s6migrate"
+  # The temporary account that runs S6 Setup on the first start (removed when setup finishes).
+  SUID=1990
+  if ! grep -q '^s6setup:' "$ROOT/etc/passwd"; then
+    while cut -d: -f3 "$ROOT/etc/passwd" | grep -qx "$SUID" || cut -d: -f3 "$ROOT/etc/group" | grep -qx "$SUID"; do SUID=$((SUID+1)); done
+    echo "s6setup:x:$SUID:$SUID:Setting up your tablet:/var/lib/s6migrate/setup-home:/bin/bash" >> "$ROOT/etc/passwd"
+    echo "s6setup:x:$SUID:" >> "$ROOT/etc/group"
+    echo "s6setup:!:20000::::::" >> "$ROOT/etc/shadow"
+    [ -f "$ROOT/etc/gshadow" ] && echo "s6setup:!::" >> "$ROOT/etc/gshadow"
+  else
+    SUID=$(grep '^s6setup:' "$ROOT/etc/passwd" | cut -d: -f3)
+  fi
+  # S6 Migrate's files: restore tools, S6 Setup, S6 Companion, the root helper and their settings.
+  if [ -f "$SRC/install.list" ]; then
+    n=0
+    while IFS='|' read -r name dest mode owner; do
+      case "$name" in ''|'#'*) continue ;; esac
+      d=$ROOT$dest
+      mkdir -p "${d%/*}"
+      if cp "$SRC/$name" "$d"; then
+        chmod "${mode:-644}" "$d"
+        [ "$owner" = s6setup ] && chown "$SUID:$SUID" "$d"
+        n=$((n+1))
+      else
+        warn "could not add $dest"
+      fi
+    done < "$SRC/install.list"
+    ui "   added $n S6 Migrate files (setup assistant, companion app, tools)"
+  else
+    warn "this switch package has no file list (update the S6 Migrate app)"
+  fi
+  # The setup account's desktop: no welcome or update pop-ups over the setup screen.
+  H=$ROOT/var/lib/s6migrate/setup-home
+  mkdir -p "$H/.config/autostart"
+  for a in org.kde.plasma-welcome.desktop org.kde.discover.notifier.desktop imsettings-start.desktop sealertauto.desktop \
+           s6migrate-firstrun.desktop org.kde.kalendarac.desktop; do
+    printf '[Desktop Entry]\nHidden=true\n' > "$H/.config/autostart/$a"
   done
-  cp "$SRC/alternatives.tsv" "$ROOT/usr/local/share/s6migrate/" 2>/dev/null || warn "could not add the Linux app list"
-  cp "$SRC/s6migrate-firstrun.desktop" "$ROOT/etc/xdg/autostart/" || warn "could not add the first-start entry"
+  printf '[Wallet]\nEnabled=false\nFirst Use=false\n' > "$H/.config/kwalletrc"
+  printf '[Daemon]\nAutolock=false\nLockOnResume=false\n' > "$H/.config/kscreenlockerrc"
+  chown -R "$SUID:$SUID" "$H"; chmod 700 "$H"
+  rm -f "$ROOT/etc/xdg/autostart/s6migrate-firstrun.desktop"   # the old text assistant (kept only as a fallback tool)
+  # If the image sets automatic login in /etc/sddm.conf itself, that file wins over sddm.conf.d: point it at setup too.
+  # (Rewritten in place, so the file keeps its security label.)
+  if [ -f "$ROOT/etc/sddm.conf" ] && grep -q '^User=' "$ROOT/etc/sddm.conf"; then
+    cp "$ROOT/etc/sddm.conf" "$ROOT/var/lib/s6migrate/sddm.conf.orig"
+    sed '/^\[Autologin\]/,/^\[/ s/^User=.*/User=s6setup/' "$ROOT/var/lib/s6migrate/sddm.conf.orig" > "$W/sddm.conf.new" \
+      && cat "$W/sddm.conf.new" > "$ROOT/etc/sddm.conf"
+  fi
+  # SELinux: files written from TWRP have no Fedora security labels. If SELinux is on, let Fedora relabel
+  # once on the first start (Fedora's own mechanism; adds a few minutes and one automatic restart).
+  if grep -Eq '^SELINUX=(enforcing|permissive)' "$ROOT/etc/selinux/config" 2>/dev/null; then
+    : > "$ROOT/.autorelabel"
+    ui "   SELinux is on: the first start checks file labels once (a few extra minutes, one restart)"
+  fi
   if [ -n "$PKG" ]; then
-    case "$(cat "$W/drive_dev" 2>/dev/null)" in *mmcblk*|*public:179*) on_card=1 ;; *) on_card=0 ;; esac
-    if [ $on_card = 1 ]; then
-      # Fedora cannot read the microSD slot yet: copy the package into the new system.
-      ui "   copying your package into Fedora (the microSD card is not readable there yet)..."
-      cp -a "$PKG" "$ROOT/var/lib/s6migrate/package-${PKG##*/}" \
-        || warn "copying your package failed; it is still on the card: copy it to Fedora later with a card reader"
-    else
-      echo "$PKG" > "$ROOT/var/lib/s6migrate/package-location"
-      ui "   your package stays on the USB drive; plug it in on first start"
-    fi
+    k=0; : > "$ROOT/var/lib/s6migrate/package-location"
+    { echo "id=$PKGID"; echo "parts=$NPARTS"; } > "$ROOT/var/lib/s6migrate/package.info"
+    while IFS='|' read -r p dev; do
+      k=$((k+1))
+      case "$dev" in *mmcblk*|*public:179*) on_card=1 ;; *) on_card=0 ;; esac
+      if [ $on_card = 1 ]; then
+        # Fedora cannot read the microSD slot yet: copy this part into the new system.
+        ui "   copying your package${WANT:+ (part $k)} into Fedora (the microSD card is not readable there yet)..."
+        cp -a "$p" "$ROOT/var/lib/s6migrate/package-$PKGID-part$k" \
+          && chmod -R a+rX "$ROOT/var/lib/s6migrate/package-$PKGID-part$k" \
+          && echo "copied=package-$PKGID-part$k" >> "$ROOT/var/lib/s6migrate/package.info" \
+          || warn "copying your package failed; it is still on the card: copy it to Fedora later with a card reader"
+      else
+        echo "$p" >> "$ROOT/var/lib/s6migrate/package-location"
+        echo "usb=${p%/S6Migrate/*}" >> "$ROOT/var/lib/s6migrate/package.info"
+        ui "   your package${WANT:+ (part $k)} stays on the USB drive; keep it plugged in for the first start"
+      fi
+    done < "$W/parts"
   fi
   sync
   [ -z "${S6S_ROOTMNT:-}" ] && umount "$ROOT"
@@ -213,8 +289,8 @@ progress 1
 ui " "
 ui "Done. Fedora is installed."
 [ -n "$WARN" ] && ui "Some extras need attention (details in S6Migrate/switch-log.txt):$WARN"
-ui "The tablet restarts into Fedora. Log in as fedora / fedora and change the password."
-ui "S6 Migrate opens by itself and brings your files and apps back."
+ui "The tablet restarts into Fedora, and S6 Setup welcomes you: Wi-Fi, your own account and your stuff."
+ui "Keep the USB drive plugged in until S6 Companion says your Android apps are done."
 clear_bcb
 ui "Restarting in 15 seconds..."
 if [ "${S6S_TEST:-0}" != 1 ]; then sleep 15; reboot; fi

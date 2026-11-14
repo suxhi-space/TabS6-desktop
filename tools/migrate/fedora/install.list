@@ -1,0 +1,40 @@
+# Files S6 Migrate puts into Fedora during the switch (TWRP step 5).
+# asset (path inside the app's assets) | destination in Fedora | mode | owner (empty = root, s6setup = the setup account)
+# Assets ending in .ttf are carried as base64 text (TWRP can only write text from the switch script); their
+# destination ends in .b64 and S6 Setup / S6 Companion decode them.
+s6-restore.sh|/usr/local/bin/s6-restore|755|
+s6-doctor.sh|/usr/local/bin/s6-doctor|755|
+s6-android.sh|/usr/local/bin/s6-android|755|
+switch/s6-firstrun|/usr/local/bin/s6-firstrun|755|
+alternatives.tsv|/usr/local/share/s6migrate/alternatives.tsv|644|
+fedora/s6-helper|/usr/local/libexec/s6migrate/s6-helper|755|
+fedora/s6-update|/usr/local/bin/s6-update|755|
+fedora/s6-look|/usr/local/bin/s6-look|755|
+fedora/system/s6-setup-session|/usr/local/libexec/s6migrate/s6-setup-session|755|
+fedora/system/s6-companion|/usr/local/bin/s6-companion|755|
+fedora/system/s6-companion.desktop|/usr/local/share/applications/s6-companion.desktop|644|
+fedora/system/49-s6migrate.rules|/etc/polkit-1/rules.d/49-s6migrate.rules|644|
+fedora/system/zz-s6migrate.conf|/etc/sddm.conf.d/zz-s6migrate.conf|644|
+fedora/system/s6-setup.desktop|/var/lib/s6migrate/setup-home/.config/autostart/s6-setup.desktop|644|s6setup
+fedora/app/s6ui.py|/usr/local/share/s6migrate/app/s6ui.py|644|
+fedora/app/setup.py|/usr/local/share/s6migrate/app/setup.py|644|
+fedora/app/companion.py|/usr/local/share/s6migrate/app/companion.py|644|
+fedora/app/qml/Btn.qml|/usr/local/share/s6migrate/app/qml/Btn.qml|644|
+fedora/app/qml/Card.qml|/usr/local/share/s6migrate/app/qml/Card.qml|644|
+fedora/app/qml/Choice.qml|/usr/local/share/s6migrate/app/qml/Choice.qml|644|
+fedora/app/qml/Companion.qml|/usr/local/share/s6migrate/app/qml/Companion.qml|644|
+fedora/app/qml/Field.qml|/usr/local/share/s6migrate/app/qml/Field.qml|644|
+fedora/app/qml/Frame.qml|/usr/local/share/s6migrate/app/qml/Frame.qml|644|
+fedora/app/qml/Glyph.qml|/usr/local/share/s6migrate/app/qml/Glyph.qml|644|
+fedora/app/qml/Label2.qml|/usr/local/share/s6migrate/app/qml/Label2.qml|644|
+fedora/app/qml/LayoutPicker.qml|/usr/local/share/s6migrate/app/qml/LayoutPicker.qml|644|
+fedora/app/qml/LayoutPreview.qml|/usr/local/share/s6migrate/app/qml/LayoutPreview.qml|644|
+fedora/app/qml/Setup.qml|/usr/local/share/s6migrate/app/qml/Setup.qml|644|
+fedora/app/qml/TaskRow.qml|/usr/local/share/s6migrate/app/qml/TaskRow.qml|644|
+fedora/app/qml/Theme.qml|/usr/local/share/s6migrate/app/qml/Theme.qml|644|
+fedora/app/qml/Toggle.qml|/usr/local/share/s6migrate/app/qml/Toggle.qml|644|
+fedora/app/qml/qmldir|/usr/local/share/s6migrate/app/qml/qmldir|644|
+fonts/RedHatDisplay-Bold.ttf|/usr/local/share/s6migrate/fonts/RedHatDisplay-Bold.ttf.b64|644|
+fonts/RedHatText-Regular.ttf|/usr/local/share/s6migrate/fonts/RedHatText-Regular.ttf.b64|644|
+fonts/RedHatText-SemiBold.ttf|/usr/local/share/s6migrate/fonts/RedHatText-SemiBold.ttf.b64|644|
+fonts/OFL.txt|/usr/local/share/s6migrate/fonts/OFL.txt|644|

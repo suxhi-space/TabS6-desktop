@@ -1,0 +1,161 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-update - keeps the tablet's own system parts up to date (the parts Fedora's updates don't cover).
+#
+#   s6-update check              compare this tablet with the newest t860-fedora release (no root needed)
+#   s6-update system [TAG]       install that release's kernel, device tree and drivers, keeping your files and apps
+#   s6-update keep               the new kernel works: make it the "last known good" one
+#   s6-update rollback           go back to the last known good kernel (restart afterwards)
+#   s6-update self               update S6 Migrate's own Fedora tools from its GitHub repository
+#
+# How "system" stays safe: the running kernel is saved as LAST KNOWN GOOD first (tabs6-kernel snapshot, from
+# the t860-fedora image), then the new kernel and device tree go onto the boot partition and the new drivers
+# next to the old ones. If the tablet doesn't start, hold Volume Down while it starts and pick LAST KNOWN GOOD.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+REPO=${S6U_REPO:-starlight4you/t860-fedora}
+SELF_REPO=${S6U_SELF_REPO:-suxhi-space/TabS6-desktop}
+CACHE=${S6U_CACHE:-/var/cache/s6migrate/update}
+ST=/var/lib/s6migrate
+ESP_DEV=${S6U_ESP:-/dev/sda27}
+UA="S6Migrate-update"
+say() { echo "$*"; }
+die() { echo "ERROR: $*"; exit 1; }
+
+current_kernel() { uname -r; }
+current_date() { sed -n 's#.* / \([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*#\1#p' /etc/t860-release 2>/dev/null | head -n 1; }
+tag_date() { echo "$1" | sed -n 's/^v\([0-9]\{4\}\)\.\([0-9]\{2\}\)\.\([0-9]\{2\}\).*/\1-\2-\3/p'; }
+api() { curl -fsSL -A "$UA" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1"; }
+dl() { # dl NAME TAG DEST [SHA256]
+  local url="https://github.com/$REPO/releases/download/$2/$1"
+  curl -fL -A "$UA" -C - --retry 3 -o "$3.part" "$url" || return 1
+  if [ -n "${4:-}" ]; then echo "$4  $3.part" | sha256sum -c --quiet - || { rm -f "$3.part"; echo "checksum failed: $1"; return 1; }; fi
+  mv "$3.part" "$3"
+}
+manifest_get() { python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); v=m
+for k in sys.argv[2].split("."): v=v[int(k)] if isinstance(v,list) else v.get(k,"")
+print(v if not isinstance(v,(list,dict)) else json.dumps(v))' "$1" "$2"; }
+
+case "${1:-check}" in
+
+check)
+  say "CURRENT|$(current_date)|$(current_kernel)"
+  rel=$(api "$REPO/releases?per_page=10") || { say "OFFLINE|could not reach GitHub"; exit 0; }
+  printf '%s' "$rel" | python3 -c '
+import json, sys, re
+cur = sys.argv[1]
+for r in json.load(sys.stdin):
+    if r.get("draft"): continue
+    tag = r["tag_name"]
+    m = re.match(r"v(\d{4})\.(\d{2})\.(\d{2})", tag)
+    date = "-".join(m.groups()) if m else ""
+    print("LATEST|%s|%s|%s|%s" % (tag, date, "pre" if r.get("prerelease") else "stable", "newer" if date and cur and date > cur else "same"))
+    for line in (r.get("body") or "").splitlines()[:40]:
+        print("NOTE|" + line.rstrip())
+    break
+' "$(current_date)"
+  ;;
+
+system)
+  [ "$(id -u)" = 0 ] || die "run as root"
+  tag=${2:-}
+  if [ -z "$tag" ]; then tag=$(api "$REPO/releases?per_page=5" | python3 -c 'import json,sys; print(next(r["tag_name"] for r in json.load(sys.stdin) if not r.get("draft")))') || die "could not find the newest release"; fi
+  [[ "$tag" =~ ^v[0-9A-Za-z._-]+$ ]] || die "bad release name"
+  D=$CACHE/$tag; mkdir -p "$D"
+  say "[1/7] Release $tag: reading its description"
+  dl manifest.json "$tag" "$D/manifest.json" || die "could not download the release description"
+  [ "$(manifest_get "$D/manifest.json" device)" = SM-T860 ] || die "this release is not for the SM-T860"
+  newk=$(manifest_get "$D/manifest.json" kernel)
+  [ -n "$newk" ] || die "the release does not name its kernel"
+  [ "$newk" = "$(current_kernel)" ] && say "   kernel $newk is already running; drivers and boot files are refreshed anyway"
+  # Room: download (~5 GB) + unpacked system image (~19 GB) while working.
+  need=$(( $(manifest_get "$D/manifest.json" rootfs_bytes) / 1024 + 6 * 1024 * 1024 ))
+  free=$(df -k --output=avail "$CACHE" | tail -n 1)
+  [ "$free" -ge "$need" ] || die "needs about $((need / 1048576)) GB free for a while; only $((free / 1048576)) GB free"
+  say "[2/7] Downloading (about 5 GB; resumes if interrupted)"
+  n=$(manifest_get "$D/manifest.json" assets | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
+  for i in $(seq 0 $((n - 1))); do
+    name=$(manifest_get "$D/manifest.json" "assets.$i.name"); sum=$(manifest_get "$D/manifest.json" "assets.$i.sha256")
+    [ -f "$D/$name" ] && echo "$sum  $D/$name" | sha256sum -c --quiet - 2>/dev/null && { say "   $name: already here"; continue; }
+    say "   $name"
+    dl "$name" "$tag" "$D/$name" "$sum" || die "download failed: $name (run it again to resume)"
+  done
+  say "[3/7] Unpacking the system image (takes a while)"
+  img=$D/rootfs.img
+  parts=$(manifest_get "$D/manifest.json" rootfs_parts | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)))')
+  (cd "$D" && cat $parts) | gzip -dc | dd of="$img" bs=4M conv=sparse status=none || die "could not unpack the system image"
+  say "[4/7] Taking out the new drivers and tablet tools"
+  rm -rf "$D/x"; mkdir -p "$D/x"
+  debugfs -R "rdump /usr/lib/modules/$newk $D/x" "$img" >/dev/null 2>&1
+  [ -d "$D/x/$newk" ] || die "the new drivers were not found in the image"
+  mkdir -p "$D/x/tools"
+  debugfs -R "rdump /usr/local/libexec/tabs6 $D/x/tools" "$img" >/dev/null 2>&1
+  for f in tabs6-charge.sh tabs6-powerkeyd.py tabs6-idled.py tabs6-desktop-patches.py tabs6-bt-addr.sh tabs6-screenshot \
+           tabs6-screenshot-tray.py usb-role tabs6-kernel tabs6-autorotate tabs6-rotate-tray.py; do
+    debugfs -R "dump /usr/local/bin/$f $D/x/tools/$f" "$img" >/dev/null 2>&1
+  done
+  rm -f "$img"
+  say "[5/7] Taking out the new kernel and device tree"
+  mkdir -p "$D/b"; tar -xzf "$D/$(manifest_get "$D/manifest.json" installer_bundle)" -C "$D/b" cache.img.gz || die "installer bundle damaged"
+  gzip -dc "$D/b/cache.img.gz" > "$D/b/cache.img"
+  mkdir -p "$D/esp-new"; L=$(losetup -f --show -r "$D/b/cache.img") && mount -o ro "$L" "$D/esp-new" || die "could not open the new boot files"
+  [ -f "$D/esp-new/Image" ] && [ -f "$D/esp-new/gts6.dtb" ] || { umount "$D/esp-new"; losetup -d "$L"; die "new kernel missing"; }
+  say "[6/7] Saving the running kernel as LAST KNOWN GOOD"
+  tabs6-kernel snapshot || { umount "$D/esp-new"; losetup -d "$L"; die "could not save the current kernel; nothing was changed"; }
+  say "[7/7] Installing"
+  M=/mnt/s6-esp; mkdir -p $M; LE=$(losetup -f --show $ESP_DEV) && mount "$LE" $M || { umount "$D/esp-new"; losetup -d "$L"; die "could not open the boot partition"; }
+  cp "$D/esp-new/Image" $M/Image && cp "$D/esp-new/gts6.dtb" $M/gts6.dtb
+  [ -f "$D/esp-new/loader/entries/fedora.conf" ] && cp "$D/esp-new/loader/entries/fedora.conf" $M/loader/entries/fedora.conf
+  sync; umount $M; losetup -d "$LE"; umount "$D/esp-new"; losetup -d "$L"
+  rm -rf "/usr/lib/modules/$newk.s6new"; cp -a "$D/x/$newk" "/usr/lib/modules/$newk.s6new"
+  if [ "$newk" = "$(current_kernel)" ]; then rm -rf "/usr/lib/modules/$newk.s6old"; mv "/usr/lib/modules/$newk" "/usr/lib/modules/$newk.s6old"; fi
+  mv "/usr/lib/modules/$newk.s6new" "/usr/lib/modules/$newk"
+  depmod -a "$newk"
+  for f in "$D"/x/tools/*; do [ -s "$f" ] || continue
+    case "${f##*/}" in *.sh|*.py|tabs6-*|usb-role) install -m 755 "$f" "/usr/local/bin/${f##*/}" ;; esac; done
+  [ -d "$D/x/tools/tabs6" ] && cp -a "$D/x/tools/tabs6/." /usr/local/libexec/tabs6/
+  printf 'tag=%s\nkernel=%s\nfrom=%s\n' "$tag" "$newk" "$(current_kernel)" > "$ST/kernel-pending"
+  sed -i "s#/ [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}#/ $(tag_date "$tag")#" /etc/t860-release 2>/dev/null
+  rm -rf "$D/x" "$D/b" "$D/esp-new"
+  say "Done. Restart the tablet to use $tag. If it doesn't start, hold Volume Down while it starts and choose LAST KNOWN GOOD."
+  ;;
+
+keep)
+  [ "$(id -u)" = 0 ] || die "run as root"
+  [ -f "$ST/kernel-pending" ] || { say "Nothing to confirm."; exit 0; }
+  want=$(sed -n 's/^kernel=//p' "$ST/kernel-pending")
+  [ "$want" = "$(current_kernel)" ] || die "the new kernel ($want) is not the one running; restart first"
+  tabs6-kernel snapshot && rm -f "$ST/kernel-pending" && rm -rf "$CACHE" && say "Kept: this kernel is now the LAST KNOWN GOOD one."
+  ;;
+
+rollback)
+  [ "$(id -u)" = 0 ] || die "run as root"
+  tabs6-kernel rollback && rm -f "$ST/kernel-pending" && say "Rolled back. Restart the tablet."
+  ;;
+
+self)
+  [ "$(id -u)" = 0 ] || die "run as root"
+  base="https://raw.githubusercontent.com/$SELF_REPO/main"
+  T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+  curl -fsSL -A "$UA" "$base/tools/migrate/fedora/install.list" -o "$T/install.list" || die "S6 Migrate's repository isn't reachable (it may still be private)"
+  newv=$(curl -fsSL -A "$UA" "$base/tools/migrate/fedora/app/s6ui.py" | sed -n 's/^VERSION = "\(.*\)"/\1/p')
+  curv=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' /usr/local/share/s6migrate/app/s6ui.py 2>/dev/null)
+  [ -n "$newv" ] || die "could not read the newest version"
+  [ "$newv" = "$curv" ] && [ "${2:-}" != --force ] && { say "S6 Migrate $curv is up to date."; exit 0; }
+  n=0
+  while IFS='|' read -r a dest mode owner; do
+    case "$a" in ''|'#'*) continue ;; esac
+    case "$dest" in /var/lib/s6migrate/setup-home/*|/etc/sddm.conf.d/*) continue ;; esac   # setup-only files
+    ok=0
+    for p in "tools/migrate/$a" "tools/migrate/lib/$a" "android/app/src/main/fontassets/$a"; do
+      if curl -fsSL -A "$UA" "$base/$p" -o "$T/f"; then ok=1; break; fi
+    done
+    [ $ok = 1 ] || { say "   could not fetch $a"; continue; }
+    case "$a" in *.ttf) base64 "$T/f" > "$T/g"; mv "$T/g" "$T/f" ;; esac
+    install -D -m "${mode:-644}" "$T/f" "$dest" && n=$((n+1))
+  done < "$T/install.list"
+  say "S6 Migrate updated from ${curv:-?} to $newv ($n files). Reopen S6 Companion."
+  ;;
+
+*) sed -n '2,13p' "$0"; exit 2 ;;
+esac

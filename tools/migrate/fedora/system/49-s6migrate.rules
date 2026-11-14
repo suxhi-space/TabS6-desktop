@@ -1,0 +1,9 @@
+// S6 Migrate: who may run its root helper (and nothing else).
+// The temporary setup account during first start; afterwards admins (wheel), who are asked for their password once.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/local/libexec/s6migrate/s6-helper") {
+        if (subject.user == "s6setup") return polkit.Result.YES;
+        if (subject.isInGroup("wheel") && subject.local && subject.active) return polkit.Result.AUTH_ADMIN_KEEP;
+    }
+});

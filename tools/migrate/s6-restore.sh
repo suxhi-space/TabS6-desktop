@@ -11,8 +11,12 @@
 #   5. makes Waydroid feel native: one window per app, Android's own system apps hidden from
 #      the menu, your Linux folders shared into Android
 #
-# Usage: s6-restore [--dry-run] [--skip-verify] [--files-only|--apps-only] [--keystore-data] [--no-settings]
-#                   [--yes] [PACKAGE_DIR]
+# Usage: s6-restore [--dry-run] [--skip-verify] [--files-only|--apps-only|--linux-apps-only|--settings-only]
+#                   [--keystore-data] [--no-settings] [--no-linux-apps] [--yes] [PACKAGE_DIR]
+#   --files-only       folders (and settings unless --no-settings); Android apps later
+#   --apps-only        Android apps into Waydroid, Linux versions, and the native-feel steps
+#   --linux-apps-only  only install the Linux versions of your apps (S6 Setup, before Android is set up)
+#   --settings-only    only wallpaper, look, language, time zone, device name, Wi-Fi, Bluetooth (needs your desktop session)
 #   --dry-run        show what would happen, change nothing
 #   --keystore-data  also restore data of apps whose data was locked to the tablet's keystore
 #                    (off by default: those apps usually need a fresh start and a new sign-in)
@@ -21,7 +25,7 @@
 
 set -u
 VERSION=0.2.0
-DRY=0; VERIFY=1; DO_FILES=1; DO_APPS=1; DO_SET=1; DO_ALT=1; KS_DATA=0; YES=0; PKG=""
+DRY=0; VERIFY=1; DO_FILES=1; DO_APPS=1; DO_SET=1; DO_ALT=1; KS_DATA=0; YES=0; PKG=""; ALT_ONLY=0; SET_ONLY=0
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
@@ -31,6 +35,8 @@ for a in "$@"; do
     --keystore-data) KS_DATA=1 ;;
     --no-settings) DO_SET=0 ;;
     --no-linux-apps) DO_ALT=0 ;;
+    --linux-apps-only) ALT_ONLY=1; DO_FILES=0; DO_APPS=0; DO_SET=0; DO_ALT=1 ;;
+    --settings-only) SET_ONLY=1; DO_FILES=0; DO_APPS=0; DO_ALT=0; DO_SET=1 ;;
     --yes|-y) YES=1 ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     -*) echo "Unknown option $a"; exit 2 ;;
@@ -177,6 +183,10 @@ if [ $DO_FILES = 1 ]; then
     else merge_into "$s/$name" "$dest"; echo "$dest|$name" >> "$STAGE/shares.list"; fi
     rm -rf "$s"
   done < "$PKG/files/index.txt"
+  # Remember which folders came from the tablet, so a later run (Android apps) can share them with Android.
+  if [ $DRY = 0 ] && [ -f "$STAGE/shares.list" ]; then
+    mkdir -p "$HOME/.local/share/s6migrate" && cat "$STAGE/shares.list" >> "$HOME/.local/share/s6migrate/shares.pending"
+  fi
 else
   step "3/7 Restore your folders (skipped)"
 fi
@@ -318,7 +328,7 @@ PY
   fi
 }
 
-if [ $DO_FILES = 1 ] && [ $DO_SET = 1 ] && { [ -d "$PKG/settings" ] || [ -d "$PKG/wifi" ]; }; then
+if { [ $DO_FILES = 1 ] || [ $SET_ONLY = 1 ]; } && [ $DO_SET = 1 ] && { [ -d "$PKG/settings" ] || [ -d "$PKG/wifi" ]; }; then
   step "4/7 Your settings"
   apply_settings
 else
@@ -446,7 +456,7 @@ install_alt() { # install_alt NAME METHOD TARGET
     *) say "  $name: unknown install method $method"; return 1 ;;
   esac
 }
-if [ $DO_ALT = 1 ] && [ "$NAPPS" -gt 0 ] && [ $DO_APPS = 1 ]; then
+if [ $DO_ALT = 1 ] && [ "$NAPPS" -gt 0 ] && { [ $DO_APPS = 1 ] || [ $ALT_ONLY = 1 ]; }; then
   step "6/7 Linux versions of your apps"
   seen=" "; nalt=0
   while IFS='|' read -r t pkg rest; do
@@ -470,7 +480,17 @@ else
 fi
 
 # ------------------------------------------------------------------ 7. make Waydroid feel native
+if [ $DO_APPS = 0 ]; then   # files, Linux apps or settings only: Android is set up later
+  step "7/7 Make Android apps feel native (after Android apps are set up)"
+  step "Done"
+  say "Full log: $LOG"
+  exit 0
+fi
 step "7/7 Make Android apps feel native"
+# Folders restored by earlier runs (S6 Setup restores files before Android is set up).
+if [ -f "$HOME/.local/share/s6migrate/shares.pending" ] && [ $DRY = 0 ]; then
+  cat "$HOME/.local/share/s6migrate/shares.pending" >> "$STAGE/shares.list"
+fi
 if command -v waydroid >/dev/null && [ -d "$WD" ]; then
   # One window per app instead of an Android home screen.
   run waydroid prop set persist.waydroid.multi_windows true && say "  Android apps open in their own windows"

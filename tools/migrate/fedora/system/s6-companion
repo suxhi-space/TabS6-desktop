@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# S6 Companion: welcome, Android app tools, updates, fixes and tablet tools.
+exec /usr/bin/python3 /usr/local/share/s6migrate/app/companion.py "$@"

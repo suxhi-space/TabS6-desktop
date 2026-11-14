@@ -487,8 +487,20 @@ public class MainActivity extends Activity {
             List<String> plan = new ArrayList<>();
             List<String> cmp = new ArrayList<>();
             try {
-                runRoot("cat " + q(p[1] + "/plan.txt"), plan::add);
-                runRoot("sh " + q(new File(getCacheDir(), "compare.sh").getAbsolutePath()) + " '' " + q(p[1]), cmp::add);
+                partOwner = new HashMap<>();
+                for (String[] pp : partsOf(p)) { // a split package: every part, on every drive
+                    List<String> pl = new ArrayList<>();
+                    runRoot("cat " + q(pp[1] + "/plan.txt"), pl::add);
+                    for (String l : pl) {
+                        String[] f = l.split("\\|", -1);
+                        if (f.length >= 2) {
+                            partOwner.put(f[0] + "|" + f[1], pp[1]);
+                            if ("LINUX".equals(f[0])) partOwner.put("APP|" + f[1], pp[1]);
+                        }
+                    }
+                    plan.addAll(pl);
+                    runRoot("sh " + q(new File(getCacheDir(), "compare.sh").getAbsolutePath()) + " '' " + q(pp[1]), cmp::add);
+                }
             } catch (Exception e) {
                 ui.post(() -> message("Could not compare", String.valueOf(e.getMessage())));
                 return;
@@ -587,12 +599,23 @@ public class MainActivity extends Activity {
     }
 
     void confirmUpdate(String[] p, List<Change> all) {
-        StringBuilder plan = new StringBuilder();
+        // Each changed item is re-packed into the part that holds it; new items go to the part with the most room.
+        List<String[]> parts = partsOf(p);
+        String roomiest = parts.get(0)[1];
+        for (String[] pp : parts) if (freeFor(pp[1]) > freeFor(roomiest)) roomiest = pp[1];
+        Map<String, StringBuilder> plans = new java.util.LinkedHashMap<>();
+        Map<String, long[]> sizes = new HashMap<>(); // path -> {items, kb}
         int n = 0;
         long kb = 0;
         for (Change c : all)
             if (c.selected) {
-                plan.append(c.line).append('\n');
+                String[] cf = c.line.split("\\|", -1);
+                String key = cf[0] + "|" + (cf.length > 1 ? cf[1] : "");
+                String dest = partOwner.getOrDefault(key, roomiest);
+                plans.computeIfAbsent(dest, k -> new StringBuilder()).append(c.line).append('\n');
+                long[] sz = sizes.computeIfAbsent(dest, k -> new long[2]);
+                sz[0]++;
+                sz[1] += c.kb;
                 n++;
                 kb += c.kb;
             }
@@ -600,17 +623,107 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Nothing selected to update.", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (freeFor(p[1]) < kb + margin(kb)) {
-            Toast.makeText(this, "Not enough free space on that drive for this update.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        final int fn = n;
-        final long fkb = kb;
+        for (Map.Entry<String, long[]> e : sizes.entrySet())
+            if (freeFor(e.getKey()) < e.getValue()[1] + margin(e.getValue()[1])) {
+                Toast.makeText(this, "Not enough free space on the " + whereOf(e.getKey()) + " for this update.", Toast.LENGTH_LONG).show();
+                return;
+            }
+        List<String> dests = new ArrayList<>(plans.keySet());
+        StringBuilder where = new StringBuilder();
+        for (String d : dests) where.append("\n").append(d);
         new AlertDialog.Builder(this).setTitle("Update this package?")
-                .setMessage(n + (n == 1 ? " item" : " items") + " (about " + human(kb) + ") will be re-packed into\n" + p[1]
+                .setMessage(n + (n == 1 ? " item" : " items") + " (about " + human(kb) + ") will be re-packed into" + where
                         + "\n\nEach item replaces its old copy only after the new one is verified. Nothing on Android is changed.")
-                .setPositiveButton("Update", (d, w) -> runPack(p[1], plan.toString(), fn, fkb, true))
+                .setPositiveButton("Update", (d, w) -> updatePart(dests, 0, plans, sizes))
                 .setNegativeButton("Cancel", null).show();
+    }
+
+    void updatePart(List<String> dests, int i, Map<String, StringBuilder> plans, Map<String, long[]> sizes) {
+        String d = dests.get(i);
+        if (dests.size() > 1) packPart = "Part " + (i + 1) + " of " + dests.size() + ": " + whereOf(d);
+        if (i + 1 < dests.size()) afterPack = () -> updatePart(dests, i + 1, plans, sizes);
+        long[] sz = sizes.get(d);
+        runPack(d, plans.get(d).toString(), (int) sz[0], sz[1], true);
+    }
+
+    /** All parts of the package p (same name on several drives), p first. */
+    List<String[]> partsOf(String[] p) {
+        List<String[]> l = new ArrayList<>();
+        l.add(p);
+        for (String[] q : packages) if (q != p && !q[1].equals(p[1]) && folderOf(q[1]).equals(folderOf(p[1]))) l.add(q);
+        return l;
+    }
+
+    // ------------------------------------------------------------------ split packages
+
+    static final int SPLIT = -2;
+    boolean deleteOld = true;            // delete older packages once the new one is verified
+
+    /** Deletes package folders (every part); only dated S6Migrate package folders, never the Fedora download. */
+    long deletePackages(List<String[]> pkgs) {
+        long freed = 0;
+        for (String[] p : pkgs) {
+            if (!p[1].matches(".*/S6Migrate/\\d{8}-\\d{6}$")) continue;
+            try {
+                runRoot("rm -rf " + q(p[1]), l -> { });
+                freed += parse(p[3]);
+            } catch (Exception ignored) {
+            }
+        }
+        return freed;
+    }
+    String packPart, packPartsInfo;      // label and parts.txt for the next runPack
+    Runnable afterPack;                  // what runs after the next runPack succeeds
+    volatile int packGen;
+    Map<String, String> partOwner = new HashMap<>(); // "KIND|name" -> part folder holding it
+
+    static class Part {
+        Vol vol;
+        final List<String> lines = new ArrayList<>();
+        long kb;
+    }
+
+    /** Spreads the selection over all cards and drives (biggest items first, each to the drive with the most room left). */
+    List<Part> splitPlan() {
+        if (vols.size() < 2) return null;
+        List<Part> parts = new ArrayList<>();
+        for (Vol v : vols) { Part pt = new Part(); pt.vol = v; parts.add(pt); }
+        List<Object[]> items = new ArrayList<>(); // {line, kb}
+        for (AppItem a : apps) {
+            String l = appLine(a);
+            if (l == null) continue;
+            items.add(new Object[]{l, l.startsWith("LINUX|") ? 0L : a.kb});
+        }
+        for (DirItem d : dirs) if (dirSel(d)) items.add(new Object[]{dirLine(d), d.kb});
+        if (items.isEmpty()) return null;
+        Collections.sort(items, (x, y) -> Long.compare((Long) y[1], (Long) x[1]));
+        for (Object[] it : items) {
+            Part best = null;
+            long kb = (Long) it[1];
+            for (Part pt : parts) {
+                long left = pt.vol.freeKb - (pt.kb + kb) - margin(pt.kb + kb);
+                if (left >= 0 && (best == null || pt.vol.freeKb - pt.kb > best.vol.freeKb - best.kb)) best = pt;
+            }
+            if (best == null) return null; // does not fit anywhere
+            best.lines.add((String) it[0]);
+            best.kb += kb;
+        }
+        parts.removeIf(pt -> pt.lines.isEmpty());
+        return parts.size() >= 2 ? parts : null;
+    }
+
+    void packSplit(String stamp) {
+        List<Part> parts = splitPlan();
+        if (parts == null) { spaceStep(); return; }
+        packSplitPart(parts, 0, stamp);
+    }
+
+    void packSplitPart(List<Part> parts, int i, String stamp) {
+        Part pt = parts.get(i);
+        packPart = "Part " + (i + 1) + " of " + parts.size() + ": " + vName(pt.vol);
+        packPartsInfo = "id=" + stamp + "\nparts=" + parts.size() + "\npart=" + (i + 1) + "\n";
+        if (i + 1 < parts.size()) afterPack = () -> packSplitPart(parts, i + 1, stamp);
+        runPack(pt.vol.path + "/S6Migrate/" + stamp, String.join("\n", pt.lines) + "\n", pt.lines.size(), pt.kb, false);
     }
 
 
@@ -765,7 +878,9 @@ public class MainActivity extends Activity {
         String chg = v.getOrDefault("CHG", "");
         boolean charging = chg.equalsIgnoreCase("Charging") || chg.equalsIgnoreCase("Full");
         boolean batOk = bat >= 60;
-        boolean pkgOk = switchPkg == null || "complete".equals(switchPkg[4]);
+        boolean allParts = true;
+        if (switchPkg != null) for (String[] x : partsOf(switchPkg)) allParts &= "complete".equals(x[4]);
+        final boolean pkgOk = allParts;
         long need = 0, total = 0;
         for (String[] f : FEDORA_FILES) {
             total += Long.parseLong(f[1]);
@@ -789,8 +904,16 @@ public class MainActivity extends Activity {
         if (switchPkg == null) {
             body.addView(checkRow(true, "Start fresh: nothing is restored", null));
         } else {
-            body.addView(checkRow(pkgOk, "Your package from " + when(switchPkg[1]) + " (" + parse(switchPkg[2]) + " items, " + human(parse(switchPkg[3])) + ")",
-                    pkgOk ? "On the " + whereOf(switchPkg[1]) : "This package did not finish cleanly. Update it or make a new one."));
+            List<String[]> pp = partsOf(switchPkg);
+            long items = 0, kbs = 0;
+            StringBuilder on = new StringBuilder();
+            for (String[] x : pp) {
+                items += parse(x[2]);
+                kbs += parse(x[3]);
+                on.append(on.length() > 0 ? " and the " : "On the ").append(whereOf(x[1]));
+            }
+            body.addView(checkRow(pkgOk, "Your package from " + when(switchPkg[1]) + " (" + items + " items, " + human(kbs) + ")",
+                    pkgOk ? on + (pp.size() > 1 ? ": keep both in during the upgrade" : "") : "Part of this package did not finish cleanly. Update it or make a new one."));
             body.addView(link("Check the package for changes", () -> openPackage(switchPkg, when(switchPkg[1]), whereOf(switchPkg[1]))));
         }
         body.addView(checkRow(fedoraOk, "Fedora downloaded and verified (" + human(total / 1024) + ")",
@@ -1039,22 +1162,43 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** The TWRP script with S6 Migrate's files embedded as here-documents, so TWRP needs no unzip. */
+    byte[] readAssetBytes(String name) throws IOException {
+        try (InputStream in = getAssets().open(name)) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int k;
+            while ((k = in.read(buf)) > 0) b.write(buf, 0, k);
+            return b.toByteArray();
+        }
+    }
+
+    /**
+     * The TWRP script with S6 Migrate's Fedora files embedded as here-documents (TWRP needs no unzip), following
+     * fedora/install.list. Same output as tools/migrate/switch/build-payload.py.
+     */
     String embeddedUpdateBinary(boolean rehearsal) throws IOException {
         String script = readAsset("switch/update-binary");
         if (!script.contains("# @S6_EMBED@")) throw new IOException("switch script has no embed marker");
-        String[][] files = {{"s6-restore", "s6-restore.sh"}, {"s6-doctor", "s6-doctor.sh"}, {"s6-android", "s6-android.sh"},
-                {"s6-firstrun", "switch/s6-firstrun"}, {"alternatives.tsv", "alternatives.tsv"},
-                {"s6migrate-firstrun.desktop", "switch/s6migrate-firstrun.desktop"}};
         String tag = "S6_EOF_" + Long.toHexString(System.nanoTime());
         StringBuilder e = new StringBuilder("S6_EMBEDDED=1\nS6_MODE=" + (rehearsal ? "rehearsal" : "switch")
                 + "\nmkdir -p \"$W/zip/s6migrate\"\n");
-        for (String[] f : files) {
-            String c = readAsset(f[1]).replace("\r\n", "\n");
-            if (c.contains(tag)) throw new IOException("embed marker clash in " + f[1]);
+        StringBuilder list = new StringBuilder();
+        String[] lines = readAsset("fedora/install.list").split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            String l = lines[i];
+            if (l.trim().isEmpty() || l.startsWith("#")) continue;
+            String[] f = (l + "|||").split("\\|", -1);
+            byte[] data = readAssetBytes(f[0]);
+            String c = f[0].endsWith(".ttf")
+                    ? java.util.Base64.getMimeEncoder(76, new byte[]{(byte) 10}).encodeToString(data)
+                    : new String(data, "UTF-8").replace("\r\n", "\n");
+            if (c.contains(tag)) throw new IOException("embed marker clash in " + f[0]);
             if (!c.endsWith("\n")) c += "\n";
-            e.append("cat > \"$W/zip/s6migrate/").append(f[0]).append("\" <<'").append(tag).append("'\n").append(c).append(tag).append('\n');
+            String name = "f" + i;
+            e.append("cat > \"$W/zip/s6migrate/").append(name).append("\" <<'").append(tag).append("'\n").append(c).append(tag).append('\n');
+            list.append(name).append('|').append(f[1]).append('|').append(f[2]).append('|').append(f[3]).append('\n');
         }
+        e.append("cat > \"$W/zip/s6migrate/install.list\" <<'").append(tag).append("'\n").append(list).append(tag).append('\n');
         if (rehearsal) e.append("echo 'checks only, nothing is erased' > \"$W/zip/s6migrate/REHEARSAL\"\n");
         return script.replace("# @S6_EMBED@", e.toString());
     }
@@ -1089,12 +1233,6 @@ public class MainActivity extends Activity {
                     z.putNextEntry(new ZipEntry("META-INF/com/google/android/updater-script"));
                     z.write("# S6 Migrate: the work is done by update-binary\n".getBytes("UTF-8"));
                     z.closeEntry();
-                    zipAsset(z, "s6migrate/s6-restore", "s6-restore.sh");
-                    zipAsset(z, "s6migrate/s6-doctor", "s6-doctor.sh");
-                    zipAsset(z, "s6migrate/s6-android", "s6-android.sh");
-                    zipAsset(z, "s6migrate/s6-firstrun", "switch/s6-firstrun");
-                    zipAsset(z, "s6migrate/alternatives.tsv", "alternatives.tsv");
-                    zipAsset(z, "s6migrate/s6migrate-firstrun.desktop", "switch/s6migrate-firstrun.desktop");
                     if (rehearsal) {
                         z.putNextEntry(new ZipEntry("s6migrate/REHEARSAL"));
                         z.write("checks only, nothing is erased\n".getBytes("UTF-8"));
@@ -1249,10 +1387,15 @@ public class MainActivity extends Activity {
         body.addView(bar);
         body.addView(written);
         body.addView(log);
-        frame(update ? "Updating your package" : "Packing your stuff", "Keep this screen open. It stays on until packing finishes.",
+        final String partLabel = packPart, partsInfo = packPartsInfo;
+        final Runnable next = afterPack;
+        packPart = null; packPartsInfo = null; afterPack = null;
+        frame(update ? "Updating your package" : "Packing your stuff",
+                (partLabel != null ? partLabel + ". " : "") + "Keep this screen open. It stays on until packing finishes.",
                 body, null, null, null, null, null);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         busy = true; // set before the counter thread starts, or it would exit at once
+        final int gen = ++packGen;
 
         final long startMs = System.currentTimeMillis();
         // Live "written so far" counter, so a big item does not look frozen.
@@ -1264,7 +1407,7 @@ public class MainActivity extends Activity {
                 return; // no counter, packing itself still runs
             }
             long base = update ? duKb(rs, out) : 0; // an update starts from the existing package size
-            while (busy) {
+            while (busy && gen == packGen) {
                 try {
                     Thread.sleep(4000);
                 } catch (InterruptedException e) {
@@ -1312,6 +1455,13 @@ public class MainActivity extends Activity {
                 last[0] = "ERROR: " + e.getMessage();
             }
             final boolean ok = rc == 0 && "PACK-OK".equals(last[0].trim());
+            final long[] freed = {0};
+            if (ok && !update && next == null && deleteOld) {
+                List<String[]> old = new ArrayList<>();
+                for (String[] p : packages) if (!folderOf(p[1]).equals(folderOf(out))) old.add(p);
+                freed[0] = deletePackages(old);
+                if (!old.isEmpty()) ui.post(() -> { packages.removeAll(old); oldFreedKb = freed[0]; });
+            }
             if (ok && !update) { // an update keeps the choices made when the package was created
                 try {
                     File dt = new File(getCacheDir(), "destinations.txt");
@@ -1323,10 +1473,19 @@ public class MainActivity extends Activity {
                     File ch = new File(getCacheDir(), "choices.txt");
                     try (FileOutputStream o = new FileOutputStream(ch)) { o.write(choicesTxt().getBytes("UTF-8")); }
                     runRoot("cp " + q(ch.getAbsolutePath()) + " " + q(out + "/choices.txt"), l -> { });
+                    if (partsInfo != null) { // one part of a package split across drives
+                        File pt = new File(getCacheDir(), "parts.txt");
+                        try (FileOutputStream o = new FileOutputStream(pt)) { o.write(partsInfo.getBytes("UTF-8")); }
+                        runRoot("cp " + q(pt.getAbsolutePath()) + " " + q(out + "/parts.txt"), l -> { });
+                    }
                 } catch (Exception ignored) {
                 }
             }
-            ui.post(() -> done(ok, out, all.toString(), update));
+            ui.post(() -> {
+                if (ok && !update) packages.add(new String[]{"PKG", out, String.valueOf(total), String.valueOf(expectedKb), "complete"});
+                if (ok && next != null) next.run();   // the next part of a split package
+                else done(ok, out, all.toString(), update);
+            });
         }).start();
     }
 
@@ -1878,7 +2037,12 @@ public class MainActivity extends Activity {
         long sel = selectedKb(), need = sel + margin(sel);
         Vol d = targetVol();
         spaceLabel.setText(human(sel) + " selected");
-        if (d == null) {
+        if (chosenDest == SPLIT && vols.size() >= 2) {
+            long free = 0;
+            for (Vol v : vols) free += v.freeKb;
+            spaceRight.setText("Split across " + vols.size() + " drives: " + human(free) + " free");
+            spaceBar.set(new long[]{need}, new int[]{need > free ? t.warn : t.accent}, free);
+        } else if (d == null) {
             spaceRight.setText("No card or USB drive found");
             spaceBar.set(new long[]{need}, new int[]{t.warn}, need);
         } else {
@@ -2055,10 +2219,16 @@ public class MainActivity extends Activity {
                 LinearLayout tx = vbox();
                 tx.setPadding(dp(14), 0, dp(8), 0);
                 tx.addView(tv(when(p[1]) + "  ·  " + parse(p[2]) + " items, " + human(parse(p[3])), 16, fText, t.text));
-                tx.addView(muted("On the " + whereOf(p[1]) + " (" + status + ")"));
+                int np = partsOf(p).size();
+                tx.addView(muted("On the " + whereOf(p[1]) + " (" + status + ")" + (np > 1 ? " \u00b7 one of " + np + " parts on different drives" : "")));
                 r.addView(tx, lp(0, WRAP, 1f));
                 final String w = when(p[1]), where = whereOf(p[1]);
-                r.addView(link("Check for changes", () -> openPackage(p, w, where)));
+                LinearLayout acts = vbox();
+                acts.addView(link("Check for changes", () -> openPackage(p, w, where)));
+                TextView del = link("Delete", () -> confirmDelete(p));
+                del.setTextColor(t.warn);
+                acts.addView(del);
+                r.addView(acts);
                 pc.addView(r);
             }
             pc.addView(gap(6));
@@ -2086,6 +2256,25 @@ public class MainActivity extends Activity {
                     "Your package is saved. Continue to the upgrade, or make a new package with a different selection.",
                     body, null, "Continue to upgrade", this::switchStart, "New package", this::keep);
         }
+    }
+
+    void confirmDelete(String[] p) {
+        List<String[]> parts = partsOf(p);
+        long kb = 0;
+        StringBuilder where = new StringBuilder();
+        for (String[] x : parts) { kb += parse(x[3]); where.append("\n").append(x[1]); }
+        new AlertDialog.Builder(this).setTitle("Delete this package?")
+                .setMessage("Your package from " + when(p[1]) + " (" + human(kb) + ") will be deleted from:" + where
+                        + "\n\nNothing on Android is changed, but you can't switch with this package anymore.")
+                .setPositiveButton("Delete", (d, x) -> new Thread(() -> {
+                    deletePackages(parts);
+                    ui.post(() -> {
+                        packages.removeAll(parts);
+                        Toast.makeText(this, "Package deleted.", Toast.LENGTH_SHORT).show();
+                        home();
+                    });
+                }).start())
+                .setNegativeButton("Cancel", null).show();
     }
 
     // ------------------------------------------------------------------ 2. What to keep
@@ -2386,13 +2575,17 @@ public class MainActivity extends Activity {
         curStep = 3;
         pendingRerender = this::spaceStep;
         long sel = selectedKb(), need = sel + margin(sel);
-        if (chosenDest < 1 || chosenDest > vols.size() || vols.get(chosenDest - 1).freeKb < need) {
+        final List<Part> split = splitPlan();
+        if (chosenDest == SPLIT && split != null) {
+            // keep the split
+        } else if (chosenDest < 1 || chosenDest > vols.size() || vols.get(chosenDest - 1).freeKb < need) {
             chosenDest = -1;
             for (int pass = 0; pass < 2 && chosenDest < 0; pass++)
                 for (int i = 0; i < vols.size(); i++) {
                     long req = need + (pass == 0 ? FEDORA_DOWNLOAD_KB : 0);
                     if (vols.get(i).freeKb >= req && (chosenDest < 0 || vols.get(i).freeKb > vols.get(chosenDest - 1).freeKb)) chosenDest = i + 1;
                 }
+            if (chosenDest < 0 && split != null) chosenDest = SPLIT; // nothing fits on one drive: spread it out
         }
         boolean two = twoCols();
         LinearLayout body = choiceRow(two);
@@ -2440,6 +2633,32 @@ public class MainActivity extends Activity {
             }
             a.addView(d);
         }
+        if (vols.size() >= 2) {
+            boolean on = chosenDest == SPLIT;
+            LinearLayout d = vbox();
+            d.setPadding(0, dp(18), 0, 0);
+            LinearLayout dh = hbox();
+            dh.addView(icon(on ? I_RADIO_ON : I_RADIO, 18, t.accent));
+            TextView dn = tv("Split it across your drives", 14, fSemi, t.text);
+            dn.setPadding(dp(10), 0, dp(8), 0);
+            dh.addView(dn, lp(0, WRAP, 1f));
+            dh.addView(tv(split != null ? "Fits" : "Doesn't fit, even split", 14, fSemi, split != null ? t.ok : t.warn));
+            d.addView(dh);
+            if (split != null) {
+                for (Part pt : split) {
+                    d.addView(segBar(new long[]{pt.kb + margin(pt.kb)}, new int[]{t.accent}, Math.max(1, pt.vol.freeKb)));
+                    d.addView(muted(vName(pt.vol) + ": " + human(pt.kb) + ", " + pt.lines.size() + (pt.lines.size() == 1 ? " item" : " items")
+                            + " (" + human(pt.vol.freeKb) + " free)"));
+                }
+                d.addView(muted("The biggest items go where there's room. During the upgrade the card's part is copied into Fedora; "
+                        + "keep the USB drive plugged in for the first start."));
+                d.setClickable(true);
+                d.setOnClickListener(x -> { chosenDest = SPLIT; spaceStep(); });
+            } else {
+                d.setAlpha(0.6f);
+            }
+            a.addView(d);
+        }
         addChoice(body, a, two, true);
 
         // Plan B (not built yet)
@@ -2471,7 +2690,7 @@ public class MainActivity extends Activity {
         frame("How should your stuff travel?",
                 "Your " + human(sel) + " selection needs somewhere to wait while Fedora is installed. Here is what fits.",
                 body, foot, "Continue", () -> {
-                    if (chosenDest < 1) Toast.makeText(this, "Pick a card or USB drive with enough room.", Toast.LENGTH_LONG).show();
+                    if (chosenDest < 1 && chosenDest != SPLIT) Toast.makeText(this, "Pick a card or USB drive with enough room.", Toast.LENGTH_LONG).show();
                     else summary();
                 }, "Back", this::appsStep);
     }
@@ -2546,8 +2765,9 @@ public class MainActivity extends Activity {
             list.addView(sumRow(I_BOX, "Keep nothing", "Fedora starts empty", this::keep));
         } else {
             int np = kept.size();
+            String to = chosenDest == SPLIT ? "split across your card and drive" : "packed to the " + (dv != null ? vName(dv) : "drive");
             list.addView(sumRow(I_BOX, "Keep " + np + (np == 1 ? " app" : " apps") + " and " + nd + (nd == 1 ? " item" : " items"),
-                    human(selectedKb()) + ", packed to the " + (dv != null ? vName(dv) : "drive") + " and checked before anything is erased", this::keep));
+                    human(selectedKb()) + ", " + to + " and checked before anything is erased", this::spaceStep));
             list.addView(hair());
             list.addView(sumRow(I_PHONE, kept.size() + " Android " + (kept.size() == 1 ? "app" : "apps") + " kept, " + added.size() + " Linux "
                             + (added.size() == 1 ? "app" : "apps") + " added",
@@ -2564,6 +2784,21 @@ public class MainActivity extends Activity {
                         + (wifi ? ", your Wi-Fi networks" : "") + ". Touch keyboard, auto-rotate, Wi-Fi, Bluetooth, sound, battery.", null));
         body.addView(list);
         body.addView(gap(16));
+        if (!fresh && !packages.isEmpty()) {
+            LinearLayout oc = card();
+            CheckBox del = new CheckBox(this);
+            tint(del);
+            del.setTextSize(16);
+            del.setText(packages.size() == 1 ? "Delete my older package after this one is verified" : "Delete my older packages after this one is verified");
+            del.setChecked(deleteOld);
+            del.setOnCheckedChangeListener((v, c) -> deleteOld = c);
+            oc.addView(del);
+            long oldKb = 0;
+            for (String[] p : packages) oldKb += parse(p[3]);
+            oc.addView(muted("Frees " + human(oldKb) + ". The old one stays until the new one has packed and checked out, so you're never without a copy."));
+            body.addView(oc);
+            body.addView(gap(16));
+        }
         LinearLayout w = warnCard("Before you start");
         if (!fresh) bullet(w, "Packing changes nothing on Android. Apps close briefly while their data is copied.", t.warnText);
         bullet(w, "Next is the upgrade: it checks everything and downloads Fedora (" + human(FEDORA_DOWNLOAD_KB)
@@ -2576,9 +2811,11 @@ public class MainActivity extends Activity {
             frame("Summary", null, body, null, "Continue to upgrade", this::switchStart, "Back", this::keep);
         } else {
             frame("Summary", null, body, null, "Pack now", () -> {
+                String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
+                if (chosenDest == SPLIT) { packSplit(stamp); return; }
                 String base = destPath();
                 if (base == null) { spaceStep(); return; }
-                pack(base + "/" + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date()));
+                pack(base + "/" + stamp);
             }, "Back", this::spaceStep);
         }
     }
@@ -2813,19 +3050,19 @@ public class MainActivity extends Activity {
         runPack(out, sb.toString(), n, selectedKb(), false);
     }
 
+    long oldFreedKb = -1;
+
     void done(boolean ok, String out, String log, boolean update) {
         busy = false;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (ok && !update) { // the new package is the one the upgrade uses
-            long kb = selectedKb();
-            int n = 0;
-            for (String l : log.split("\n")) if (l.startsWith("[")) n++;
-            packages.add(new String[]{"PKG", out, String.valueOf(n), String.valueOf(kb), "complete"});
-        }
         LinearLayout body = vbox();
         LinearLayout c = ok ? card() : warnCard(null);
         c.addView(checkRow(ok, ok ? (update ? "Package updated and verified" : "Packed and verified") : "Finished with errors",
                 ok ? out : "Details: " + out + "/pack-warnings.log"));
+        if (ok && !update && oldFreedKb >= 0) {
+            c.addView(checkRow(true, "Your older package was deleted", human(oldFreedKb) + " freed"));
+            oldFreedKb = -1;
+        }
         c.addView(tv(ok ? "Nothing on Android was changed. Keep the card or drive in the tablet until you have switched."
                 : "Nothing on Android was changed" + (update ? ", and items that failed kept their previous copy." : ".")
                 + " You can fix the problem and pack again.", 15, fText, ok ? t.text : t.warnText));

@@ -16,6 +16,15 @@ projects below. Thank you.
 | [TWRP](https://twrp.me) | Custom recovery | Runs the switch |
 | [Fedora Project](https://fedoraproject.org), [KDE Plasma](https://kde.org), [Mesa](https://mesa3d.org) (freedreno, Turnip), [linux-msm](https://github.com/linux-msm) and the mainline Linux contributors | The operating system, desktop, graphics drivers and Qualcomm support | Everything you use after the move |
 
+## Updates and tune-ups
+
+| Project | Use |
+|---|---|
+| t860-fedora's `tabs6-kernel` (starlight4you) | LAST KNOWN GOOD kernel snapshot and rollback, used by `s6-update` before and after a tablet system update |
+| [RPM Fusion](https://rpmfusion.org) | Optional media codecs (full ffmpeg, GStreamer plugins) |
+| [KDE Plasma](https://kde.org) scripting, kscreen-doctor, Discover | Layouts, screen size, and Fedora updates in S6 Companion |
+| [PikaOS](https://pika-os.com), [Nobara](https://nobaraproject.org), [Zorin OS](https://zorin.com) | Inspiration for the welcome app, tune-ups and layout picker (no code or artwork used) |
+
 ## Android apps on Fedora
 
 | Project | Use |

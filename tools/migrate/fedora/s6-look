@@ -1,0 +1,83 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-look - desktop layout, size and look, in your own Plasma session (no root).
+#
+#   s6-look layout touch|centered|traditional|topdock|plasma
+#   s6-look size standard|larger|largest     screen scale from the tablet's original (+0, +25%, +50%) and touch mode
+#   s6-look theme light|dark
+#   s6-look status                           LAYOUT|.. SIZE|.. THEME|..
+#
+# Layouts (named by what they look like):
+#   touch        one tall floating bottom bar with big icons: made for fingers (default)
+#   centered     a bottom taskbar with the app icons in the middle
+#   traditional  a full-width bottom taskbar with the menu on the left and window names
+#   topdock      a slim bar at the top with the menu and clock, and a dock at the bottom
+#   plasma       KDE Plasma's own default
+set -u
+CONF="$HOME/.config/s6migrate/look.conf"
+mkdir -p "${CONF%/*}"
+q() { command -v qdbus6 >/dev/null && echo qdbus6 || echo qdbus; }
+setconf() { touch "$CONF"; grep -v "^$1=" "$CONF" > "$CONF.tmp"; echo "$1=$2" >> "$CONF.tmp"; mv "$CONF.tmp" "$CONF"; }
+getconf() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -n 1; }
+plasma_js() { "$(q)" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$1"; }
+
+js_common='
+function clear() { var ps = panels(); for (var i = 0; i < ps.length; i++) ps[i].remove(); }
+function setp(p, k, v) { try { p[k] = v; } catch (e) { } }
+function tasks(p, plain) {
+  var t = p.addWidget(plain ? "org.kde.plasma.taskmanager" : "org.kde.plasma.icontasks");
+  t.currentConfigGroup = ["General"];
+  t.writeConfig("launchers", ["applications:org.kde.dolphin.desktop", "applications:firefox.desktop", "applications:org.kde.discover.desktop", "applications:s6-companion.desktop"]);
+  return t;
+}
+function tray(p) { p.addWidget("org.kde.plasma.systemtray"); p.addWidget("org.kde.plasma.digitalclock"); }
+'
+
+case "${1:-status}" in
+layout)
+  name=${2:-touch}
+  case "$name" in
+    touch) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 64; setp(p, "floating", true);
+      p.addWidget("org.kde.plasma.kickoff"); tasks(p, false); p.addWidget("org.kde.plasma.marginsseparator"); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
+    centered) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 56; setp(p, "floating", false);
+      p.addWidget("org.kde.plasma.panelspacer"); p.addWidget("org.kde.plasma.kickoff"); tasks(p, false);
+      p.addWidget("org.kde.plasma.panelspacer"); tray(p);' ;;
+    traditional) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 48; setp(p, "floating", false);
+      p.addWidget("org.kde.plasma.kickoff"); tasks(p, true); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
+    topdock) js='clear(); var top = new Panel; top.location = "top"; top.height = 36; setp(top, "floating", false);
+      top.addWidget("org.kde.plasma.kickoff"); top.addWidget("org.kde.plasma.appmenu"); top.addWidget("org.kde.plasma.panelspacer"); tray(top);
+      var d = new Panel; d.location = "bottom"; d.height = 68; setp(d, "floating", true); setp(d, "lengthMode", "fit");
+      setp(d, "alignment", "center"); setp(d, "hiding", "dodgewindows"); tasks(d, false);' ;;
+    plasma) js='clear(); loadTemplate("org.kde.plasma.desktop.defaultPanel");' ;;
+    *) echo "unknown layout: $name"; exit 2 ;;
+  esac
+  plasma_js "$js_common $js" && setconf layout "$name" && echo "layout: $name"
+  ;;
+size)
+  name=${2:-larger}
+  out=$(kscreen-doctor -j 2>/dev/null | python3 -c 'import json,sys; o=[x for x in json.load(sys.stdin)["outputs"] if x.get("enabled")][0]; print(o["name"], o.get("scale", 1))') \
+    || { echo "could not read the screen"; exit 1; }
+  set -- $out; output=$1; scale=$2
+  base=$(getconf basescale); [ -n "$base" ] || { base=$scale; setconf basescale "$base"; }   # the tablet's original
+  case "$name" in standard) add=0 ;; larger) add=0.25 ;; largest) add=0.5 ;; *) echo "unknown size"; exit 2 ;; esac
+  new=$(python3 -c "print(round(float('$base') + float('$add'), 2))")
+  kscreen-doctor "output.$output.scale.$new" >/dev/null 2>&1 && echo "scale: $new"
+  # Plasma's touch mode: bigger hit areas and spacing in KDE apps.
+  if [ "$name" = standard ]; then tm=auto; else tm=on; fi
+  kwriteconfig6 --file kwinrc --group Input --key TabletMode "$tm"
+  "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1
+  setconf size "$name"; echo "size: $name (touch mode $tm)"
+  ;;
+theme)
+  case "${2:-light}" in
+    dark) plasma-apply-lookandfeel -a org.kde.breezedark.desktop >/dev/null 2>&1 ;;
+    light) plasma-apply-lookandfeel -a org.kde.breeze.desktop >/dev/null 2>&1 ;;
+    *) echo "light or dark"; exit 2 ;;
+  esac
+  setconf theme "$2"; echo "theme: $2"
+  ;;
+status)
+  echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"
+  ;;
+*) sed -n '2,16p' "$0"; exit 2 ;;
+esac

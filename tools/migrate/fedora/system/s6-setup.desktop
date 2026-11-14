@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Set up your tablet
+Exec=/usr/local/libexec/s6migrate/s6-setup-session
+X-KDE-autostart-phase=2
+NoDisplay=true

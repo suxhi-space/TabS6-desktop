@@ -1,0 +1,363 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-helper - the root side of S6 Setup and S6 Companion. Run through pkexec:
+#   pkexec /usr/local/libexec/s6migrate/s6-helper ACTION ARGS...
+# Polkit (49-s6migrate.rules) lets the temporary "s6setup" account run it during first setup, and asks
+# members of "wheel" for their password afterwards. Every argument is checked; nothing else is run.
+#
+# Actions
+#   find-parts                       mount USB drives read-only and list the newest package's parts (PART|path|where)
+#   wifi-import PART                 add the Wi-Fi networks saved on Android (system connections)
+#   wifi-list                        NET|ssid|signal|security|connected
+#   wifi-connect SSID                connect (password on stdin)
+#   create-user USER "FULL NAME"     create your account (password on stdin)
+#   settings TZ LOCALE "DEVICE NAME" USER light|dark
+#   restore-files USER PART          your folders from one part of the package, as USER
+#   linux-apps USER PART             Linux versions of your apps, as USER
+#   finish USER AUTOLOGIN(0|1) REMOVE_FEDORA(0|1) GAPPS(0|1) light|dark
+#   post-finish                      (internal) restart the login screen into your account, remove the setup account
+#   fallback                         (internal) setup could not start: back to the "fedora" account and the text assistant
+#   end-firstrun USER                remove the temporary first-run permissions (S6 Companion, when done)
+#   waydroid-init GAPPS(0|1)         download Android for apps (Waydroid)
+#   fix wifi|bluetooth|sensors|sound-system|waydroid
+#   save-prefs USER KEY=VALUE...     layout, size, codecs, tune, migrate (read by S6 Companion at the first login)
+#   tune NAME on|off                 tune-ups: memory logs shutdown downloads background protect codecs indexing
+#   tune-status                      TUNE|name|on/off for each
+#   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ST=${S6H_STATE:-/var/lib/s6migrate}
+ETC=${S6H_ETC:-/etc}
+SELF=/usr/local/libexec/s6migrate/s6-helper
+LOG="$ST/helper.log"
+mkdir -p "$ST" "$ST/log" 2>/dev/null
+log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG" 2>/dev/null; }
+die() { echo "ERROR: $*"; log "ERROR $*"; exit 1; }
+[ "$(id -u)" = 0 ] || die "must run as root (through pkexec)"
+log "called: ${1:-} (by uid ${PKEXEC_UID:-?})"
+
+valid_user() { [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,30}$ ]] && ! [[ "$1" =~ ^(root|s6setup|fedora|bin|daemon|adm|nobody)$ ]]; }
+valid_part() { # only package folders S6 Migrate knows about
+  local r; r=$(readlink -f -- "$1" 2>/dev/null) || return 1
+  [ -f "$r/plan.txt" ] || return 1
+  case "$r" in "$ST"/package-*|/run/s6migrate/*/S6Migrate/*|/run/media/*/S6Migrate/*) return 0 ;; esac
+  return 1
+}
+as_user() { # as_user USER CMD... : run in USER's home with the first-run sudo rights
+  local u=$1; shift
+  runuser -u "$u" -- env -i HOME="/home/$u" USER="$u" LOGNAME="$u" PATH="$PATH" LANG="${LANG:-C.UTF-8}" \
+    S6R_SUDO=sudo XDG_RUNTIME_DIR="/run/user/$(id -u "$u")" "$@"
+}
+set_autologin() { # set_autologin USER-or-empty: SDDM's automatic login, in sddm.conf.d and (if it sets one) sddm.conf
+  local u=$1 tmp
+  mkdir -p "$ETC/sddm.conf.d"
+  printf '# S6 Migrate: who logs in automatically\n[General]\nInputMethod=qtvirtualkeyboard\n[Autologin]\nUser=%s\n' "$u" > "$ETC/sddm.conf.d/zz-s6migrate.conf"
+  if [ -f "$ETC/sddm.conf" ] && grep -q '^User=' "$ETC/sddm.conf"; then
+    tmp=$(mktemp) && sed "/^\[Autologin\]/,/^\[/ s/^User=.*/User=$u/" "$ETC/sddm.conf" > "$tmp" && cat "$tmp" > "$ETC/sddm.conf"; rm -f "$tmp"
+  fi
+}
+kv() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])) if __import__("os").path.exists(sys.argv[1]) else {}; d[sys.argv[2]]=sys.argv[3]; json.dump(d,open(sys.argv[1],"w"),indent=1)' "$ST/setup.json" "$1" "$2"; }
+
+act=${1:-}; shift || true
+case "$act" in
+
+find-parts)
+  id=$(sed -n 's/^id=//p' "$ST/package.info" 2>/dev/null | head -n 1)
+  mkdir -p /run/s6migrate
+  # USB drives (hot-pluggable) that are not mounted yet: mount read-only where Fedora can read them.
+  while read -r name fstype mnt hot; do
+    [ "$hot" = 1 ] || continue
+    case "$fstype" in vfat|exfat|ntfs|ntfs3|ext4|btrfs) ;; *) continue ;; esac
+    if [ -z "$mnt" ]; then
+      mnt=/run/s6migrate/${name##*/}; mkdir -p "$mnt"
+      case "$fstype" in vfat|exfat) mount -o ro,umask=0022 "$name" "$mnt" ;; *) mount -o ro "$name" "$mnt" ;; esac 2>/dev/null || { rmdir "$mnt"; continue; }
+    fi
+  done < <(lsblk -rpno NAME,FSTYPE,MOUNTPOINT,HOTPLUG 2>/dev/null | awk '{ if (NF==3) print $1, $2, "", $3; else print }')
+  # Newest package if the switch did not record one.
+  if [ -z "$id" ]; then
+    id=$(ls -d "$ST"/package-* /run/s6migrate/*/S6Migrate/2* /run/media/*/*/S6Migrate/2* 2>/dev/null | grep -o '[0-9]\{8\}-[0-9]\{6\}' | sort | tail -n 1)
+  fi
+  [ -n "$id" ] || { echo "NONE"; exit 0; }
+  for d in "$ST"/package-"$id"* ; do [ -f "$d/plan.txt" ] && echo "PART|$d|copied"; done
+  for d in /run/s6migrate/*/S6Migrate/"$id" /run/media/*/*/S6Migrate/"$id"; do [ -f "$d/plan.txt" ] && echo "PART|$d|usb"; done
+  echo "ID|$id|$(sed -n 's/^parts=//p' "$ST/package.info" 2>/dev/null | head -n 1)"
+  ;;
+
+wifi-import)
+  valid_part "${1:-}" || die "not a package: ${1:-}"
+  f="$1/wifi/WifiConfigStore.xml"
+  [ -f "$f" ] || { echo "No Wi-Fi networks in this part."; exit 0; }
+  added=0
+  while IFS=$'\x1f' read -r ssid sec psk hidden; do
+    [ -n "$ssid" ] || continue
+    nmcli -g NAME connection show 2>/dev/null | grep -Fxq "$ssid" && continue
+    case "$sec" in
+      psk) nmcli connection add type wifi con-name "$ssid" ssid "$ssid" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$psk" 802-11-wireless.hidden "$hidden" >/dev/null ;;
+      sae) nmcli connection add type wifi con-name "$ssid" ssid "$ssid" wifi-sec.key-mgmt sae wifi-sec.psk "$psk" 802-11-wireless.hidden "$hidden" >/dev/null ;;
+      open) nmcli connection add type wifi con-name "$ssid" ssid "$ssid" 802-11-wireless.hidden "$hidden" >/dev/null ;;
+      *) continue ;;
+    esac && added=$((added+1))
+  done < <(python3 - "$f" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for net in root.iter('Network'):
+    wc = net.find('WifiConfiguration')
+    if wc is None:
+        continue
+    def get(name):
+        e = wc.find("*[@name='%s']" % name)
+        if e is None:
+            return None
+        return e.text if e.tag == 'string' else e.get('value')
+    ssid, psk, key = get('SSID'), get('PreSharedKey'), get('ConfigKey') or ''
+    if not ssid or not (ssid.startswith('"') and ssid.endswith('"')):
+        continue
+    ssid = ssid[1:-1]
+    if psk and psk.startswith('"') and psk.endswith('"'):
+        sec, psk = ('sae' if 'SAE' in key else 'psk'), psk[1:-1]
+    elif 'NONE' in key or key.endswith('-'):
+        sec, psk = 'open', ''
+    else:
+        sec, psk = 'other', ''
+    hidden = 'yes' if (get('HiddenSSID') == 'true') else 'no'
+    print('\x1f'.join([ssid, sec, psk or '', hidden]))
+PY
+)
+  echo "Added $added Wi-Fi network(s) from Android."
+  ;;
+
+wifi-list)
+  nmcli -t -e yes -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan yes 2>/dev/null | python3 -c '
+import sys, re
+seen = {}
+for line in sys.stdin:
+    f = re.split(r"(?<!\\):", line.rstrip("\n"))
+    if len(f) < 4: continue
+    inuse, ssid, sig, sec = f[0], f[1].replace("\\:", ":"), f[2], f[3]
+    if not ssid or "|" in ssid: continue
+    on = inuse.strip() == "*"
+    if ssid not in seen or on or int(sig or 0) > seen[ssid][0]:
+        seen[ssid] = (int(sig or 0), sec, on or (seen.get(ssid, (0, "", False))[2]))
+for ssid, (sig, sec, on) in sorted(seen.items(), key=lambda x: (not x[1][2], -x[1][0])):
+    print("NET|%s|%d|%s|%s" % (ssid, sig, sec, "yes" if on else "no"))
+'
+  ;;
+
+wifi-connect)
+  ssid=${1:-}; [ -n "$ssid" ] && [ ${#ssid} -le 64 ] || die "no network name"
+  IFS= read -r pw || true
+  if [ -n "$pw" ]; then nmcli device wifi connect "$ssid" password "$pw"; else nmcli device wifi connect "$ssid"; fi
+  ;;
+
+create-user)
+  u=${1:-}; full=${2:-}
+  valid_user "$u" || die "user name not allowed: $u"
+  [[ "$full" =~ ^[^:,\\]{1,64}$ ]] || die "name not allowed"
+  IFS= read -r pw || true
+  [ ${#pw} -ge 4 ] || die "password too short"
+  if id "$u" >/dev/null 2>&1; then
+    [ "$(cat "$ST/created-user" 2>/dev/null)" = "$u" ] || die "the user name $u is already taken"
+    echo "Account $u exists (from an earlier try): updating it."
+  else
+    groups=wheel
+    for g in $(id -nG fedora 2>/dev/null); do case "$g" in fedora|wheel) ;; *) groups="$groups,$g" ;; esac; done
+    useradd -m -c "$full" -G "$groups" "$u" || die "could not create the account"
+    echo "$u" > "$ST/created-user"
+  fi
+  usermod -c "$full" "$u"
+  printf '%s:%s\n' "$u" "$pw" | chpasswd || die "could not set the password"
+  H=/home/$u
+  # The image's tested desktop setup for this tablet (touch keyboard, screen lock behaviour, hidden autostarts).
+  mkdir -p "$H/.config/autostart"
+  for f in kwinrc kscreenlockerrc; do [ -f "/home/fedora/.config/$f" ] && cp "/home/fedora/.config/$f" "$H/.config/$f"; done
+  [ -f "$H/.config/kwinrc" ] || printf '[Wayland]\nInputMethod=/usr/share/applications/com.github.maliit.keyboard.desktop\nVirtualKeyboardEnabled=true\n' > "$H/.config/kwinrc"
+  for d in org.kde.plasma-welcome.desktop imsettings-start.desktop sealertauto.desktop s6migrate-firstrun.desktop; do
+    printf '[Desktop Entry]\nHidden=true\n' > "$H/.config/autostart/$d"
+  done
+  # S6 Companion opens at the first login to finish the Android apps.
+  printf '[Desktop Entry]\nType=Application\nName=S6 Companion\nExec=/usr/local/bin/s6-companion --first-run\nIcon=system-software-install\nX-KDE-autostart-phase=2\n' \
+    > "$H/.config/autostart/s6-companion-firstrun.desktop"
+  printf '[Basic Settings]\nIndexing-Enabled=false\n' > "$H/.config/baloofilerc"
+  chown -R "$u:$u" "$H"
+  # Until S6 Companion has finished the first run, setup steps may use sudo without asking again.
+  printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$u" > "$ETC/sudoers.d/50-s6migrate-firstrun.tmp"
+  chmod 440 "$ETC/sudoers.d/50-s6migrate-firstrun.tmp"
+  if visudo -cqf "$ETC/sudoers.d/50-s6migrate-firstrun.tmp"; then mv "$ETC/sudoers.d/50-s6migrate-firstrun.tmp" "$ETC/sudoers.d/50-s6migrate-firstrun"
+  else rm -f "$ETC/sudoers.d/50-s6migrate-firstrun.tmp"; fi
+  kv user "$u"; kv fullName "$full"
+  echo "Account $u ready."
+  ;;
+
+settings)
+  tz=${1:-}; loc=${2:-}; dn=${3:-}; u=${4:-}; theme=${5:-light}
+  valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
+  if [[ "$tz" =~ ^[A-Za-z0-9_+/-]{1,64}$ ]] && [ -f "/usr/share/zoneinfo/$tz" ]; then timedatectl set-timezone "$tz" && echo "time zone set: $tz"; fi
+  if [[ "$loc" =~ ^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$ ]]; then
+    l=${loc%%-*}; c=${loc#*-}; [ "$c" = "$loc" ] && c=""
+    lc="${l}${c:+_$c}.UTF-8"
+    localectl set-locale "LANG=$lc" 2>/dev/null && echo "language set: $lc"
+    kv locale "$lc"
+  fi
+  if [ -n "$dn" ] && [ ${#dn} -le 64 ]; then
+    hn=$(printf '%s' "$dn" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | sed 's/^-*//; s/-*$//; s/--*/-/g')
+    hostnamectl set-hostname --pretty "$dn" && hostnamectl set-hostname --static "${hn:-galaxy-tab-s6}" && echo "device name set: $dn"
+  fi
+  # Look: written now so the first login already has it; S6 Companion applies the full theme and wallpaper.
+  H=/home/$u
+  if [ "$theme" = dark ]; then lf=org.kde.breezedark.desktop; cs=BreezeDark; else lf=org.kde.breeze.desktop; cs=BreezeLight; fi
+  as_user "$u" kwriteconfig6 --file kdeglobals --group KDE --key LookAndFeelPackage "$lf"
+  as_user "$u" kwriteconfig6 --file kdeglobals --group General --key ColorScheme "$cs"
+  kv theme "$theme"
+  echo "look set: $theme"
+  ;;
+
+restore-files)
+  u=${1:-}; p=${2:-}
+  valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
+  valid_part "$p" || die "not a package: $p"
+  as_user "$u" /usr/local/bin/s6-restore --files-only --no-linux-apps --no-settings --yes "$p" 2>&1
+  ;;
+
+linux-apps)
+  u=${1:-}; p=${2:-}
+  valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
+  valid_part "$p" || die "not a package: $p"
+  as_user "$u" /usr/local/bin/s6-restore --linux-apps-only --skip-verify --yes "$p" 2>&1
+  ;;
+
+finish)
+  u=${1:-}; auto=${2:-1}; rmf=${3:-0}; gapps=${4:-1}; theme=${5:-light}
+  valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
+  [ "$(cat "$ST/created-user" 2>/dev/null)" = "$u" ] || die "this account was not made by S6 Setup"
+  kv gapps "$gapps"; kv autologin "$auto"; kv theme "$theme"
+  if [ "$auto" = 1 ]; then set_autologin "$u"; else set_autologin ""; fi
+  if [ "$rmf" = 1 ] && id fedora >/dev/null 2>&1; then
+    loginctl terminate-user fedora 2>/dev/null
+    userdel -r fedora 2>/dev/null && echo "removed the default fedora account" || echo "could not remove the fedora account (it stays)"
+  fi
+  date '+%F %T' > "$ST/setup-done"
+  echo "Handing over to $u..."
+  systemd-run --unit=s6migrate-handover --on-active=2 --quiet "$SELF" post-finish \
+    || { "$SELF" post-finish & }
+  ;;
+
+post-finish)
+  systemctl restart sddm
+  sleep 8
+  loginctl terminate-user s6setup 2>/dev/null; sleep 2
+  pkill -KILL -u s6setup 2>/dev/null
+  userdel -r s6setup 2>/dev/null || userdel s6setup 2>/dev/null
+  rm -rf "$ST/setup-home"
+  log "setup account removed"
+  ;;
+
+fallback)
+  # S6 Setup could not run: log in as "fedora" again and offer the text assistant there.
+  mkdir -p "$ETC/sddm.conf.d" /home/fedora/.config/autostart
+  set_autologin fedora
+  printf '[Desktop Entry]\nType=Application\nName=S6 Migrate: bring my files and apps back\nExec=konsole --hold -e /usr/local/bin/s6-firstrun\n' \
+    > /home/fedora/.config/autostart/s6migrate-firstrun.desktop
+  chown -R fedora:fedora /home/fedora/.config/autostart 2>/dev/null
+  log "fallback to the fedora account"
+  systemd-run --unit=s6migrate-fallback --on-active=2 --quiet /usr/bin/systemctl restart sddm || systemctl restart sddm
+  ;;
+
+end-firstrun)
+  u=${1:-}
+  rm -f "$ETC/sudoers.d/50-s6migrate-firstrun"
+  [ -n "$u" ] && valid_user "$u" && rm -f "/home/$u/.config/autostart/s6-companion-firstrun.desktop"
+  date '+%F %T' > "$ST/firstrun-done"
+  echo "First run finished."
+  ;;
+
+waydroid-init)
+  g=${1:-0}
+  if [ -f /var/lib/waydroid/images/system.img ]; then echo "Android for apps is already downloaded."; exit 0; fi
+  systemctl enable --now waydroid-container.service >/dev/null 2>&1
+  if [ "$g" = 1 ]; then waydroid init -s GAPPS -f; else waydroid init -f; fi
+  ;;
+
+fix)
+  case "${1:-}" in
+    wifi) systemctl restart NetworkManager; systemctl restart tabs6-wifi.service 2>/dev/null; echo "Wi-Fi restarted." ;;
+    bluetooth) systemctl restart bluetooth; echo "Bluetooth restarted." ;;
+    sensors) systemctl restart hexagonrpcd-sdsp.service iio-sensor-proxy.service 2>/dev/null; echo "Rotation sensors restarted." ;;
+    waydroid) systemctl restart waydroid-container.service; echo "Android app support restarted." ;;
+    *) die "unknown fix: ${1:-}" ;;
+  esac
+  ;;
+
+save-prefs)
+  u=${1:-}; shift || true
+  valid_user "$u" || die "bad user"
+  for kvp in "$@"; do
+    k=${kvp%%=*}; v=${kvp#*=}
+    case "$k" in layout|size|codecs|tune|migrate|android) [[ "$v" =~ ^[a-z0-9-]{1,20}$ ]] && kv "$k" "$v" ;; esac
+  done
+  echo "saved"
+  ;;
+
+tune-status)
+  st() { [ -e "$2" ] && echo "TUNE|$1|on" || echo "TUNE|$1|off"; }
+  st memory "$ETC/sysctl.d/90-s6migrate.conf"
+  st logs "$ETC/systemd/journald.conf.d/90-s6migrate.conf"
+  st shutdown "$ETC/systemd/system.conf.d/90-s6migrate.conf"
+  st downloads "$ETC/dnf/libdnf5.conf.d/90-s6migrate.conf"
+  st protect "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf"
+  st background "$ST/tune-background"
+  rpm -q rpmfusion-free-release >/dev/null 2>&1 && echo "TUNE|codecs|on" || echo "TUNE|codecs|off"
+  ;;
+
+tune)
+  name=${1:-}; onoff=${2:-on}
+  [ "$onoff" = on ] || [ "$onoff" = off ] || die "on or off"
+  put() { mkdir -p "${1%/*}"; printf '%b' "$2" > "$1"; }
+  case "$name" in
+    memory)   # compressed swap (zram) works best when the kernel uses it early; smoother under memory pressure
+      if [ "$onoff" = on ]; then put "$ETC/sysctl.d/90-s6migrate.conf" '# S6 Migrate tune-up: memory (zram)\nvm.swappiness = 180\nvm.watermark_boost_factor = 0\nvm.watermark_scale_factor = 125\nvm.page-cluster = 0\n'
+      else rm -f "$ETC/sysctl.d/90-s6migrate.conf"; fi
+      sysctl --system >/dev/null 2>&1; echo "memory tune-up: $onoff" ;;
+    logs)     # keep the system log small on flash storage
+      if [ "$onoff" = on ]; then put "$ETC/systemd/journald.conf.d/90-s6migrate.conf" '[Journal]\nSystemMaxUse=200M\n'
+      else rm -f "$ETC/systemd/journald.conf.d/90-s6migrate.conf"; fi
+      systemctl restart systemd-journald 2>/dev/null; echo "log size tune-up: $onoff" ;;
+    shutdown) # don't wait 90 seconds for a stuck service when turning off
+      if [ "$onoff" = on ]; then put "$ETC/systemd/system.conf.d/90-s6migrate.conf" '[Manager]\nDefaultTimeoutStopSec=15s\n'
+      else rm -f "$ETC/systemd/system.conf.d/90-s6migrate.conf"; fi
+      systemctl daemon-reload; echo "faster shutdown: $onoff" ;;
+    downloads) # more parallel downloads for updates
+      if [ "$onoff" = on ]; then put "$ETC/dnf/libdnf5.conf.d/90-s6migrate.conf" '[main]\nmax_parallel_downloads=10\n'
+      else rm -f "$ETC/dnf/libdnf5.conf.d/90-s6migrate.conf"; fi
+      echo "faster downloads: $onoff" ;;
+    protect)  # the tablet's patched login screen and sensor service must not be replaced by stock Fedora builds
+      if [ "$onoff" = on ]; then put "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf" '# S6 Migrate: parts customised for the SM-T860 by t860-fedora\n[main]\nexcludepkgs=sddm,sddm-wayland-plasma,iio-sensor-proxy\n'
+      else rm -f "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf"; fi
+      echo "protect tablet parts from updates: $onoff" ;;
+    background) # crash reporting and hourly package-list downloads cost battery on a tablet
+      if [ "$onoff" = on ]; then
+        systemctl disable --now abrtd.service abrt-journal-core.service abrt-oops.service dnf-makecache.timer >/dev/null 2>&1
+        date > "$ST/tune-background"
+      else
+        systemctl enable --now abrtd.service abrt-journal-core.service abrt-oops.service dnf-makecache.timer >/dev/null 2>&1
+        rm -f "$ST/tune-background"
+      fi
+      echo "fewer background jobs: $onoff" ;;
+    codecs)   # RPM Fusion: full video and audio codecs (H.264, HEVC, AAC...) like PikaOS and Nobara ship
+      [ "$onoff" = on ] || { echo "Codecs stay installed (remove RPM Fusion with Discover if you want)."; exit 0; }
+      v=$(rpm -E %fedora)
+      dnf install -y "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$v.noarch.rpm" \
+                     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$v.noarch.rpm" || die "could not add RPM Fusion (Wi-Fi?)"
+      dnf swap -y ffmpeg-free ffmpeg --allowerasing
+      dnf install -y gstreamer1-plugins-bad-freeworld gstreamer1-plugins-ugly gstreamer1-libav 2>&1 | tail -n 2
+      echo "media codecs: installed" ;;
+    *) die "unknown tune-up: $name" ;;
+  esac
+  ;;
+
+update-system) /usr/local/bin/s6-update system "${1:-}" ;;
+update-keep) /usr/local/bin/s6-update keep ;;
+update-rollback) /usr/local/bin/s6-update rollback ;;
+update-self) /usr/local/bin/s6-update self ;;
+
+*) sed -n '2,29p' "$0"; exit 2 ;;
+esac

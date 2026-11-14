@@ -10,3 +10,5 @@ s6-backup/
 
 # Third-party reference checkouts
 ext/
+__pycache__/
+*.pyc

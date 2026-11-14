@@ -1,0 +1,17 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Started in the temporary "s6setup" session (SDDM logs it in once after the switch).
+# Runs S6 Setup full screen; if it cannot start at all, goes back to the "fedora" account with the text assistant.
+APP=/usr/local/share/s6migrate/app/setup.py
+LOG=/var/lib/s6migrate/setup-home/s6-setup.log
+[ -f /var/lib/s6migrate/setup-done ] && exit 0
+start=$(date +%s)
+/usr/bin/python3 "$APP" >>"$LOG" 2>&1
+rc=$?
+[ -f /var/lib/s6migrate/setup-done ] && exit 0
+if [ $rc -ne 0 ] && [ $(( $(date +%s) - start )) -lt 30 ]; then
+  # Crashed straight away (e.g. a missing library): don't leave the tablet in an empty session.
+  pkexec /usr/local/libexec/s6migrate/s6-helper fallback >>"$LOG" 2>&1
+else
+  exec "$0"   # closed by accident: open it again
+fi

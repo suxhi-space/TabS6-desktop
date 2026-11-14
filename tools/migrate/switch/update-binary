@@ -122,6 +122,7 @@ install -m 755 "$SRC/s6-restore" "$ROOT/usr/local/bin/s6-restore" 2>/dev/null \
   || { mkdir -p "$ROOT/usr/local/bin" && cp "$SRC/s6-restore" "$ROOT/usr/local/bin/s6-restore" && chmod 755 "$ROOT/usr/local/bin/s6-restore"; } \
   || die "could not add the restore tool"
 cp "$SRC/s6-firstrun" "$ROOT/usr/local/bin/s6-firstrun" && chmod 755 "$ROOT/usr/local/bin/s6-firstrun" || die "could not add the first-start assistant"
+cp "$SRC/s6-doctor" "$ROOT/usr/local/bin/s6-doctor" && chmod 755 "$ROOT/usr/local/bin/s6-doctor" || die "could not add the repair tool"
 mkdir -p "$ROOT/etc/xdg/autostart" && cp "$SRC/s6migrate-firstrun.desktop" "$ROOT/etc/xdg/autostart/" || die "could not add the first-start entry"
 mkdir -p "$ROOT/var/lib/s6migrate"
 if [ -n "$PKG" ]; then

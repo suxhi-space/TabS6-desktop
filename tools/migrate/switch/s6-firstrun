@@ -27,6 +27,9 @@ waydroid session start >/dev/null 2>&1 &
 echo "Starting Android..."
 for _ in $(seq 1 60); do waydroid status 2>/dev/null | grep -q 'Session:.*RUNNING' && break; sleep 3; done
 s6-restore --apps-only --yes --skip-verify ${PKG:+"$PKG"}
+echo
+echo "Final check of Android app support:"
+s6-doctor --fix || true
 mkdir -p "$(dirname "$DONE")" && touch "$DONE"
 echo
 echo "All done. Your package was not deleted; remove it once everything looks right."

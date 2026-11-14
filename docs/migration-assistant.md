@@ -238,3 +238,23 @@ Failure behaviour: anything that fails before the `write-root` step stops in TWR
 | Device name | `settings get global device_name` | `hostnamectl` pretty + static name |
 | Wi-Fi networks | `WifiConfigStore.xml` (WPA2, WPA3, open) | NetworkManager connections; existing ones skipped; enterprise/WEP/encrypted listed to add by hand. **Passwords are stored in the package: keep the drive private** |
 | Bluetooth pairings (experimental) | `bt_config.conf` link keys | BlueZ `/var/lib/bluetooth/<adapter>/<device>/info`, only when the adapter address matches Android's; otherwise re-pair once |
+
+## Keeping Android apps working (`tools/migrate/s6-doctor.sh`)
+
+No custom Waydroid build is needed: Fedora packages Waydroid, and Waydroid fetches and updates its
+own Android system (LineageOS). `s6-doctor` looks after everything around it:
+
+| Check | Repair (`--fix`) |
+|---|---|
+| Kernel has binder (Android apps need it) | Explains `tabs6-kernel rollback` if a kernel update dropped it |
+| Waydroid installed | `dnf install waydroid` |
+| `waydroid-container` service running | enable and start it |
+| Android system images present (shows the LineageOS version) | `waydroid init` |
+| One window per app | `waydroid prop set persist.waydroid.multi_windows true` |
+| Android's duplicate system apps hidden | re-hides them, and installs a user path watcher (`s6migrate-hide.path`) that re-hides them whenever Waydroid recreates menu entries |
+| Shared folders mounted | restarts `s6migrate-waydroid-share.service` |
+| Graphics hardware or software | reports |
+
+`s6-doctor --update` also updates Fedora's Waydroid package and Waydroid's Android system
+(`waydroid upgrade`). Restore runs `s6-doctor --fix` at the end, and the switch installs it.
+The companion app will put these behind buttons and notify when something needs attention.

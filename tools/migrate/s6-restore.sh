@@ -480,6 +480,10 @@ else
   say "  Waydroid not set up yet; run s6-restore again after it is."
 fi
 
+# Keep it working: the repair tool also installs a watcher that re-hides Android system apps if Waydroid
+# recreates their menu entries.
+if command -v s6-doctor >/dev/null && [ $DRY = 0 ]; then s6-doctor --fix >>"$LOG" 2>&1; say "  s6-doctor: checked and repaired (run 's6-doctor' any time)"; fi
+
 step "Done"
 say "Your package is untouched at $PKG; keep it until everything looks right."
 say "Full log: $LOG"

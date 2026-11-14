@@ -155,3 +155,24 @@ case you are in.
    from Design A carry over unchanged.
 
 Either way, the first input needed is `tools/recon/s6-recon.sh` output from your tablet.
+
+## Final app look (concept)
+
+Mockup: https://claude.ai/artifact/YR2y4ZwEGa9dpSFCFb8Act (private to the owner).
+
+A guided upgrade wizard in the spirit of desktop OS upgrade assistants, with original artwork
+(no Microsoft, Apple or Fedora logos):
+
+1. **Welcome**: "Move this tablet to Fedora", readiness checklist (model, bootloader, TWRP,
+   battery, pre-release note).
+2. **Choose what to keep**: three choices (selected apps and files / files only / start fresh),
+   app and folder lists with sizes and Keystore warnings, live space bar.
+3. **Space check**: Plan A (replace Android, carry the package on a USB drive or card, with and
+   without the Fedora download) and Plan B (keep Android alongside), each showing fit or shortfall;
+   Plan B locked until there is room and the TWRP check passes.
+4. **Ready to upgrade**: summary, what gets erased, what doesn't work in Fedora yet, a
+   confirmation checkbox for exported authenticator codes.
+5. **Upgrading**: full-screen progress with stages (pack, download, install, restore, first start).
+
+Layout: step sidebar on the left (steps 1-4), white content panel, one accent colour, 48 px touch
+targets, landscape tablet first.

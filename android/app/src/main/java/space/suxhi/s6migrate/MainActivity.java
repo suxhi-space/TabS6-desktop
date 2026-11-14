@@ -91,7 +91,7 @@ public class MainActivity extends Activity {
     int chosenDest = -1;
 
     final Handler ui = new Handler(Looper.getMainLooper());
-    boolean busy;
+    volatile boolean busy;
     TextView spacePanel;
 
     // ------------------------------------------------------------------ lifecycle

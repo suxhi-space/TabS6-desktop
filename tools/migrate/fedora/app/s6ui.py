@@ -30,7 +30,7 @@ SHARE = Path(os.environ.get("S6_SHARE", "/usr/local/share/s6migrate"))
 HELPER = os.environ.get("S6_HELPER", "/usr/local/libexec/s6migrate/s6-helper")
 STATE = Path(os.environ.get("S6_STATE", "/var/lib/s6migrate"))
 MOCK = os.environ.get("S6_MOCK") == "1"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 
 def load_fonts():
@@ -170,6 +170,55 @@ class Backend(QObject):
     @Property(str, constant=True)
     def home(self):
         return str(Path.home())
+
+    @Slot(result=str)
+    def tabletInfo(self):
+        """Battery, storage, memory, temperature, versions and S Pen detection, straight from the system."""
+        def rd(path, default=""):
+            try:
+                return Path(path).read_text().strip()
+            except Exception:
+                return default
+        info = {}
+        for ps in sorted(Path("/sys/class/power_supply").glob("*")):
+            if rd(ps / "type") == "Battery":
+                cap = rd(ps / "capacity")
+                full, design = rd(ps / "charge_full") or rd(ps / "energy_full"), rd(ps / "charge_full_design") or rd(ps / "energy_full_design")
+                temp = rd(ps / "temp")
+                info["battery"] = {"level": int(cap) if cap.isdigit() else -1, "status": rd(ps / "status", "Unknown"),
+                                   "health": round(100 * int(full) / int(design)) if full.isdigit() and design.isdigit() and int(design) > 0 else -1,
+                                   "temp": round(int(temp) / 10, 1) if temp.lstrip("-").isdigit() else None,
+                                   "cycles": rd(ps / "cycle_count")}
+                break
+        try:
+            st = os.statvfs(str(Path.home()))
+            info["storage"] = {"free": st.f_bavail * st.f_frsize, "total": st.f_blocks * st.f_frsize}
+        except Exception:
+            pass
+        mem = {}
+        for line in rd("/proc/meminfo").splitlines():
+            k, _, v = line.partition(":")
+            if k in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree"):
+                mem[k] = int(v.split()[0]) * 1024
+        info["memory"] = mem
+        temps = []
+        for z in Path("/sys/class/thermal").glob("thermal_zone*"):
+            t = rd(z / "temp")
+            if t.lstrip("-").isdigit() and 0 < int(t) < 150000:
+                temps.append(int(t) / 1000)
+        info["cpuTemp"] = round(max(temps), 1) if temps else None
+        info["system"] = rd("/etc/t860-release", "Fedora")
+        info["kernel"] = os.uname().release
+        info["uptime"] = int(float((rd("/proc/uptime", "0").split() or ["0"])[0]))
+        devs = rd("/proc/bus/input/devices").lower()
+        info["pen"] = any(w in devs for w in ("s pen", "spen", "stylus", "wacom", " pen"))
+        if MOCK:
+            info = {"battery": {"level": 76, "status": "Charging", "health": 91, "temp": 31.4, "cycles": ""},
+                    "storage": {"free": 71 * 2**30, "total": 105 * 2**30},
+                    "memory": {"MemTotal": 5.6 * 2**30, "MemAvailable": 3.1 * 2**30, "SwapTotal": 5.6 * 2**30, "SwapFree": 5.4 * 2**30},
+                    "cpuTemp": 42.0, "system": "Fedora 44 KDE / SM-T860 / GPU18 / 2026-10-29", "kernel": "6.18.59-t860-gpu18",
+                    "uptime": 7380, "pen": False}
+        return json.dumps(info)
 
     @Slot(result=str)
     def setupState(self):

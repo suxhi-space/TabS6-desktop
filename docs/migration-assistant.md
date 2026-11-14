@@ -372,7 +372,7 @@ A welcome and tools app, always in the menu, with "Open when I log in" as an opt
   - Your layout and size.
   - Android for apps (Waydroid image, with or without Google Play).
   - Your Android apps and their data, from every part of the package.
-- **Pages:**
+- **Pages** (0.4.1 adds **Tablet**: battery level, charging, health and temperature; storage; memory; processor temperature; versions; S Pen detection. The S Pen battery can't be read on Linux):
   - **Home:** status and tips.
   - **Look:** five layouts, Size Standard / Larger / Largest, light or dark.
   - **Android apps:** start, stop, auto-stop minutes, check and fix, update Android.

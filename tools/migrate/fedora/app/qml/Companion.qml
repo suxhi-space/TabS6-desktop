@@ -17,7 +17,7 @@ ApplicationWindow {
     property int page: 0
     property int pageCount: pages.length
     readonly property var pages: [
-        { label: "Home", icon: "box" }, { label: "Look", icon: "screen" }, { label: "Android apps", icon: "phone" },
+        { label: "Home", icon: "box" }, { label: "Tablet", icon: "phone" }, { label: "Look", icon: "screen" }, { label: "Android apps", icon: "phone" },
         { label: "Updates", icon: "clock" }, { label: "Tune-ups", icon: "lock" }, { label: "Fixes", icon: "ok" },
         { label: "Your stuff", icon: "folder" }, { label: "About", icon: "user" }]
     // While the first run is going, setup's temporary rights apply (no password prompts); later, polkit asks once.
@@ -141,7 +141,7 @@ ApplicationWindow {
         current: win.page
         sideFooter: "Version " + backend.version
         onStepClicked: (i) => win.page = i
-        Loader { width: parent.width; sourceComponent: [homePage, lookPage, androidPage, updatesPage, tunePage, fixesPage, stuffPage, aboutPage][win.page] }
+        Loader { width: parent.width; sourceComponent: [homePage, tabletPage, lookPage, androidPage, updatesPage, tunePage, fixesPage, stuffPage, aboutPage][win.page] }
     }
 
     // ================================================================ Home
@@ -183,19 +183,19 @@ ApplicationWindow {
                     width: parent.cw
                     Row { spacing: 10; Glyph { kind: "phone"; tint: Theme.accentText; width: 24; height: 24 } Label2 { text: "Android apps"; strong: true } }
                     Label2 { text: win.androidRunning ? "Running" : "Stopped (no memory used)"; color: Theme.muted; font.pixelSize: 14; width: parent.width }
-                    Btn { text: "Manage"; onClicked: win.page = 2 }
+                    Btn { text: "Manage"; onClicked: win.page = 3 }
                 }
                 Card {
                     width: parent.cw
                     Row { spacing: 10; Glyph { kind: "clock"; tint: Theme.accentText; width: 24; height: 24 } Label2 { text: "Updates"; strong: true } }
                     Label2 { text: win.updates < 0 ? "Not checked yet" : win.updates === 0 ? "Everything is up to date" : win.updates + " update(s) available"; color: Theme.muted; font.pixelSize: 14; width: parent.width }
-                    Btn { text: "Check"; onClicked: { win.page = 3 } }
+                    Btn { text: "Check"; onClicked: { win.page = 4 } }
                 }
                 Card {
                     width: parent.cw
                     Row { spacing: 10; Glyph { kind: "ok"; tint: Theme.accentText; width: 24; height: 24 } Label2 { text: "Something not working?"; strong: true } }
                     Label2 { text: "One-tap fixes for Wi-Fi, sound, rotation, the keyboard and Android apps."; color: Theme.muted; font.pixelSize: 14; width: parent.width }
-                    Btn { text: "Fixes"; onClicked: win.page = 5 }
+                    Btn { text: "Fixes"; onClicked: win.page = 6 }
                 }
             }
             Card {
@@ -209,6 +209,73 @@ ApplicationWindow {
                     onCheckedChanged: win.run("auto", win.sh(checked ? "mkdir -p ~/.config/autostart && cp /usr/local/share/applications/s6-companion.desktop ~/.config/autostart/" : "rm -f ~/.config/autostart/s6-companion.desktop"), null, null)
                 }
                 TaskRow { width: parent.width; status: "done"; title: "The touch keyboard pops up when you tap a text field"; detail: "If it ever doesn't, Fixes has a one-tap repair. Screen rotation follows the tablet." }
+            }
+        }
+    }
+
+    // ================================================================ Tablet
+    Component {
+        id: tabletPage
+        Column {
+            id: tb
+            width: parent.width; spacing: 16
+            property var i: JSON.parse(backend.tabletInfo())
+            property var bat: i.battery || { level: -1, status: "", health: -1 }
+            property var sto: i.storage || { free: 0, total: 1 }
+            property var mem: i.memory || {}
+            Timer { interval: 5000; running: true; repeat: true; onTriggered: tb.i = JSON.parse(backend.tabletInfo()) }
+            function gb(b) { return (b / 1073741824).toFixed(1) + " GB" }
+            function dur(s) { var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h > 0 ? h + " h " : "") + m + " min" }
+            Component.onCompleted: {
+                frame.eyebrow = ""; frame.title = "Your tablet"
+                frame.subtitle = "Battery, storage and the tablet's own parts. Updates every few seconds."
+                frame.primary = ""; frame.secondary = ""; frame.note = ""
+            }
+            Grid {
+                width: parent.width; columns: frame.roomy ? 2 : 1; columnSpacing: 14; rowSpacing: 14
+                property real cw: frame.roomy ? (width - 14) / 2 : width
+                Card {
+                    width: parent.cw
+                    Row { spacing: 10; Glyph { kind: "box"; tint: Theme.accentText; width: 24; height: 24 } Label2 { text: "Battery"; strong: true } }
+                    Label2 { text: tb.bat.level >= 0 ? tb.bat.level + "%" : "Unknown"; display: true; font.pixelSize: 34 }
+                    Rectangle { width: parent.width; height: 10; radius: 5; color: Theme.track
+                        Rectangle { width: parent.width * Math.max(0, tb.bat.level) / 100; height: 10; radius: 5; color: tb.bat.level <= 15 ? Theme.warn : Theme.ok } }
+                    Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
+                             text: (tb.bat.status || "") + (tb.bat.health > 0 ? " \u00b7 health " + tb.bat.health + "%" : "") + (tb.bat.temp ? " \u00b7 " + tb.bat.temp + " \u00b0C" : "") + (tb.bat.cycles ? " \u00b7 " + tb.bat.cycles + " charge cycles" : "") }
+                }
+                Card {
+                    width: parent.cw
+                    Row { spacing: 10; Glyph { kind: "folder"; tint: Theme.accentText; width: 24; height: 24 } Label2 { text: "Storage"; strong: true } }
+                    Label2 { text: tb.gb(tb.sto.free) + " free"; display: true; font.pixelSize: 34 }
+                    Rectangle { width: parent.width; height: 10; radius: 5; color: Theme.track
+                        Rectangle { width: parent.width * (1 - tb.sto.free / Math.max(1, tb.sto.total)); height: 10; radius: 5; color: Theme.accent } }
+                    Label2 { text: "of " + tb.gb(tb.sto.total); font.pixelSize: 14; color: Theme.muted; width: parent.width }
+                }
+                Card {
+                    width: parent.cw
+                    Row { spacing: 10; Glyph { kind: "screen"; tint: Theme.accentText; width: 24; height: 24 } Label2 { text: "Memory"; strong: true } }
+                    Label2 { text: tb.gb((tb.mem.MemTotal || 0) - (tb.mem.MemAvailable || 0)) + " in use"; display: true; font.pixelSize: 34 }
+                    Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
+                             text: "of " + tb.gb(tb.mem.MemTotal || 0) + (tb.mem.SwapTotal ? " \u00b7 compressed memory " + tb.gb((tb.mem.SwapTotal || 0) - (tb.mem.SwapFree || 0)) + " used" : "") + (win.androidRunning ? " \u00b7 Android is running" : "") }
+                }
+                Card {
+                    width: parent.cw
+                    Row { spacing: 10; Glyph { kind: tb.i.pen ? "ok" : "clock"; tint: tb.i.pen ? Theme.ok : Theme.muted; width: 24; height: 24 } Label2 { text: "S Pen"; strong: true } }
+                    Label2 { width: parent.width; text: tb.i.pen ? "Detected: you can write and draw." : "Not supported by this tablet system yet." }
+                    Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
+                             text: tb.i.pen ? "The pen's battery level isn't available on Linux (Samsung reports it over its own Bluetooth protocol)." : "When a t860-fedora update adds it, Updates will offer it, and this card will show the pen." }
+                }
+            }
+            Card {
+                width: parent.width
+                Label2 { text: "About this tablet"; display: true; font.pixelSize: 19; width: parent.width }
+                Label2 { width: parent.width; font.pixelSize: 15; color: Theme.sub
+                         text: "Galaxy Tab S6 Wi-Fi (SM-T860)\nSystem: " + tb.i.system + "\nKernel: " + tb.i.kernel + (tb.i.cpuTemp ? "\nProcessor temperature: " + tb.i.cpuTemp + " \u00b0C" : "") + "\nOn for " + tb.dur(tb.i.uptime || 0) }
+                Flow {
+                    width: parent.width; spacing: 10
+                    Btn { text: "Check for system updates"; onClicked: win.page = 4 }
+                    Btn { text: "Power and battery settings"; onClicked: backend.detach("systemsettings kcm_powerdevilprofilesconfig") }
+                }
             }
         }
     }
@@ -344,7 +411,7 @@ ApplicationWindow {
                 width: parent.width
                 Label2 { text: "Bring Android apps over again"; display: true; font.pixelSize: 19; width: parent.width }
                 Label2 { text: "Re-installs the apps from your package and their data, without touching anything else. Your package must be plugged in."; color: Theme.muted; font.pixelSize: 14; width: parent.width }
-                Btn { text: "Bring apps over"; enabled: !ap.busy; onClicked: win.page = 6 }
+                Btn { text: "Bring apps over"; enabled: !ap.busy; onClicked: win.page = 7 }
             }
             Card {
                 width: parent.width; visible: ap.out !== "" || ap.busy
@@ -428,7 +495,7 @@ ApplicationWindow {
                 width: parent.width
                 Label2 { text: "Android for apps"; display: true; font.pixelSize: 19; width: parent.width }
                 Label2 { text: "LineageOS updates for Waydroid. Android restarts afterwards."; color: Theme.muted; font.pixelSize: 14; width: parent.width }
-                Btn { text: "Update Android"; onClicked: win.page = 2 }
+                Btn { text: "Update Android"; onClicked: win.page = 3 }
             }
             Card {
                 width: parent.width; warn: true

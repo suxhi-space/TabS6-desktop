@@ -63,6 +63,12 @@ for f in "$MEDIA"/* "$MEDIA"/.[!.]*; do
   tc=$((tc+1)); s=$(du -sk "$f" 2>/dev/null | cut -f1); tk=$((tk+${s:-0}))
 done
 [ $tc -gt 0 ] && echo "TOPFILES|$tc|$tk"
+# Settings and Wi-Fi networks that can be carried over
+nw=0
+for f in "$RP/data/misc/apexdata/com.android.wifi/WifiConfigStore.xml" "$RP/data/misc/wifi/WifiConfigStore.xml"; do
+  [ -f "$f" ] && { nw=$(grep -c '<Network>' "$f"); grep -q EncryptedData "$f" && nw="$nw-encrypted"; break; }
+done
+echo "SETTINGS|$(ls "$RP"/data/system/users/0/wallpaper* 2>/dev/null | grep -c -E 'wallpaper(_lock)?$')|$([ -f "$RP/data/misc/bluedroid/bt_config.conf" ] && grep -c '^\[[0-9a-f][0-9a-f]:' "$RP/data/misc/bluedroid/bt_config.conf" || echo 0)|$nw"
 for m in "$RP"/mnt/media_rw/*; do
   [ -d "$m" ] || continue
   free=$(df -k "$m" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)
@@ -281,6 +287,43 @@ while IFS='|' read -r t a b c; do
       ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy of $a"
     fi
     ;;
+  SET)
+    # Wallpapers, dark mode, time zone, language, device name, Bluetooth pairings. Small: always re-captured.
+    echo "[$n] settings (wallpaper, dark mode, time zone, language, device name, Bluetooth)"
+    new="$OUT/.new-settings"; rm -rf "$new"; mkdir -p "$new"
+    {
+      echo "timezone=$(getprop persist.sys.timezone </dev/null)"
+      echo "locale=$(getprop persist.sys.locale </dev/null)"
+      echo "night_mode=$(settings get secure ui_night_mode </dev/null 2>/dev/null)"
+      echo "device_name=$(settings get global device_name </dev/null 2>/dev/null)"
+      echo "time_12_24=$(settings get system time_12_24 </dev/null 2>/dev/null)"
+      echo "screen_off_timeout=$(settings get system screen_off_timeout </dev/null 2>/dev/null)"
+      echo "auto_rotate=$(settings get system accelerometer_rotation </dev/null 2>/dev/null)"
+    } > "$new/settings.txt"
+    for w in wallpaper wallpaper_lock; do
+      [ -f "$RP/data/system/users/0/$w" ] && cp "$RP/data/system/users/0/$w" "$new/$w"
+    done
+    [ -f "$RP/data/misc/bluedroid/bt_config.conf" ] && cp "$RP/data/misc/bluedroid/bt_config.conf" "$new/bt_config.conf"
+    touch "$new/stamp"
+    rm -rf "$OUT/settings"; mv "$new" "$OUT/settings"
+    echo "  ok: settings ($(ls "$OUT/settings" | grep -c -E '^wallpaper') wallpaper(s)$( [ -f "$OUT/settings/bt_config.conf" ] && echo ', Bluetooth pairings'))"
+    ;;
+  WIFI)
+    # Saved Wi-Fi networks with their passwords (Android keeps them readable to root on most devices).
+    echo "[$n] Wi-Fi networks and passwords"
+    src=""
+    for f in "$RP/data/misc/apexdata/com.android.wifi/WifiConfigStore.xml" "$RP/data/misc/wifi/WifiConfigStore.xml"; do
+      [ -f "$f" ] && { src=$f; break; }
+    done
+    if [ -n "$src" ]; then
+      new="$OUT/.new-wifi"; rm -rf "$new"; mkdir -p "$new"
+      cp "$src" "$new/WifiConfigStore.xml" && chmod 600 "$new/WifiConfigStore.xml" && touch "$new/stamp"
+      rm -rf "$OUT/wifi"; mv "$new" "$OUT/wifi"
+      echo "  ok: $(grep -c '<Network>' "$OUT/wifi/WifiConfigStore.xml") saved network(s)"
+    else
+      echo "  no saved Wi-Fi networks found"
+    fi
+    ;;
   TOP)
     echo "[$n] files directly in internal storage"
     safe=_loose_files; new="$OUT/files/.new-$safe"; list="$OUT/files/.new-$safe.list"
@@ -318,6 +361,8 @@ apps/<package>/obb.tar.aaa...       /sdcard/Android/obb/<package>
 apps/<package>/meta.txt             package, uid, version, keystore warning
 files/<name>.tar.aaa...             folders from internal storage (index.txt maps names)
 files/_loose_files.tar.aaa...       files directly in internal storage, not in a folder
+settings/                           wallpapers, settings.txt (time zone, language, dark mode...), Bluetooth pairings
+wifi/WifiConfigStore.xml            saved Wi-Fi networks WITH PASSWORDS: keep this drive private
 SHA256SUMS                          checksums of every file
 
 Archives are split into parts; join them with:  cat NAME.tar.* | tar -xf -

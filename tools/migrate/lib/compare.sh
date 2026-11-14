@@ -32,6 +32,17 @@ while IFS='|' read -r t a rest; do
     n=$(newer "$ref" "$MEDIA/$name")
     [ "$n" -gt 0 ] && echo "CMP|DIR|$name|changed|$n" || echo "CMP|DIR|$name|same|0"
     ;;
+  SET)
+    echo "CMP|SET|settings|changed|1"   # tiny: always re-captured so it matches the tablet right now
+    ;;
+  WIFI)
+    ref="$PKG/wifi/stamp"; [ -f "$ref" ] || { echo "CMP|WIFI|wifi|unknown|0"; continue; }
+    n=0
+    for f in "$RP/data/misc/apexdata/com.android.wifi/WifiConfigStore.xml" "$RP/data/misc/wifi/WifiConfigStore.xml"; do
+      [ -f "$f" ] && [ "$f" -nt "$ref" ] && n=1
+    done
+    [ $n = 1 ] && echo "CMP|WIFI|wifi|changed|1" || echo "CMP|WIFI|wifi|same|0"
+    ;;
   TOP)
     ref="$PKG/files/_loose_files.stamp"
     [ -f "$ref" ] || { echo "CMP|TOP|loose files|unknown|0"; continue; }

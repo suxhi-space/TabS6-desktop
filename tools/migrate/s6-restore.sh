@@ -11,7 +11,7 @@
 #   5. makes Waydroid feel native: one window per app, Android's own system apps hidden from
 #      the menu, your Linux folders shared into Android
 #
-# Usage: s6-restore [--dry-run] [--skip-verify] [--files-only|--apps-only] [--keystore-data]
+# Usage: s6-restore [--dry-run] [--skip-verify] [--files-only|--apps-only] [--keystore-data] [--no-settings]
 #                   [--yes] [PACKAGE_DIR]
 #   --dry-run        show what would happen, change nothing
 #   --keystore-data  also restore data of apps whose data was locked to the tablet's keystore
@@ -21,7 +21,7 @@
 
 set -u
 VERSION=0.2.0
-DRY=0; VERIFY=1; DO_FILES=1; DO_APPS=1; KS_DATA=0; YES=0; PKG=""
+DRY=0; VERIFY=1; DO_FILES=1; DO_APPS=1; DO_SET=1; KS_DATA=0; YES=0; PKG=""
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
@@ -29,6 +29,7 @@ for a in "$@"; do
     --files-only) DO_APPS=0 ;;
     --apps-only) DO_FILES=0 ;;
     --keystore-data) KS_DATA=1 ;;
+    --no-settings) DO_SET=0 ;;
     --yes|-y) YES=1 ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     -*) echo "Unknown option $a"; exit 2 ;;
@@ -39,6 +40,7 @@ done
 WD=${S6R_WAYDROID_DATA:-$HOME/.local/share/waydroid/data}   # Waydroid's /data on the host
 ETC=${S6R_ETC:-/etc}                                           # test hook
 USER=${USER:-$(id -un)}
+BTDIR=${S6R_BTDIR:-/var/lib/bluetooth}                         # test hook
 SUDO=${S6R_SUDO-sudo}                                          # test hook
 STAMP=$(date +%Y%m%d-%H%M%S)
 LOG="$HOME/S6Migrate-restore-$STAMP.log"
@@ -60,7 +62,7 @@ say "Tab S6 Migration Assistant restore v$VERSION  $( [ $DRY = 1 ] && echo '(dry
 say "Log: $LOG"
 
 # ------------------------------------------------------------------ 1. find the package
-step "1/5 Find your package"
+step "1/6 Find your package"
 if [ -z "$PKG" ]; then
   mapfile -t found < <(ls -d /run/media/"$USER"/*/S6Migrate/*/ /media/"$USER"/*/S6Migrate/*/ \
       /var/lib/s6migrate/package*/ "$HOME"/S6Migrate/*/ ${S6R_SEARCH:-} 2>/dev/null \
@@ -83,7 +85,7 @@ say "Package: $PKG"
 say "Contains $NAPPS apps and $NDIRS folders ($(du -sh "$PKG" 2>/dev/null | cut -f1)). Status: $(cat "$PKG/status.txt" 2>/dev/null || echo unknown)"
 
 # ------------------------------------------------------------------ 2. verify
-step "2/5 Check the package"
+step "2/6 Check the package"
 if [ $VERIFY = 1 ] && [ -f "$PKG/SHA256SUMS" ]; then
   total=$(grep -c . "$PKG/SHA256SUMS"); n=0; bad=0
   while read -r sum file; do
@@ -155,7 +157,7 @@ merge_into() { # merge_into SRC_DIR DEST_DIR : move files, never overwrite; clas
 }
 
 if [ $DO_FILES = 1 ]; then
-  step "3/5 Restore your folders"
+  step "3/6 Restore your folders"
   while IFS='|' read -r safe name; do
     [ -n "$safe" ] || continue
     ls "$PKG/files/$safe".tar.* >/dev/null 2>&1 || { say "  $name: archive missing, skipped"; continue; }
@@ -170,10 +172,154 @@ if [ $DO_FILES = 1 ]; then
     rm -rf "$s"
   done < "$PKG/files/index.txt"
 else
-  step "3/5 Restore your folders (skipped)"
+  step "3/6 Restore your folders (skipped)"
 fi
 
-# ------------------------------------------------------------------ 4. apps into Waydroid
+# ------------------------------------------------------------------ 4. settings
+kwrite() { if command -v kwriteconfig6 >/dev/null; then kwriteconfig6 "$@"; else kwriteconfig5 "$@"; fi; }
+apply_settings() {
+  local S="$PKG/settings" val w f ext
+  if [ -f "$S/settings.txt" ]; then
+    val() { sed -n "s/^$1=//p" "$S/settings.txt" | head -1; }
+    # Wallpapers (home and lock screen); Android stores them without a file extension.
+    mkdir -p "$HOME/.local/share/wallpapers/S6Migrate"
+    local home_wp="" lock_wp=""
+    for w in wallpaper wallpaper_lock; do
+      [ -s "$S/$w" ] || continue
+      case "$(head -c 4 "$S/$w" | od -An -tx1 | tr -d ' \n')" in
+        89504e47) ext=png ;; ffd8ff*) ext=jpg ;; 52494646) ext=webp ;; *) ext=jpg ;;
+      esac
+      f="$HOME/.local/share/wallpapers/S6Migrate/android-${w#wallpaper}.$ext"; f=${f/android-./android-home.}; f=${f/android-_lock/android-lock}
+      [ $DRY = 1 ] || cp "$S/$w" "$f"
+      [ "$w" = wallpaper ] && home_wp=$f || lock_wp=$f
+    done
+    [ -z "$lock_wp" ] && lock_wp=$home_wp
+    if [ -n "$home_wp" ]; then
+      run plasma-apply-wallpaperimage "$home_wp" && say "  wallpaper: set"
+      run kwrite --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image "file://$lock_wp" \
+        && say "  lock screen wallpaper: set"
+    fi
+    # Dark or light mode (Android: 2 = dark, 1 = light, 0 = automatic).
+    case "$(val night_mode)" in
+      2) run plasma-apply-lookandfeel -a org.kde.breezedark.desktop && say "  dark mode: on" ;;
+      1) run plasma-apply-lookandfeel -a org.kde.breeze.desktop && say "  light mode: on" ;;
+    esac
+    # Time zone.
+    local tz; tz=$(val timezone)
+    if [ -n "$tz" ] && [ -f "/usr/share/zoneinfo/$tz" ]; then run $SUDO timedatectl set-timezone "$tz" && say "  time zone: $tz"; fi
+    # Language and region (e.g. de-DE -> de_DE.UTF-8). English (US) is Fedora's default already.
+    local loc; loc=$(val locale)
+    if [ -n "$loc" ] && [ "$loc" != en-US ]; then
+      local l=${loc%%-*} c=${loc#*-}; [ "$c" = "$loc" ] && c="" ; local lc="${l}${c:+_$c}.UTF-8"
+      run kwrite --file plasma-localerc --group Formats --key LANG "$lc"
+      run kwrite --file plasma-localerc --group Translations --key LANGUAGE "${l}${c:+_$c}:${l}" \
+        && say "  language and region: $lc (applies at next login; more languages: sudo dnf install langpacks-$l)"
+    fi
+    # Device name.
+    local dn; dn=$(val device_name)
+    if [ -n "$dn" ] && [ "$dn" != null ]; then
+      local hn; hn=$(printf '%s' "$dn" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | sed 's/^-*//; s/-*$//; s/--*/-/g')
+      run $SUDO hostnamectl set-hostname --pretty "$dn" && run $SUDO hostnamectl set-hostname --static "${hn:-galaxy-tab-s6}" \
+        && say "  device name: $dn"
+    fi
+  fi
+  # Wi-Fi networks.
+  if [ -f "$PKG/wifi/WifiConfigStore.xml" ]; then
+    local added=0 skipped=0 manual=""
+    while IFS=$'\x1f' read -r ssid sec psk hidden; do   # unit separator: empty fields survive
+      [ -n "$ssid" ] || continue
+      if nmcli -g NAME connection show 2>/dev/null | grep -Fxq "$ssid"; then skipped=$((skipped+1)); continue; fi
+      case "$sec" in
+        psk) run nmcli connection add type wifi con-name "$ssid" ssid "$ssid" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$psk" 802-11-wireless.hidden "$hidden" ;;
+        sae) run nmcli connection add type wifi con-name "$ssid" ssid "$ssid" wifi-sec.key-mgmt sae wifi-sec.psk "$psk" 802-11-wireless.hidden "$hidden" ;;
+        open) run nmcli connection add type wifi con-name "$ssid" ssid "$ssid" 802-11-wireless.hidden "$hidden" ;;
+        *) manual="$manual${manual:+, }$ssid"; continue ;;
+      esac && added=$((added+1))
+    done < <(python3 - "$PKG/wifi/WifiConfigStore.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for net in root.iter('Network'):
+    wc = net.find('WifiConfiguration')
+    if wc is None:
+        continue
+    def get(name):
+        e = wc.find("*[@name='%s']" % name)
+        if e is None:
+            return None
+        return e.text if e.tag == 'string' else e.get('value')
+    ssid, psk, key = get('SSID'), get('PreSharedKey'), get('ConfigKey') or ''
+    if not ssid or not (ssid.startswith('"') and ssid.endswith('"')):
+        continue                      # hex/unusual SSIDs: add by hand
+    ssid = ssid[1:-1]
+    if psk and psk.startswith('"') and psk.endswith('"'):
+        psk = psk[1:-1]
+    sec = ('sae' if key.endswith('SAE') else 'psk' if key.endswith('WPA_PSK') else 'open' if key.endswith('NONE')
+           else 'eap' if 'EAP' in key else 'wep' if key.endswith('WEP') else 'owe' if key.endswith('OWE') else 'other')
+    if sec in ('psk', 'sae') and not psk:
+        sec = 'encrypted'
+    print('\x1f'.join([ssid, sec, psk or '', 'yes' if get('HiddenSSID') == 'true' else 'no']))
+PY
+)
+    say "  Wi-Fi: $added network(s) added, $skipped already there${manual:+; add these yourself (work, WEP or protected): $manual}"
+  fi
+  # Bluetooth pairings (experimental): only when the Bluetooth chip address is the same as on Android.
+  if [ -f "$PKG/settings/bt_config.conf" ]; then
+    local bstage="$STAGE/bluetooth"; mkdir -p "$bstage"
+    local res; res=$(python3 - "$PKG/settings/bt_config.conf" "$BTDIR" "$bstage" <<'PY'
+import sys, os, configparser
+src, btdir, out = sys.argv[1:4]
+cp = configparser.ConfigParser(strict=False, interpolation=None)
+cp.optionxform = str
+cp.read(src)
+android = cp.get('Adapter', 'Address', fallback='').upper()
+try:
+    adapters = [a.upper() for a in os.listdir(btdir) if len(a) == 17]
+except OSError:
+    adapters = []
+if not android or android not in adapters:
+    print('skip:' + ('Bluetooth is not running yet' if not adapters else 'the Bluetooth address differs from Android'))
+    sys.exit(0)
+n = 0
+for sec in cp.sections():
+    if len(sec) != 17 or sec.count(':') != 5 or not cp.has_option(sec, 'LinkKey'):
+        continue
+    dev = sec.upper()
+    if os.path.exists(os.path.join(btdir, android, dev)):
+        continue                      # already paired on Fedora: keep it
+    d = os.path.join(out, android, dev)
+    os.makedirs(d, exist_ok=True)
+    cls = cp.get(sec, 'DevClass', fallback='')
+    with open(os.path.join(d, 'info'), 'w') as f:
+        f.write('[General]\nName=%s\n' % cp.get(sec, 'Name', fallback=dev))
+        if cls.isdigit():
+            f.write('Class=0x%06x\n' % int(cls))
+        f.write('SupportedTechnologies=BR/EDR;\nTrusted=true\nBlocked=false\n\n')
+        f.write('[LinkKey]\nKey=%s\nType=%s\nPINLength=%s\n' % (cp.get(sec, 'LinkKey').upper(),
+                cp.get(sec, 'LinkKeyType', fallback='4'), cp.get(sec, 'PinLength', fallback='0')))
+    n += 1
+print('ok:%d:%s' % (n, android))
+PY
+)
+    case "$res" in
+      ok:0:*) say "  Bluetooth: nothing new to add" ;;
+      ok:*) local nb=${res#ok:}; nb=${nb%%:*}
+            if [ $DRY = 1 ]; then say "  would add $nb Bluetooth pairing(s) (experimental)"
+            else $SUDO cp -r "$bstage"/* "$BTDIR"/ && $SUDO chmod -R go-rwx "$BTDIR" \
+                   && run $SUDO systemctl restart bluetooth \
+                   && say "  Bluetooth: $nb pairing(s) added (experimental: if a device does not connect, pair it again once)"; fi ;;
+      skip:*) say "  Bluetooth: not carried over (${res#skip:}); pair your devices again once" ;;
+    esac
+  fi
+}
+
+if [ $DO_FILES = 1 ] && [ $DO_SET = 1 ] && { [ -d "$PKG/settings" ] || [ -d "$PKG/wifi" ]; }; then
+  step "4/6 Your settings"
+  apply_settings
+else
+  step "4/6 Your settings (skipped)"
+fi
+
+# ------------------------------------------------------------------ 5. apps into Waydroid
 install_apk_set() { # install_apk_set PKG : copy APKs into the container and install them as one session
   local pkg=$1 cdir="/data/local/tmp/s6m/$pkg" hdir="$WD/local/tmp/s6m/$pkg"
   run $SUDO mkdir -p "$hdir" || return 1
@@ -202,7 +348,7 @@ restore_tree() { # restore_tree ARCHIVE_BASENAME HOST_PARENT OWNER : unpack <pkg
 }
 
 if [ $DO_APPS = 1 ] && [ "$NAPPS" -gt 0 ]; then
-  step "4/5 Bring your apps into Waydroid"
+  step "5/6 Bring your apps into Waydroid"
   if ! command -v waydroid >/dev/null; then
     say "Waydroid is not installed. Install it with:  sudo dnf install waydroid  then run:  s6-restore --apps-only"
   elif [ ! -d "$WD" ]; then
@@ -242,11 +388,11 @@ if [ $DO_APPS = 1 ] && [ "$NAPPS" -gt 0 ]; then
     say "Apps: $ok done, $fail with problems."
   fi
 else
-  step "4/5 Bring your apps into Waydroid (skipped)"
+  step "5/6 Bring your apps into Waydroid (skipped)"
 fi
 
-# ------------------------------------------------------------------ 5. make Waydroid feel native
-step "5/5 Make Android apps feel native"
+# ------------------------------------------------------------------ 6. make Waydroid feel native
+step "6/6 Make Android apps feel native"
 if command -v waydroid >/dev/null && [ -d "$WD" ]; then
   # One window per app instead of an Android home screen.
   run waydroid prop set persist.waydroid.multi_windows true && say "  Android apps open in their own windows"

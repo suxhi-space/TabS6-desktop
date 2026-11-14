@@ -23,6 +23,12 @@ for f in "$MEDIA"/* "$MEDIA"/.[!.]*; do
   tc=$((tc+1)); s=$(du -sk "$f" 2>/dev/null | cut -f1); tk=$((tk+${s:-0}))
 done
 [ $tc -gt 0 ] && echo "TOPFILES|$tc|$tk"
+# Settings and Wi-Fi networks that can be carried over
+nw=0
+for f in "$RP/data/misc/apexdata/com.android.wifi/WifiConfigStore.xml" "$RP/data/misc/wifi/WifiConfigStore.xml"; do
+  [ -f "$f" ] && { nw=$(grep -c '<Network>' "$f"); grep -q EncryptedData "$f" && nw="$nw-encrypted"; break; }
+done
+echo "SETTINGS|$(ls "$RP"/data/system/users/0/wallpaper* 2>/dev/null | grep -c -E 'wallpaper(_lock)?$')|$([ -f "$RP/data/misc/bluedroid/bt_config.conf" ] && grep -c '^\[[0-9a-f][0-9a-f]:' "$RP/data/misc/bluedroid/bt_config.conf" || echo 0)|$nw"
 for m in "$RP"/mnt/media_rw/*; do
   [ -d "$m" ] || continue
   free=$(df -k "$m" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)

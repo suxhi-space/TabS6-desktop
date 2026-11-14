@@ -79,12 +79,19 @@ public class MainActivity extends Activity {
         boolean selected;
         boolean top;   // "files directly in internal storage" (not a folder)
         long count;
+        String kind = "DIR"; // DIR, TOP (loose files), SET (settings), WIFI (Wi-Fi networks)
+        String sub;          // optional description shown under the name
     }
 
     static final String TOP_LABEL = "Files directly in internal storage";
 
     static String dirLine(DirItem d) {
-        return d.top ? "TOP|loose files" : "DIR|" + d.name;
+        switch (d.kind) {
+            case "TOP": return "TOP|loose files";
+            case "SET": return "SET|settings";
+            case "WIFI": return "WIFI|wifi";
+            default: return "DIR|" + d.name;
+        }
     }
 
     static class Vol {
@@ -388,9 +395,35 @@ public class MainActivity extends Activity {
                     DirItem d = new DirItem();
                     d.name = TOP_LABEL;
                     d.top = true;
+                    d.kind = "TOP";
                     d.count = parse(f[1]);
                     d.kb = parse(f[2]);
                     dirs.add(0, d);
+                    break;
+                }
+                case "SETTINGS": { // SETTINGS|wallpapers|bluetooth devices|wifi networks[-encrypted]
+                    if (f.length < 4) break;
+                    DirItem st = new DirItem();
+                    st.kind = "SET";
+                    st.name = "Settings";
+                    st.kb = 4096;
+                    st.selected = true;
+                    long bt = parse(f[2]);
+                    st.sub = "Wallpaper" + (parse(f[1]) > 1 ? "s" : "") + ", dark mode, time zone, language, device name"
+                            + (bt > 0 ? ", " + bt + " Bluetooth pairing" + (bt == 1 ? "" : "s") + " (experimental)" : "");
+                    dirs.add(0, st);
+                    boolean enc = f[3].endsWith("encrypted");
+                    long nets = parse(f[3].replace("-encrypted", ""));
+                    if (nets > 0) {
+                        DirItem wf = new DirItem();
+                        wf.kind = "WIFI";
+                        wf.name = "Wi-Fi networks and passwords";
+                        wf.kb = 64;
+                        wf.selected = !enc;
+                        wf.sub = enc ? nets + " saved networks, but this tablet encrypts their passwords: add them again on Fedora"
+                                : nets + " saved network" + (nets == 1 ? "" : "s") + ". Passwords are stored in your package on the drive: keep it private";
+                        dirs.add(1, wf);
+                    }
                     break;
                 }
                 case "PKG":
@@ -562,12 +595,19 @@ public class MainActivity extends Activity {
             } else {
                 c.line = existingLine != null ? existingLine : "APP|" + name + "||";
             }
+        } else if ("SET".equals(kind) || "WIFI".equals(kind)) {
+            for (DirItem d : dirs)
+                if (kind.equals(d.kind)) {
+                    c.label = d.name;
+                    c.kb = d.kb;
+                }
+            c.line = "SET".equals(kind) ? "SET|settings" : "WIFI|wifi";
         } else if ("TOP".equals(kind)) {
             c.label = TOP_LABEL;
-            for (DirItem d : dirs) if (d.top) c.kb = d.kb;
+            for (DirItem d : dirs) if ("TOP".equals(d.kind)) c.kb = d.kb;
             c.line = "TOP|loose files";
         } else {
-            for (DirItem d : dirs) if (!d.top && d.name.equals(name)) c.kb = d.kb;
+            for (DirItem d : dirs) if ("DIR".equals(d.kind) && d.name.equals(name)) c.kb = d.kb;
             c.line = "DIR|" + name;
         }
         return c;
@@ -636,8 +676,8 @@ public class MainActivity extends Activity {
                 fresh.add(c);
             }
         for (DirItem d : dirs)
-            if (!inPlan.contains(d.top ? "TOP|loose files" : "DIR|" + d.name)) {
-                Change c = makeChange(d.top ? "TOP" : "DIR", d.name, null);
+            if (!inPlan.contains(dirLine(d))) {
+                Change c = makeChange(d.kind, d.name, null);
                 c.sub = "Not in the package \u00b7 " + human(c.kb);
                 fresh.add(c);
             }
@@ -747,13 +787,14 @@ public class MainActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         for (DirItem d : dirs) {
-            body.addView(row(null, d.name, d.top ? d.count + " files that are not in a folder \u00b7 " + human(d.kb) : human(d.kb),
+            body.addView(row(null, d.name, d.sub != null ? d.sub
+                    : d.top ? d.count + " files that are not in a folder \u00b7 " + human(d.kb) : human(d.kb),
                     null, d.selected, c -> {
                 d.selected = c;
                 updateSpace();
             }));
         }
-        screen("2. Folders to take along", "From internal storage (photos, downloads, documents...).",
+        screen("2. Settings and folders to take along", "Your settings, Wi-Fi, and folders from internal storage.",
                 body, true, "Next", this::pickDest, "Back", this::pickApps);
     }
 

@@ -226,3 +226,15 @@ install sessions inside the Waydroid image, file ownership seen through Android'
 | Android side: download Fedora (checksummed) to the drive with `manifest.env` + `SHA256SUMS`, final package top-up, build the ZIP, queue it for TWRP (`/cache/recovery/openrecoveryscript`), reboot to recovery | app | Next |
 
 Failure behaviour: anything that fails before the `write-root` step stops in TWRP with "Nothing was erased. You can reboot to Android normally." A failure after it stops in TWRP with "Android was already replaced. Do NOT reboot yet" and the log saved on the drive.
+
+## Settings carried over (v0.1.7 pack, restore step 4/6)
+
+| Setting | Captured from Android | Applied on Fedora |
+|---|---|---|
+| Home and lock wallpaper | `/data/system/users/0/wallpaper{,_lock}` | `plasma-apply-wallpaperimage`; lock screen via `kscreenlockerrc` |
+| Dark / light mode | `settings get secure ui_night_mode` | Breeze Dark / Breeze look-and-feel |
+| Time zone | `persist.sys.timezone` | `timedatectl set-timezone` |
+| Language and region | `persist.sys.locale` | `plasma-localerc` (next login; langpacks hint) |
+| Device name | `settings get global device_name` | `hostnamectl` pretty + static name |
+| Wi-Fi networks | `WifiConfigStore.xml` (WPA2, WPA3, open) | NetworkManager connections; existing ones skipped; enterprise/WEP/encrypted listed to add by hand. **Passwords are stored in the package: keep the drive private** |
+| Bluetooth pairings (experimental) | `bt_config.conf` link keys | BlueZ `/var/lib/bluetooth/<adapter>/<device>/info`, only when the adapter address matches Android's; otherwise re-pair once |

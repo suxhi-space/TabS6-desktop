@@ -30,6 +30,8 @@ jobs:
           bash -n tools/migrate/s6-doctor.sh
           bash -n tools/migrate/s6-android.sh
           sh -n tools/migrate/switch/update-binary
+          # TWRP's shell (mksh) can't redirect to two-digit file descriptors: write via /proc/self/fd/$OUTFD
+          ! grep -n '>&"\?\$OUTFD' tools/migrate/switch/update-binary
           bash -n tools/migrate/switch/s6-firstrun
 
       - uses: actions/setup-java@v4

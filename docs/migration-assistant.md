@@ -319,3 +319,8 @@ The app follows the concept design: a sidebar with six steps on the tablet (a st
 **Manual start in TWRP.** Some TWRP builds (seen with 3.7.0_9-15_mentalmuso on a GSI) open their main menu instead of running `/cache/recovery/openrecoveryscript`.
 - The app now also puts the ZIP on the card or drive as `S6Migrate/S6Migrate-rehearsal.zip` or `S6Migrate-UPGRADE.zip`, and shows the steps: Install, Select Storage, S6Migrate folder, the ZIP, then swipe.
 - When the app opens again and finds the old request still queued from before the restart, it says TWRP didn't run it and removes the request.
+
+**TWRP output fix (app 0.3.1).** On the tablet, TWRP ran the ZIP but showed no lines, only "Updater process ended with ERROR: 1".
+- **Cause:** TWRP passes a two-digit output descriptor (for example 54), and mksh (TWRP's shell) rejects `>&54` ("illegal file descriptor name"). Every message was lost, and the real stop reason was hidden.
+- **Fix:** the script now writes through `/proc/self/fd/$OUTFD`, as Magisk does. The rehearsal and the full switch pass the mocked tests under mksh, busybox ash, dash and bash.
+- **Guard:** CI checks that the old redirect doesn't come back.

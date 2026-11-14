@@ -29,10 +29,10 @@ clear_bcb() { # make the next restart a normal boot (not back into TWRP)
   [ -b "$misc" ] && dd if=/dev/zero of="$misc" bs=32 count=1 conv=notrunc 2>/dev/null
 }
 ui() { # show a line on the TWRP screen and in the log
-  if [ "${S6S_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >&"$OUTFD"; echo "ui_print" >&"$OUTFD"; fi
+  if [ "${S6S_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; fi
   echo "$*" >> "$LOG"
 }
-progress() { [ "${S6S_TEST:-0}" = 1 ] || echo "set_progress $1" >&"$OUTFD"; }
+progress() { [ "${S6S_TEST:-0}" = 1 ] || echo "set_progress $1" >> /proc/self/fd/$OUTFD; }
 die() {
   ui " "
   ui "STOPPED: $*"

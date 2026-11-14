@@ -54,4 +54,4 @@ EOF2
 ( cd "$OUT" && find . -type f ! -name SHA256SUMS | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS )
 # Internal storage files must belong to media_rw (1023) to stay readable over MTP/adb; no-op on FAT/exFAT cards.
 chown -R 1023:1023 "${OUT%/*}" 2>/dev/null
-[ $bad = 0 ] && echo "PACK-OK" || echo "PACK-HAD-ERRORS"
+if [ $bad = 0 ]; then echo complete > "$OUT/status.txt"; echo "PACK-OK"; else echo errors > "$OUT/status.txt"; echo "PACK-HAD-ERRORS"; fi

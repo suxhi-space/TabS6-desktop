@@ -29,6 +29,13 @@ case "$fst" in *metadata_encryption*) me=yes ;; *) me=no ;; esac
 echo "CRYPTO|$(getprop ro.crypto.state)|$(getprop ro.crypto.volume.filenames_mode)|$me"
 PR="$RP/data/linux-probe/probe.bin"
 [ -f "$PR" ] && echo "PROBE|$(sha256sum "$PR" | cut -d' ' -f1)"
+for base in "$RP"/mnt/media_rw/* "$MEDIA"; do
+  for pk in "$base"/S6Migrate/*; do
+    [ -f "$pk/plan.txt" ] || continue
+    st=unknown; [ -f "$pk/status.txt" ] && st=$(head -1 "$pk/status.txt"); [ "$st" = unknown ] && [ -f "$pk/SHA256SUMS" ] && st=complete
+    echo "PKG|$pk|$(grep -c . "$pk/plan.txt")|$(du -sk "$pk" 2>/dev/null | cut -f1)|$st"
+  done
+done
 echo "INTFREE|$(df -k "$RP/data" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)"
 KS="$RP/data/misc/keystore/persistent.sqlite"
 [ -n "$OUTDIR" ] && [ -f "$KS" ] && cp "$KS" "$OUTDIR/ks.sqlite" && chmod 644 "$OUTDIR/ks.sqlite"

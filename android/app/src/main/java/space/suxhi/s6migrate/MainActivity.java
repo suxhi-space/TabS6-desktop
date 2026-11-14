@@ -85,6 +85,7 @@ public class MainActivity extends Activity {
     final List<AppItem> apps = new ArrayList<>();
     final List<DirItem> dirs = new ArrayList<>();
     final List<Vol> vols = new ArrayList<>();
+    final List<String[]> packages = new ArrayList<>(); // PKG|path|items|kb|status
     long internalFreeKb;
     String cryptoMode = "", probeHash = "";
     boolean metadataEncryption, keystoreChecked;
@@ -331,6 +332,9 @@ public class MainActivity extends Activity {
                 case "PROBE":
                     probeHash = f[1];
                     break;
+                case "PKG":
+                    if (f.length >= 5) packages.add(f);
+                    break;
                 default:
                     break;
             }
@@ -440,9 +444,40 @@ public class MainActivity extends Activity {
         void set(boolean checked);
     }
 
+    /** Card listing packages already made, so the user knows their earlier run is safe. */
+    View savedPackages() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setBackgroundColor(0x2251A2DA);
+        card.addView(text(packages.size() == 1 ? "You already have a saved package" : "You already have saved packages", 16, true));
+        for (String[] p : packages) {
+            String path = p[1];
+            String folder = path.substring(path.lastIndexOf('/') + 1);
+            String when = folder;
+            try {
+                Date d = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).parse(folder);
+                when = new SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()).format(d);
+            } catch (Exception ignored) {
+            }
+            String where = path.startsWith("/data/media") ? "internal storage" : "external drive";
+            for (Vol v : vols) if (path.startsWith(v.path + "/")) where = vName(v);
+            String status = "complete".equals(p[4]) ? "verified" : "errors".equals(p[4]) ? "finished with errors" : "status unknown";
+            card.addView(text("• " + when + ": " + parse(p[2]) + " items, " + human(parse(p[3])) + " on " + where + " (" + status + ")", 14, false));
+        }
+        card.addView(text("It stays saved for the switch to Fedora. Pack again only if you want a fresher copy; "
+                + "a new package does not replace the old one.", 13, false));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(12);
+        card.setLayoutParams(lp);
+        return card;
+    }
+
     void pickApps() {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
+        if (!packages.isEmpty()) body.addView(savedPackages());
         if (!keystoreChecked) {
             body.addView(text("(Keystore check unavailable: no warnings about apps whose data cannot move.)", 12, false));
         }

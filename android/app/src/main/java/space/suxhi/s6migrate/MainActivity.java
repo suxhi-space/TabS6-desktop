@@ -445,6 +445,7 @@ public class MainActivity extends Activity {
             return;
         }
         Collections.sort(apps, (x, y) -> x.label.compareToIgnoreCase(y.label));
+        loadAlternatives();
         home();
     }
 
@@ -1139,6 +1140,24 @@ public class MainActivity extends Activity {
     }
 
     /** Start screen: saved packages (compare / update) or make a new one. Shown only when packages exist. */
+    void credits() {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        TextView t = text("S6 Migrate packs your Android apps, data, files and settings, installs an existing Fedora port "
+                + "for the Galaxy Tab S6 from the tablet itself, and puts everything back. The hard work of running Linux "
+                + "on this tablet was done by these projects:\n\n"
+                + "\u2022 Bentlybro: gts6l-mainline-linux, the mainline Linux port\n  https://github.com/Bentlybro/gts6l-mainline-linux\n\n"
+                + "\u2022 starlight4you: t860-fedora, the Fedora build and installer used for the switch\n  https://github.com/starlight4you/t860-fedora\n\n"
+                + "\u2022 Project Aloha: SM8150 UEFI and DualBootKernelPatcher\n  https://github.com/Project-Aloha\n\n"
+                + "\u2022 Magisk (topjohnwu), TWRP, Waydroid, LineageOS, Fedora, KDE, Mesa, linux-msm\n\n"
+                + "\u2022 Linux apps suggested for your apps, such as Pear Desktop for YouTube Music\n  https://github.com/pear-devs/pear-desktop\n\n"
+                + "Full list: CREDITS.md in the S6 Migrate repository.", 15, false);
+        t.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
+        t.setLinksClickable(true);
+        body.addView(t);
+        screen("About and credits", null, body, false, null, null, "Back", this::home);
+    }
+
     void home() {
         if (packages.isEmpty()) {
             pickApps();
@@ -1153,6 +1172,10 @@ public class MainActivity extends Activity {
         body.addView(sw);
         body.addView(text("Checks everything and downloads Fedora first. Nothing is erased until you confirm at the very end.", 13, false));
         body.addView(text("\nOr make a new, separate package with a different selection. Your saved package is not changed.", 14, false));
+        Button cr = new Button(this);
+        cr.setText("About and credits");
+        cr.setOnClickListener(x -> credits());
+        body.addView(cr);
         screen("Tab S6 Migration Assistant", "Your apps, data and files, packed for the move to Fedora",
                 body, false, "Make a new package", this::pickApps, "Close", this::finish);
     }
@@ -1164,7 +1187,9 @@ public class MainActivity extends Activity {
             body.addView(text("(Keystore check unavailable: no warnings about apps whose data cannot move.)", 12, false));
         }
         for (AppItem a : apps) {
-            body.addView(row(a.icon, a.label, a.pkg + "  ·  " + human(a.kb),
+            String alt = altFor(a.pkg);
+            body.addView(row(a.icon, a.label, a.pkg + "  ·  " + human(a.kb)
+                            + (alt != null ? "\nOn Fedora: " + alt + " is installed for you, and this Android app is kept too" : ""),
                     a.keystore ? "Data is locked to this tablet's security chip: the app moves, its data may not" : null,
                     a.selected, c -> {
                         a.selected = c;
@@ -1265,6 +1290,31 @@ public class MainActivity extends Activity {
                 n++;
             }
         runPack(out, sb.toString(), n, selectedKb(), false);
+    }
+
+    /** Android package -> Linux version name, from the shared alternatives.tsv. */
+    final Map<String, String> altExact = new HashMap<>();
+    final List<String[]> altPrefix = new ArrayList<>();
+
+    void loadAlternatives() {
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open("alternatives.tsv")))) {
+            String l;
+            while ((l = r.readLine()) != null) {
+                if (l.startsWith("#") || l.trim().isEmpty()) continue;
+                String[] f = l.split("\t");
+                if (f.length < 3) continue;
+                if (f[0].endsWith("*")) altPrefix.add(new String[]{f[0].substring(0, f[0].length() - 1), f[1]});
+                else altExact.put(f[0], f[1]);
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    String altFor(String pkg) {
+        String a = altExact.get(pkg);
+        if (a != null) return a;
+        for (String[] p : altPrefix) if (pkg.startsWith(p[0])) return p[1];
+        return null;
     }
 
     static String planLine(AppItem a) {

@@ -213,6 +213,46 @@ public class MainActivity extends Activity {
         return p.waitFor();
     }
 
+    /** One long-lived root shell, so repeated small commands do not each make Magisk show a toast. */
+    static class RootShell {
+        final Process p;
+        final java.io.Writer w;
+        final BufferedReader r;
+
+        RootShell() throws IOException {
+            p = new ProcessBuilder("su").redirectErrorStream(true).start();
+            w = new java.io.OutputStreamWriter(p.getOutputStream());
+            r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        }
+
+        synchronized String run(String cmd) throws IOException {
+            final String end = "__S6M_END__";
+            w.write(cmd + "; echo " + end + "\n");
+            w.flush();
+            StringBuilder sb = new StringBuilder();
+            String l;
+            while ((l = r.readLine()) != null && !l.equals(end)) sb.append(l).append('\n');
+            return sb.toString();
+        }
+
+        void close() {
+            try {
+                w.write("exit\n");
+                w.flush();
+            } catch (IOException ignored) {
+            }
+            p.destroy();
+        }
+    }
+
+    static long duKb(RootShell rs, String path) {
+        try {
+            return parse(rs.run("du -sk " + q(path) + " 2>/dev/null").trim().split("\\s+")[0]);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     static int rootToFile(String cmd, File out) throws IOException, InterruptedException {
         Process p = new ProcessBuilder("su", "-c", cmd).start();
         long n = 0;
@@ -827,31 +867,31 @@ public class MainActivity extends Activity {
         final long startMs = System.currentTimeMillis();
         // Live "written so far" counter, so a big item does not look frozen.
         new Thread(() -> {
-            long base = 0;
-            if (update) { // an update starts from the existing package size
-                final long[] b0 = {0};
-                try {
-                    runRoot("du -sk " + q(out) + " 2>/dev/null", l -> b0[0] = parse(l.split("\\s+")[0]));
-                } catch (Exception ignored) {
-                }
-                base = b0[0];
+            RootShell rs;
+            try {
+                rs = new RootShell();
+            } catch (IOException e) {
+                return; // no counter, packing itself still runs
             }
+            long base = update ? duKb(rs, out) : 0; // an update starts from the existing package size
             while (busy) {
                 try {
                     Thread.sleep(4000);
-                    final long[] kb = {0};
-                    runRoot("du -sk " + q(out) + " 2>/dev/null", l -> kb[0] = parse(l.split("\\s+")[0]));
-                    long done = Math.max(0, kb[0] - base);
-                    long secs = Math.max(1, (System.currentTimeMillis() - startMs) / 1000);
-                    long rate = done / secs; // KB/s
-                    String eta = rate > 0 && expectedKb > done
-                            ? ", about " + Math.max(1, (expectedKb - done) / rate / 60) + " min left" : "";
-                    String s = "Written so far: " + human(done) + " of about " + human(expectedKb)
-                            + (rate > 0 ? " (" + human(rate) + "/s" + eta + ")" : "");
-                    ui.post(() -> { if (busy) written.setText(s); });
-                } catch (Exception ignored) {
+                } catch (InterruptedException e) {
+                    break;
                 }
+                long done = Math.max(0, duKb(rs, out) - base);
+                long secs = Math.max(1, (System.currentTimeMillis() - startMs) / 1000);
+                long rate = done / secs; // KB/s
+                String eta = rate > 0 && expectedKb > done
+                        ? ", about " + Math.max(1, (expectedKb - done) / rate / 60) + " min left" : "";
+                String s = done >= expectedKb && expectedKb > 0
+                        ? "Written: " + human(done) + ". Finishing: checking and recording checksums..."
+                        : "Written so far: " + human(done) + " of about " + human(expectedKb)
+                        + (rate > 0 ? " (" + human(rate) + "/s" + eta + ")" : "");
+                ui.post(() -> { if (busy) written.setText(s); });
             }
+            rs.close();
         }).start();
 
         String cmd = "sh " + q(new File(getCacheDir(), "pack.sh").getAbsolutePath()) + " '' "
@@ -866,6 +906,9 @@ public class MainActivity extends Activity {
                     last[0] = l;
                     ui.post(() -> {
                         log.append(l + "\n");
+                        if (l.startsWith("Updating checksums")) {
+                            status.setText("Finishing: recording checksums (only new or changed files are read)");
+                        }
                         if (l.startsWith("[")) {
                             int end = l.indexOf(']');
                             int n = (int) parse(end > 1 ? l.substring(1, end) : "0");

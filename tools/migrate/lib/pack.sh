@@ -90,7 +90,20 @@ SHA256SUMS                          checksums of every file
 
 Archives are split into parts; join them with:  cat NAME.tar.* | tar -xf -
 EOF2
-( cd "$OUT" && find . -type f ! -name SHA256SUMS ! -name status.txt | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS )
+# Checksums: on an update, reuse the existing checksum of every file that has not changed since the
+# last SHA256SUMS was written; only new or re-packed files are read again (fast even for big packages).
+echo "Updating checksums..."
+(
+  cd "$OUT" || exit 1
+  old=SHA256SUMS; [ -f "$old" ] || old=""
+  find . -type f ! -name SHA256SUMS ! -name SHA256SUMS.new ! -name status.txt | sort | while read -r f; do
+    line=""
+    if [ -n "$old" ] && [ ! "$f" -nt "$old" ]; then
+      line=$(grep -F "  $f" "$old" | while IFS= read -r l; do [ "${l#*  }" = "$f" ] && { echo "$l"; break; }; done)
+    fi
+    if [ -n "$line" ]; then echo "$line"; else sha256sum "$f"; fi
+  done > SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS
+)
 # Internal storage files must belong to media_rw (1023) to stay readable over MTP/adb; no-op on FAT/exFAT cards.
 chown -R 1023:1023 "${OUT%/*}" 2>/dev/null
 if [ $bad = 0 ]; then echo complete > "$OUT/status.txt"; echo "PACK-OK"; else echo errors > "$OUT/status.txt"; echo "PACK-HAD-ERRORS"; fi

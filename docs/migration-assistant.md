@@ -330,3 +330,12 @@ The app follows the concept design: a sidebar with six steps on the tablet (a st
 - **No awk:** drive detection reads `/proc/mounts` in plain shell.
 - **Fallbacks:** `tar`, `sha256sum`, `gzip` and `unzip` fall back to busybox or toybox applets.
 - **Tested:** rehearsal and full switch pass the mocked tests under mksh with only basic busybox applets (no unzip, awk or plain tar).
+
+**First real rehearsal passed (14 Nov 2026, app 0.3.2, TWRP 3.7.0_9-15_mentalmuso).**
+- Started automatically through OpenRecoveryScript.
+- Found the Fedora download on `/usb-otg` and the package on `/external_sd`.
+- Checked the 5 GB download against its checksums.
+- The t860-fedora installer's `prepare` passed, and the Android boot backup was saved to the drive.
+- Restarted into Android. Nothing was written to the tablet's partitions.
+
+Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore on Fedora.

@@ -194,3 +194,25 @@ A small built-in table maps Android package names to Linux alternatives; unknown
 Gwenview; file managers -> Dolphin; music players -> Elisa; video players -> Haruna or VLC; mail ->
 Thunderbird; note apps -> Joplin; office apps -> LibreOffice; PDF readers -> Okular. The map lives in
 the app so it can grow without changing the restore logic.
+
+## v0.2 Restore (`tools/migrate/s6-restore.sh`)
+
+Runs on Fedora as your user, inside the desktop session (it asks for sudo when needed):
+
+```bash
+s6-restore --dry-run     # show everything it would do, change nothing
+s6-restore               # do it
+```
+
+| Step | What it does |
+|---|---|
+| Find | Looks for `S6Migrate/<date>` on plugged-in drives (`/run/media/$USER/*`), `/var/lib/s6migrate/package*` (where v0.3 will copy it) and `~/S6Migrate/`; or pass the folder |
+| Check | Verifies every file against `SHA256SUMS` (`--skip-verify` to skip) |
+| Folders | DCIM -> `~/Pictures/DCIM`, Pictures -> `~/Pictures`, Download -> `~/Downloads`, Documents, Music, Movies -> `~/Videos`, recordings and ringtones -> `~/Music/<name>`, anything else -> `~/Android/<name>`, loose files -> `~/Android/`. Never overwrites: identical files are skipped, different files with the same name are kept side by side as `name (from Android).ext` |
+| Apps | Installs each app into Waydroid (all split APKs in one install session), force-stops it, then restores `data`, `data_de`, `Android/data` and `Android/obb` with the new app's owner (and Android's `ext_data_rw`/`ext_obb_rw`/cache groups). Apps flagged for the Android Keystore are installed fresh unless `--keystore-data` |
+| Native feel | Waydroid multi-window mode; hides Android's own Files, Browser, Gallery, Contacts, Dialer, Messages, Calendar, Clock, Recorder, Camera and Settings from the KDE menu; installs `s6migrate-waydroid-share.service`, which shows Pictures, Downloads, Documents, Music and Videos inside Android (bindfs when installed, so Android apps can also write there) |
+
+Tested against a simulated Fedora home and a simulated Waydroid. **To confirm on the real tablet**
+(the first Fedora boot): the `waydroid shell -- sh -c` form on the installed Waydroid version, `pm`
+install sessions inside the Waydroid image, file ownership seen through Android's storage layer for
+`Android/data`, `obb` and the shared folders, and SELinux relabelling inside the container.

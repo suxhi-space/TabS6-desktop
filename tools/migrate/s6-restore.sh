@@ -86,7 +86,7 @@ if [ -z "$PKG" ]; then
   fi
 fi
 [ -f "$PKG/plan.txt" ] || { say "Not a package (no plan.txt): $PKG"; exit 1; }
-NAPPS=$(grep -c '^APP|' "$PKG/plan.txt"); NDIRS=$(grep -c -E '^(DIR|TOP)\|' "$PKG/plan.txt")
+NAPPS=$(grep -c -E '^(APP|LINUX)\|' "$PKG/plan.txt"); NDIRS=$(grep -c -E '^(DIR|TOP)\|' "$PKG/plan.txt")
 say "Package: $PKG"
 say "Contains $NAPPS apps and $NDIRS folders ($(du -sh "$PKG" 2>/dev/null | cut -f1)). Status: $(cat "$PKG/status.txt" 2>/dev/null || echo unknown)"
 
@@ -330,14 +330,19 @@ alt_for() { # alt_for PKG -> "name<TAB>method<TAB>target<TAB>note" or nothing
   # 1. the hand-picked list
   [ -f "$ALT" ] && r=$(awk -F'\t' -v p="$1" '!/^#/ && NF>=4 { pat=$1; if (pat==p || (substr(pat,length(pat))=="*" && index(p, substr(pat,1,length(pat)-1))==1)) { print $2 "\t" $3 "\t" $4 "\t" $5; exit } }' "$ALT")
   # 2. confident matches the app found on Flathub (saved in the package)
+  #    (a less certain match counts too when you picked its Linux version in the app)
+  local picked=0
+  [ -f "$PKG/choices.txt" ] && grep -q -x -F -e "$1|linux" -e "$1|both" "$PKG/choices.txt" && picked=1
   [ -z "$r" ] && [ -f "$PKG/alternatives-found.tsv" ] && \
-    r=$(awk -F'\t' -v p="$1" '!/^#/ && $1==p && $5=="high" { print $2 " (from Flathub)\t" $3 "\t" $4 "\t" $6; exit }' "$PKG/alternatives-found.tsv")
+    r=$(awk -F'\t' -v p="$1" -v k="$picked" '!/^#/ && $1==p && ($5=="high" || (k==1 && $5!="none")) { print $2 " (from Flathub)\t" $3 "\t" $4 "\t" $6; exit }' "$PKG/alternatives-found.tsv")
   [ -n "$r" ] && printf '%s\n' "$r"
 }
 choice_for() { # keep | linux | both (the wizard writes choices.txt; default both when a Linux version exists)
   local c=""
   [ -f "$PKG/choices.txt" ] && c=$(grep -F -m1 "$1|" "$PKG/choices.txt" | while IFS='|' read -r p ch; do [ "$p" = "$1" ] && echo "$ch"; done)
-  if [ -n "$c" ]; then echo "$c"; elif [ -n "$(alt_for "$1")" ]; then echo both; else echo keep; fi
+  if [ -n "$c" ]; then echo "$c"
+  elif grep -q "^LINUX|$1|" "$PKG/plan.txt" 2>/dev/null; then echo linux
+  elif [ -n "$(alt_for "$1")" ]; then echo both; else echo keep; fi
 }
 
 # ------------------------------------------------------------------ 5. apps into Waydroid
@@ -445,7 +450,7 @@ if [ $DO_ALT = 1 ] && [ "$NAPPS" -gt 0 ] && [ $DO_APPS = 1 ]; then
   step "6/7 Linux versions of your apps"
   seen=" "; nalt=0
   while IFS='|' read -r t pkg rest; do
-    [ "$t" = APP ] || continue
+    [ "$t" = APP ] || [ "$t" = LINUX ] || continue
     ch=$(choice_for "$pkg"); [ "$ch" = keep ] && continue
     a=$(alt_for "$pkg"); [ -n "$a" ] || continue
     IFS=$'\t' read -r aname amethod atarget anote <<< "$a"

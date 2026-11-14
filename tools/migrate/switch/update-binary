@@ -61,33 +61,43 @@ REHEARSAL=0
 { [ -f "$W/zip/s6migrate/REHEARSAL" ] || [ -f "${S6S_PAYLOAD:-/nonexistent}/REHEARSAL" ]; } && REHEARSAL=1
 [ $REHEARSAL = 1 ] && ui "REHEARSAL: runs every check, then returns to Android. Nothing is erased."
 
-# ---------------------------------------------------------------- 1. find the drive
-ui "1/6 Looking for your USB drive or microSD card..."
-find_drive() {
+# ---------------------------------------------------------------- 1. find the drives
+ui "1/6 Looking for your USB drive and microSD card..."
+# Every drive we can see, mounted by TWRP or mounted here: "<mount point>|<block device>" lines.
+list_drives() {
+  local m dev n=0
   for m in ${S6S_MOUNTS:-$(awk '{print $2}' /proc/mounts)}; do
-    if [ -d "$m/S6Migrate/fedora" ]; then
-      awk -v m="$m" '$2==m {print $1}' /proc/mounts | head -1 > "$W/drive_dev"
-      echo "$m"; return 0
-    fi
+    [ -d "$m/S6Migrate" ] && echo "$m|$(awk -v m="$m" '$2==m {print $1}' /proc/mounts | head -1)"
   done
-  # Not mounted yet: try USB drives (sde and up; sda-sdd are internal storage) and the microSD card.
-  mkdir -p /tmp/s6m-drive
+  [ -n "${S6S_MOUNTS:-}" ] && return 0
+  # Not mounted yet: USB drives (sde and up; sda-sdd are internal storage) and the microSD card.
   for dev in /dev/block/sd[e-z]1 /dev/block/sd[e-z] /dev/block/mmcblk0p1 /dev/block/mmcblk1p1; do
     [ -b "$dev" ] || continue
+    grep -q "^$dev " /proc/mounts && continue
+    n=$((n+1)); mkdir -p "/tmp/s6m-drive$n"
     for fs in exfat sdfat vfat; do
-      if mount -t "$fs" "$dev" /tmp/s6m-drive 2>/dev/null; then
-        [ -d /tmp/s6m-drive/S6Migrate/fedora ] && { echo "$dev" > "$W/drive_dev"; echo /tmp/s6m-drive; return 0; }
-        umount /tmp/s6m-drive
+      if mount -t "$fs" "$dev" "/tmp/s6m-drive$n" 2>/dev/null; then
+        if [ -d "/tmp/s6m-drive$n/S6Migrate" ]; then echo "/tmp/s6m-drive$n|$dev"; else umount "/tmp/s6m-drive$n"; fi
+        break
       fi
     done
   done
-  return 1
 }
-DRIVE=$(find_drive) || die "no drive with an S6Migrate/fedora folder found. Plug in the drive and try again."
+list_drives > "$W/drives"
+DRIVE=""; PKG=""; PKG_DEV=""
+while IFS='|' read -r m dev; do
+  # the drive with the finished Fedora download (s6-download.env is written only once every file is verified)
+  [ -z "$DRIVE" ] && [ -f "$m/S6Migrate/fedora/s6-download.env" ] && DRIVE=$m
+  for p in "$m"/S6Migrate/2*/; do        # the newest package on any drive
+    p=${p%/}; [ -f "$p/plan.txt" ] || continue
+    if [ -z "$PKG" ] || [ "${p##*/}" \> "${PKG##*/}" ]; then PKG=$p; PKG_DEV=$dev; fi
+  done
+done < "$W/drives"
+[ -n "$DRIVE" ] || die "no drive with a finished Fedora download (S6Migrate/fedora) found. Plug in the drive and try again."
 F="$DRIVE/S6Migrate/fedora"
-ui "   found: $DRIVE"
-PKG=$(ls -d "$DRIVE"/S6Migrate/2*/ 2>/dev/null | sort | tail -1); PKG=${PKG%/}
-[ -n "$PKG" ] && [ -f "$PKG/plan.txt" ] && ui "   your package: ${PKG##*/}" || ui "   no package found: Fedora will start empty"
+echo "$PKG_DEV" > "$W/drive_dev"
+ui "   Fedora download on: $DRIVE"
+[ -n "$PKG" ] && ui "   your package: ${PKG##*/} on ${PKG%/S6Migrate/*}" || ui "   no package found: Fedora will start empty"
 progress 0.05
 
 # ---------------------------------------------------------------- 2. verify the download
@@ -137,35 +147,41 @@ ui "   Fedora written and verified"
 progress 0.75
 
 # ---------------------------------------------------------------- 5. migration into the new system
+# Nothing here may stop the switch: Fedora is already written, and step 6 (the boot files) must run
+# or the tablet would start neither system. Problems are collected and shown at the end.
 ui "5/6 Setting up your move (restore tool, your package)..."
+WARN=""
+warn() { WARN="$WARN
+   - $*"; ui "   warning: $*"; }
 ROOT=${S6S_ROOTMNT:-/tmp/s6m-root}
+ROOT_OK=1
 if [ -z "${S6S_ROOTMNT:-}" ]; then
   USERDATA=$(readlink -f /dev/block/by-name/userdata 2>/dev/null || readlink -f /dev/block/bootdevice/by-name/userdata)
-  mkdir -p "$ROOT" && mount -t ext4 "$USERDATA" "$ROOT" || die "could not open the new system to add your package"
+  mkdir -p "$ROOT" && mount -t ext4 "$USERDATA" "$ROOT" || { ROOT_OK=0; warn "could not open the new system to add your package and tools"; }
 fi
-SRC="$W/zip/s6migrate"; [ -d "$SRC" ] || SRC="${S6S_PAYLOAD:-$SRC}"
-install -m 755 "$SRC/s6-restore" "$ROOT/usr/local/bin/s6-restore" 2>/dev/null \
-  || { mkdir -p "$ROOT/usr/local/bin" && cp "$SRC/s6-restore" "$ROOT/usr/local/bin/s6-restore" && chmod 755 "$ROOT/usr/local/bin/s6-restore"; } \
-  || die "could not add the restore tool"
-cp "$SRC/s6-firstrun" "$ROOT/usr/local/bin/s6-firstrun" && chmod 755 "$ROOT/usr/local/bin/s6-firstrun" || die "could not add the first-start assistant"
-cp "$SRC/s6-doctor" "$ROOT/usr/local/bin/s6-doctor" && chmod 755 "$ROOT/usr/local/bin/s6-doctor" || die "could not add the repair tool"
-cp "$SRC/s6-android" "$ROOT/usr/local/bin/s6-android" && chmod 755 "$ROOT/usr/local/bin/s6-android" || die "could not add the Android app manager"
-mkdir -p "$ROOT/usr/local/share/s6migrate" && cp "$SRC/alternatives.tsv" "$ROOT/usr/local/share/s6migrate/" || die "could not add the Linux app list"
-mkdir -p "$ROOT/etc/xdg/autostart" && cp "$SRC/s6migrate-firstrun.desktop" "$ROOT/etc/xdg/autostart/" || die "could not add the first-start entry"
-mkdir -p "$ROOT/var/lib/s6migrate"
-if [ -n "$PKG" ]; then
-  case "$(cat "$W/drive_dev" 2>/dev/null)" in *mmcblk*|*public:179*) on_card=1 ;; *) on_card=0 ;; esac
-  if [ $on_card = 1 ]; then
-    # Fedora cannot read the microSD slot yet: copy the package into the new system.
-    ui "   copying your package into Fedora (the microSD card is not readable there yet)..."
-    cp -a "$PKG" "$ROOT/var/lib/s6migrate/package-${PKG##*/}" || die "copying your package failed (Fedora is installed; copy it later from a computer)"
-  else
-    echo "$PKG" > "$ROOT/var/lib/s6migrate/package-location"
-    ui "   your package stays on the USB drive; plug it in on first start"
+if [ $ROOT_OK = 1 ]; then
+  SRC="$W/zip/s6migrate"; [ -d "$SRC" ] || SRC="${S6S_PAYLOAD:-$SRC}"
+  mkdir -p "$ROOT/usr/local/bin" "$ROOT/usr/local/share/s6migrate" "$ROOT/etc/xdg/autostart" "$ROOT/var/lib/s6migrate"
+  for t in s6-restore s6-firstrun s6-doctor s6-android; do
+    cp "$SRC/$t" "$ROOT/usr/local/bin/$t" && chmod 755 "$ROOT/usr/local/bin/$t" || warn "could not add $t"
+  done
+  cp "$SRC/alternatives.tsv" "$ROOT/usr/local/share/s6migrate/" 2>/dev/null || warn "could not add the Linux app list"
+  cp "$SRC/s6migrate-firstrun.desktop" "$ROOT/etc/xdg/autostart/" || warn "could not add the first-start entry"
+  if [ -n "$PKG" ]; then
+    case "$(cat "$W/drive_dev" 2>/dev/null)" in *mmcblk*|*public:179*) on_card=1 ;; *) on_card=0 ;; esac
+    if [ $on_card = 1 ]; then
+      # Fedora cannot read the microSD slot yet: copy the package into the new system.
+      ui "   copying your package into Fedora (the microSD card is not readable there yet)..."
+      cp -a "$PKG" "$ROOT/var/lib/s6migrate/package-${PKG##*/}" \
+        || warn "copying your package failed; it is still on the card: copy it to Fedora later with a card reader"
+    else
+      echo "$PKG" > "$ROOT/var/lib/s6migrate/package-location"
+      ui "   your package stays on the USB drive; plug it in on first start"
+    fi
   fi
+  sync
+  [ -z "${S6S_ROOTMNT:-}" ] && umount "$ROOT"
 fi
-sync
-[ -z "${S6S_ROOTMNT:-}" ] && umount "$ROOT"
 progress 0.85
 
 # ---------------------------------------------------------------- 6. finish
@@ -176,6 +192,7 @@ cp "$LOG" "$DRIVE/S6Migrate/switch-log.txt" 2>/dev/null
 progress 1
 ui " "
 ui "Done. Fedora is installed."
+[ -n "$WARN" ] && ui "Some extras need attention (details in S6Migrate/switch-log.txt):$WARN"
 ui "The tablet restarts into Fedora. Log in as fedora / fedora and change the password."
 ui "S6 Migrate opens by itself and brings your files and apps back."
 clear_bcb

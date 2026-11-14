@@ -288,3 +288,17 @@ can read the drive, without erasing anything.
    x86_64 (Spotify, Discord, Steam, Zoom, Blender), the app says so and still offers ARM alternatives
    (e.g. Riff for Spotify, Vesktop for Discord). Results are cached for 14 days and saved in the
    package as `alternatives-found.tsv`. Offline, the lookup is skipped.
+
+## Per-app choice, Fedora download drive (app 0.2.4)
+
+- **Each app with a Linux version gets a choice:** both, only the Linux version, or only the Android app.
+  - *Only the Linux version* writes a `LINUX|pkg|name` line to the plan. Nothing is packed for it, and it counts 0 toward the space needed.
+  - Updating a package removes data that was stored earlier for an app now set to Linux only.
+  - The choices are saved in `choices.txt` in the package, and `s6-restore` follows them.
+  - A less certain Flathub match is installed when you picked its Linux version yourself.
+- **Hand-picked list is fetched live:** the app reads `alternatives.tsv` from GitHub on each start, once the repository is public. It falls back to the copy built into the app.
+- **Download drive is your choice:** the switch screen lists every card and USB drive with its own free space, and you choose where the Fedora download goes.
+  - Internal storage is never offered, because the switch erases it while TWRP reads the download.
+  - TWRP uses the drive with a *finished* download (`s6-download.env` present). An unfinished download on another drive is ignored.
+  - The package and the download may be on different drives.
+- **TWRP step 5 problems no longer stop the switch:** a problem installing the S6 Migrate tools on Fedora is logged as a warning, and the switch still finishes so the tablet boots.

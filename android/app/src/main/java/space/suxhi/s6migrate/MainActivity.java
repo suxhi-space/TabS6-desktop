@@ -81,6 +81,7 @@ public class MainActivity extends Activity {
         long kb;
         boolean keystore, selected;
         Drawable icon;
+        String choice = "keep"; // keep = Android only, both = Android + Linux, linux = Linux only (nothing packed)
     }
 
     static class DirItem {
@@ -465,7 +466,7 @@ public class MainActivity extends Activity {
 
     long selectedKb() {
         long t = 0;
-        for (AppItem a : apps) if (a.selected) t += a.kb;
+        for (AppItem a : apps) if (a.selected && !"linux".equals(a.choice)) t += a.kb;
         for (DirItem d : dirs) if (d.selected) t += d.kb;
         return t;
     }
@@ -494,9 +495,10 @@ public class MainActivity extends Activity {
                     .append("    + Fedora download (one-button switch): ")
                     .append(fit(v.freeKb, sel + m + FEDORA_DOWNLOAD_KB)).append("\n");
         }
+        s.append("  (The Fedora download always goes on a card or USB drive: the switch erases internal storage.)\n");
         long needB = FEDORA_IMAGE_KB + sel + m + FEDORA_HEADROOM_KB;
         s.append("\nPlan B: Linux next to Android (internal storage)\n")
-                .append("  ").append(human(internalFreeKb)).append(" free, needs ").append(human(needB))
+                .append("  Internal storage: ").append(human(internalFreeKb)).append(" free, needs ").append(human(needB))
                 .append(" (Fedora 18 GB + selection + 4 GB): ").append(fit(internalFreeKb, needB)).append("\n");
         if (metadataEncryption) {
             s.append("  Encryption: whole partition. Plan B is not possible on this tablet.");
@@ -656,6 +658,7 @@ public class MainActivity extends Activity {
             String[] f = l.split("\\|", -1);
             if (f.length >= 2) {
                 inPlan.add(f[0] + "|" + f[1]);
+                if ("LINUX".equals(f[0])) inPlan.add("APP|" + f[1]);
                 planLines.put(f[0] + "|" + f[1], l);
             }
         }
@@ -774,6 +777,7 @@ public class MainActivity extends Activity {
             {"T860-Fedora44-GPU18-rootfs.img.gz.part002", "1761929796", "50ca7a017fe9ba6d9995f7e438ecc681efafd4fa8d40543b626dac589385dd78"},
     };
     String[] switchPkg;
+    String fedoraDrive; // drive the user picked for the Fedora download (external only)
     volatile boolean cancelDownload;
 
     static String folderOf(String path) { return path.substring(path.lastIndexOf('/') + 1); }
@@ -814,40 +818,95 @@ public class MainActivity extends Activity {
         body.addView(new ProgressBar(this));
         body.addView(text("Checking your tablet (read-only)...", 15, false));
         screen("Switch to Fedora", null, body, false, null, null, "Back", this::home);
-        final String drive = driveOf(switchPkg[1]);
-        final String fdir = drive + "/S6Migrate/fedora";
+        final String pkgDrive = driveOf(switchPkg[1]);
+        final List<String> drives = new ArrayList<>();
+        for (Vol vo : vols) drives.add(vo.path);
+        if (!drives.contains(pkgDrive)) drives.add(0, pkgDrive);
         new Thread(() -> {
             StringBuilder names = new StringBuilder();
             for (String[] f : FEDORA_FILES) names.append(' ').append(f[0]);
-            String sh = "echo MODEL=$(getprop ro.product.vendor.model);"
+            StringBuilder sh = new StringBuilder("echo MODEL=$(getprop ro.product.vendor.model);"
                     + "echo BAT=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null);"
-                    + "echo CHG=$(cat /sys/class/power_supply/battery/status 2>/dev/null);"
-                    + "for f in" + names + "; do [ -f " + q(fdir) + "/$f.verified ] && echo VERIFIED=$f;"
-                    + " [ -f " + q(fdir) + "/$f.partial ] && echo PARTIAL=$f=$(stat -c %s " + q(fdir) + "/$f.partial); done;"
-                    + "echo FREE=$(df -k " + q(drive) + " | tail -1 | tr -s ' ' | cut -d' ' -f4);"
-                    + "L=" + q(drive + "/S6Migrate/switch-log.txt") + "; [ -f \"$L\" ] && { grep -q S6MIGRATE-REHEARSAL-PASSED \"$L\" && echo LAST=passed"
-                    + " || echo LAST=$(grep -m1 STOPPED \"$L\" | cut -c1-200); }";
+                    + "echo CHG=$(cat /sys/class/power_supply/battery/status 2>/dev/null);");
+            for (int i = 0; i < drives.size(); i++) {
+                String dr = drives.get(i), fd = dr + "/S6Migrate/fedora";
+                sh.append("for f in").append(names).append("; do [ -f ").append(q(fd)).append("/$f.verified ] && echo D").append(i).append("VERIFIED=$f;")
+                        .append(" [ -f ").append(q(fd)).append("/$f.partial ] && echo D").append(i).append("PARTIAL=$f=$(stat -c %s ").append(q(fd)).append("/$f.partial); done;")
+                        .append("echo D").append(i).append("FREE=$(df -k ").append(q(dr)).append(" | tail -1 | tr -s ' ' | cut -d' ' -f4);")
+                        .append("L=").append(q(dr + "/S6Migrate/switch-log.txt")).append("; [ -f \"$L\" ] && { grep -q S6MIGRATE-REHEARSAL-PASSED \"$L\" && echo D").append(i).append("LAST=passed")
+                        .append(" || echo D").append(i).append("LAST=$(grep -m1 STOPPED \"$L\" | cut -c1-200); };");
+            }
             final Map<String, String> v = new HashMap<>();
-            final Set<String> verified = new HashSet<>();
-            final long[] partialBytes = {0};
+            final List<DriveState> states = new ArrayList<>();
+            for (String dr : drives) { DriveState ds = new DriveState(); ds.path = dr; states.add(ds); }
             try {
-                runRoot(sh, l -> {
+                runRoot(sh.toString(), l -> {
                     int i = l.indexOf('=');
                     if (i < 0) return;
                     String k = l.substring(0, i), val = l.substring(i + 1);
-                    if (k.equals("VERIFIED")) verified.add(val);
-                    else if (k.equals("PARTIAL")) partialBytes[0] += parse(val.substring(val.lastIndexOf('=') + 1));
-                    else v.put(k, val);
+                    java.util.regex.Matcher mt = Pattern.compile("^D(\\d+)(\\w+)$").matcher(k);
+                    if (!mt.matches()) { v.put(k, val); return; }
+                    int di = Integer.parseInt(mt.group(1));
+                    if (di >= states.size()) return;
+                    DriveState ds = states.get(di);
+                    switch (mt.group(2)) {
+                        case "VERIFIED": ds.verified.add(val); break;
+                        case "PARTIAL": ds.partial += parse(val.substring(val.lastIndexOf('=') + 1)); break;
+                        case "FREE": ds.freeKb = parse(val); break;
+                        case "LAST": ds.last = val; break;
+                    }
                 });
             } catch (Exception e) {
                 ui.post(() -> message("Could not check", String.valueOf(e.getMessage())));
                 return;
             }
-            ui.post(() -> showSwitchChecks(v, verified, partialBytes[0], drive, fdir));
+            ui.post(() -> showSwitchChecks(v, states));
         }).start();
     }
 
-    void showSwitchChecks(Map<String, String> v, Set<String> verified, long partialBytes, String drive, String fdir) {
+    static class DriveState {
+        String path, last;
+        long freeKb, partial;
+        final Set<String> verified = new HashSet<>();
+
+        long missingBytes() {
+            long need = 0;
+            for (String[] f : FEDORA_FILES) if (!verified.contains(f[0])) need += Long.parseLong(f[1]);
+            return Math.max(0, need - partial);
+        }
+
+        long neededKb() { return missingBytes() / 1024 + 204800; }
+
+        boolean done() { return verified.size() == FEDORA_FILES.length; }
+    }
+
+    String driveName(String path) {
+        for (Vol vo : vols) if (vo.path.equals(path)) return vName(vo);
+        return "Drive (" + path.substring(path.lastIndexOf('/') + 1) + ")";
+    }
+
+    /** Where the Fedora download goes: the user's pick, else a drive that has it (or part of it), else the package's drive if it fits, else the roomiest. */
+    DriveState pickDrive(List<DriveState> st) {
+        for (DriveState d : st) if (d.path.equals(fedoraDrive)) return d;
+        for (DriveState d : st) if (d.done()) return d;
+        for (DriveState d : st) if (d.partial > 0 || !d.verified.isEmpty()) return d;
+        DriveState best = st.get(0);
+        if (best.freeKb >= best.neededKb()) return best;
+        for (DriveState d : st) if (d.freeKb > best.freeKb) best = d;
+        return best;
+    }
+
+    void showSwitchChecks(Map<String, String> v, List<DriveState> states) {
+        final DriveState sel = pickDrive(states);
+        fedoraDrive = sel.path;
+        final String drive = sel.path, fdir = drive + "/S6Migrate/fedora";
+        final Set<String> verified = sel.verified;
+        final long partialBytes = sel.partial;
+        String pkgLast = null;
+        for (DriveState d : states) if (d.path.equals(driveOf(switchPkg[1]))) pkgLast = d.last;
+        if (sel.last != null) pkgLast = sel.last;
+        v.put("LAST", pkgLast);
+        if (pkgLast == null) v.remove("LAST");
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         String model = v.getOrDefault("MODEL", "");
@@ -863,8 +922,8 @@ public class MainActivity extends Activity {
             if (!verified.contains(f[0])) need += Long.parseLong(f[1]);
         }
         boolean fedoraOk = need == 0;
-        long freeKb = parse(v.getOrDefault("FREE", "0"));
-        long needKb = Math.max(0, need - partialBytes) / 1024 + 204800;
+        long freeKb = sel.freeKb;
+        long needKb = sel.neededKb();
 
         String last = v.get("LAST");
         if (last != null) body.addView(checkRow("passed".equals(last), "passed".equals(last)
@@ -878,10 +937,28 @@ public class MainActivity extends Activity {
         upd.setOnClickListener(x -> openPackage(switchPkg, folderOf(switchPkg[1]), "your drive"));
         body.addView(upd);
         body.addView(checkRow(fedoraOk, "Fedora downloaded and verified (" + human(total / 1024) + ")",
-                fedoraOk ? "Stored next to your package in S6Migrate/fedora." :
+                fedoraOk ? "On the " + driveName(drive) + ", in S6Migrate/fedora." :
                         "Needs " + human(Math.max(0, need - partialBytes) / 1024) + " more" + (partialBytes > 0 ? " (resumes where it stopped)" : "")
-                                + ". Free on the drive: " + human(freeKb) + "."));
+                                + ". Free on the " + driveName(drive) + ": " + human(freeKb) + "."));
         if (!fedoraOk) {
+            body.addView(text("Download Fedora to:", 15, true));
+            RadioGroup g = new RadioGroup(this);
+            for (DriveState d : states) {
+                RadioButton rb = new RadioButton(this);
+                boolean fits = d.done() || d.freeKb >= d.neededKb();
+                rb.setText(driveName(d.path) + ": " + human(d.freeKb) + " free on this drive"
+                        + (d.done() ? ", Fedora already here" : d.partial > 0 ? ", download started here" : "")
+                        + (fits ? "" : " (short by " + human(d.neededKb() - d.freeKb) + ")")
+                        + (d.path.equals(driveOf(switchPkg[1])) ? "\n    your package is on this drive" : ""));
+                rb.setEnabled(fits);
+                rb.setChecked(d == sel);
+                rb.setOnClickListener(x -> { fedoraDrive = d.path; switchStart(); });
+                g.addView(rb);
+            }
+            body.addView(g);
+            body.addView(text("Internal storage (" + human(internalFreeKb) + " free) can't hold the download: "
+                    + "the switch erases it, and TWRP reads the download while Fedora is written there. "
+                    + (freeKb >= needKb ? "" : "A USB stick of 8 GB or more works, or free about " + human(needKb - freeKb) + " on the " + driveName(drive) + "."), 13, false));
             Button dl = new Button(this);
             dl.setText(freeKb >= needKb ? "Download Fedora" : "Not enough space on the drive");
             dl.setEnabled(freeKb >= needKb);
@@ -1194,17 +1271,35 @@ public class MainActivity extends Activity {
             String alt = altFor(a.pkg);
             Found fd;
             synchronized (found) { fd = found.get(a.pkg); }
-            String linux = alt != null ? "\nOn Fedora: " + alt + " is installed for you, and this Android app is kept too"
-                    : fd != null && "high".equals(fd.conf) ? "\nOn Fedora: " + fd.name + " (from Flathub) is installed for you, and this Android app is kept too"
-                    : fd != null && "maybe".equals(fd.conf) ? "\nPossible Linux version on Flathub: " + fd.name + " (suggested after the move, check it)"
+            String linux = alt != null ? "\nLinux version: " + alt
+                    : fd != null && "high".equals(fd.conf) ? "\nLinux version on Flathub: " + fd.name
+                    : fd != null && "maybe".equals(fd.conf) ? "\nPossible Linux version on Flathub: " + fd.name + " (check it's the same app)"
                     : "";
             if (fd != null && !fd.note.isEmpty()) linux += "\nNote: " + fd.note;
+            final String ln = linuxName(a);
             body.addView(row(a.icon, a.label, a.pkg + "  ·  " + human(a.kb) + linux,
                     a.keystore ? "Data is locked to this tablet's security chip: the app moves, its data may not" : null,
                     a.selected, c -> {
                         a.selected = c;
                         updateSpace();
                     }));
+            if (ln != null) {
+                RadioGroup g = new RadioGroup(this);
+                g.setOrientation(LinearLayout.VERTICAL);
+                g.setPadding(dp(48), 0, 0, dp(6));
+                String[][] opts = {{"both", "Both: Android app and " + ln},
+                        {"linux", "Only " + ln + " (the Android app and its data aren't stored)"},
+                        {"keep", "Only the Android app"}};
+                for (String[] o : opts) {
+                    RadioButton rb = new RadioButton(this);
+                    rb.setText(o[1]);
+                    rb.setTextSize(13);
+                    rb.setChecked(o[0].equals(a.choice));
+                    rb.setOnClickListener(x -> { a.choice = o[0]; updateSpace(); });
+                    g.addView(rb);
+                }
+                body.addView(g);
+            }
         }
         screen("1. Apps to take along", "Only apps you installed are listed. Google and Samsung apps stay behind.",
                 body, true, "Next", this::pickDirs, packages.isEmpty() ? "Cancel" : "Back",
@@ -1291,7 +1386,7 @@ public class MainActivity extends Activity {
         int n = 0;
         for (AppItem a : apps)
             if (a.selected) {
-                sb.append(planLine(a)).append('\n');
+                sb.append(appLine(a)).append('\n');
                 n++;
             }
         for (DirItem d : dirs)
@@ -1305,6 +1400,42 @@ public class MainActivity extends Activity {
     /** Android package -> Linux version name, from the shared alternatives.tsv. */
     final Map<String, String> altExact = new HashMap<>();
     final List<String[]> altPrefix = new ArrayList<>();
+
+    static final String[] LIVE_LIST = {
+            "https://raw.githubusercontent.com/suxhi-space/TabS6-mac/main/tools/migrate/lib/alternatives.tsv",
+            "https://raw.githubusercontent.com/suxhi-space/TabS6-mac/claude/android-tablet-desktop-ui-755uqh/tools/migrate/lib/alternatives.tsv"};
+
+    /** Newest hand-picked list from GitHub (works once the repository is public); keeps the bundled one otherwise. */
+    void loadLiveAlternatives() {
+        for (String u : LIVE_LIST) {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(8000);
+                if (c.getResponseCode() != 200) continue;
+                Map<String, String> ex = new HashMap<>();
+                List<String[]> pre = new ArrayList<>();
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"))) {
+                    parseAlternatives(r, ex, pre);
+                }
+                if (ex.isEmpty()) continue;
+                synchronized (altExact) { altExact.clear(); altExact.putAll(ex); altPrefix.clear(); altPrefix.addAll(pre); }
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    static void parseAlternatives(BufferedReader r, Map<String, String> ex, List<String[]> pre) throws IOException {
+        String l;
+        while ((l = r.readLine()) != null) {
+            if (l.startsWith("#") || l.trim().isEmpty()) continue;
+            String[] f = l.split("\t");
+            if (f.length < 3) continue;
+            if (f[0].endsWith("*")) pre.add(new String[]{f[0].substring(0, f[0].length() - 1), f[1]});
+            else ex.put(f[0], f[1]);
+        }
+    }
 
     void loadAlternatives() {
         try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open("alternatives.tsv")))) {
@@ -1321,9 +1452,11 @@ public class MainActivity extends Activity {
     }
 
     String altFor(String pkg) {
-        String a = altExact.get(pkg);
-        if (a != null) return a;
-        for (String[] p : altPrefix) if (pkg.startsWith(p[0])) return p[1];
+        synchronized (altExact) {
+            String a = altExact.get(pkg);
+            if (a != null) return a;
+            for (String[] p : altPrefix) if (pkg.startsWith(p[0])) return p[1];
+        }
         return null;
     }
 
@@ -1412,6 +1545,8 @@ public class MainActivity extends Activity {
         screen("Tab S6 Migration Assistant", null, body, false, null, null, "Skip", () -> { cancelDownload = true; });
         cancelDownload = false;
         new Thread(() -> {
+            loadLiveAlternatives();
+            todo.removeIf(a -> altFor(a.pkg) != null);
             JSONObject cache = new JSONObject();
             try {
                 if (cacheFile.exists()) cache = new JSONObject(new String(java.nio.file.Files.readAllBytes(cacheFile.toPath()), "UTF-8"));
@@ -1441,7 +1576,7 @@ public class MainActivity extends Activity {
                 synchronized (found) { found.put(a.pkg, f); }
             }
             try (FileOutputStream o = new FileOutputStream(cacheFile)) { o.write(cache.toString().getBytes("UTF-8")); } catch (Exception ignored) { }
-            ui.post(this::home);
+            ui.post(() -> { defaultChoices(); home(); });
         }).start();
     }
 
@@ -1456,6 +1591,39 @@ public class MainActivity extends Activity {
                         .append(f.conf).append('\t').append(f.note).append('\n');
             }
         }
+        return sb.toString();
+    }
+
+    /** Name of the Linux version of an app (hand-picked list or Flathub), or null. */
+    String linuxName(AppItem a) {
+        String alt = altFor(a.pkg);
+        if (alt != null) return alt;
+        Found fd;
+        synchronized (found) { fd = found.get(a.pkg); }
+        return fd != null && !"none".equals(fd.conf) ? fd.name : null;
+    }
+
+    /** Default per-app choice once the Linux versions are known: confident matches get both, others stay Android. */
+    boolean choicesDefaulted;
+
+    void defaultChoices() {
+        if (choicesDefaulted) return;
+        choicesDefaulted = true;
+        for (AppItem a : apps) {
+            Found fd;
+            synchronized (found) { fd = found.get(a.pkg); }
+            boolean confident = altFor(a.pkg) != null || (fd != null && "high".equals(fd.conf));
+            if ("keep".equals(a.choice) && confident) a.choice = "both";
+        }
+    }
+
+    String appLine(AppItem a) {
+        return "linux".equals(a.choice) ? "LINUX|" + a.pkg + "|" + linuxName(a) : planLine(a);
+    }
+
+    String choicesTxt() {
+        StringBuilder sb = new StringBuilder();
+        for (AppItem a : apps) if (linuxName(a) != null) sb.append(a.pkg).append('|').append(a.choice).append('\n');
         return sb.toString();
     }
 
@@ -1553,6 +1721,9 @@ public class MainActivity extends Activity {
                     File ft = new File(getCacheDir(), "alternatives-found.tsv");
                     try (FileOutputStream o = new FileOutputStream(ft)) { o.write(foundTsv().getBytes("UTF-8")); }
                     runRoot("cp " + q(ft.getAbsolutePath()) + " " + q(out + "/alternatives-found.tsv"), l -> { });
+                    File ch = new File(getCacheDir(), "choices.txt");
+                    try (FileOutputStream o = new FileOutputStream(ch)) { o.write(choicesTxt().getBytes("UTF-8")); }
+                    runRoot("cp " + q(ch.getAbsolutePath()) + " " + q(out + "/choices.txt"), l -> { });
                 } catch (Exception ignored) {
                 }
             }

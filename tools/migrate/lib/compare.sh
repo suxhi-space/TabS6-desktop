@@ -32,6 +32,9 @@ while IFS='|' read -r t a rest; do
     n=$(newer "$ref" "$MEDIA/$name")
     [ "$n" -gt 0 ] && echo "CMP|DIR|$name|changed|$n" || echo "CMP|DIR|$name|same|0"
     ;;
+  LINUX)
+    echo "CMP|LINUX|$a|same|0"   # nothing stored for it
+    ;;
   SET)
     echo "CMP|SET|settings|changed|1"   # tiny: always re-captured so it matches the tablet right now
     ;;

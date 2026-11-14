@@ -49,6 +49,11 @@ while IFS='|' read -r t a b c; do
       ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy of $a"
     fi
     ;;
+  LINUX)
+    # "Linux only": the Android app and its data are not stored; s6-restore installs the Linux version.
+    echo "[$n] app $a: Linux version only (${b:-see list}), nothing stored"
+    rm -rf "$OUT/apps/$a"
+    ;;
   SET)
     # Wallpapers, dark mode, time zone, language, device name, Bluetooth pairings. Small: always re-captured.
     echo "[$n] settings (wallpaper, dark mode, time zone, language, device name, Bluetooth)"
@@ -107,7 +112,7 @@ while IFS='|' read -r t a b c; do
 done < "$PLAN"
 # Merge this run's items into the package's item list (an update adds to it).
 if [ -f "$OUT/plan.txt" ]; then
-  cat "$PLAN" "$OUT/plan.txt" | awk -F'|' '!seen[$1 "|" $2]++' > "$OUT/plan.tmp" && mv "$OUT/plan.tmp" "$OUT/plan.txt"
+  cat "$PLAN" "$OUT/plan.txt" | awk -F'|' '{ k = ($1 == "LINUX" ? "APP" : $1) "|" $2 } !seen[k]++' > "$OUT/plan.tmp" && mv "$OUT/plan.tmp" "$OUT/plan.txt"
 else
   cp "$PLAN" "$OUT/plan.txt"
 fi

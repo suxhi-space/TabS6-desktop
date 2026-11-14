@@ -1,9 +1,14 @@
-# TabS6-mac
+# Galaxy Tab S6 desktop project
 
-Research project: Apple's OS running natively (bare metal, no Android underneath) on a
-**Samsung Galaxy Tab S6 Wi-Fi (SM-T860)**.
+Giving a **Samsung Galaxy Tab S6 Wi-Fi (SM-T860)** a more desktop-like OS, running natively
+(no Android underneath). Two tracks:
 
-**Status: Phase 0 (recon) done. Nothing has been flashed.** The repository contains
+- **Linux (recommended, practical):** Fedora + KDE Plasma, keeping your files and bringing
+  Android apps along with Waydroid. See [docs/linux-install-plan.md](docs/linux-install-plan.md).
+- **Apple OS (research):** what it would take to boot Apple's XNU kernel and iPadOS on this
+  tablet, and why macOS is out of reach on its CPU.
+
+**Status: Phase 0 (recon) done for both tracks. Nothing has been flashed.** The repository contains
 findings and read-only tools. No boot or flash code yet, by design.
 
 ## Bottom line from Phase 0

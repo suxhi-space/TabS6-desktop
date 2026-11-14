@@ -48,11 +48,23 @@ binary to arm64. In practice:
   epilogue of macOS system code. HINT-space ones (`PACIASP`/`AUTIASP`) would run as no-ops,
   but the combined branch/load forms are undefined and would trap on every call. That
   would be orders of magnitude too slow, and without EL2 the trap goes to the kernel itself.
-- **Binary rewriting**: every system binary, the shared cache, every kext and the
-  kernelcache, for every macOS update, with code signing to defeat. Nobody has done this;
-  it would be a research project far larger than the whole port.
+- **Binary rewriting**: replace each PAC instruction in macOS's system code with its plain
+  equivalent. Many have same-size substitutes (`RETAB` → `RET`, `BLRAA` → `BLR`,
+  `PACIA`/`AUTIA` → `NOP`; `LDRAA` needs care with offsets), and dyld's pointer signing
+  would become a no-op consistently. But it is unproven: other ARMv8.3 instructions in
+  Apple's arm64e baseline (A12), e.g. `FJCVTZS` (heavy in JavaScriptCore) and `FCMLA`, are
+  also missing on Kryo 485. The kernel must accept rewritten arm64e code on a non-PAC CPU,
+  code-signing checks must be bypassed, and it all has to be redone for every macOS update,
+  before any driver work. Nobody has done this publicly; treat it as an open research
+  problem measured in years, not a plan.
 
-Neither is a sensible goal.
+Neither is a practical goal for this project.
+
+## What about the MacBook Neo?
+
+Apple's 2026 MacBook Neo runs macOS Tahoe on the **A18 Pro**, the iPhone 16 Pro's chip. It
+shows macOS runs on phone-class silicon, but the A18 Pro is an Apple chip with PAC, like
+every Apple chip since the A12. It does not change anything for the Snapdragon 855.
 
 ## Could older macOS work?
 

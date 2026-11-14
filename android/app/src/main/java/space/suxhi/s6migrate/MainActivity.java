@@ -16,6 +16,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -33,6 +34,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +48,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * Tab S6 Migration Assistant, v0.1 "Pack".
@@ -750,6 +756,367 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null).show();
     }
 
+
+    // ------------------------------------------------------------------ switch to Fedora
+
+    // The Fedora build for the SM-T860 (starlight4you/t860-fedora), pinned with its published checksums.
+    static final String FEDORA_TAG = "v2026.10.29-gpu18";
+    static final String FEDORA_BASE = "https://github.com/starlight4you/t860-fedora/releases/download/" + FEDORA_TAG + "/";
+    static final String[][] FEDORA_FILES = {
+            {"T860-Fedora44-GPU18-installer.tar.gz", "18342567", "9d071f316071acf38de679b41dbfe6fcd79717e4158eead372910bda04a3bd0b"},
+            {"T860-Fedora44-GPU18-rootfs.img.gz.part000", "1800000000", "7d2050feef3bdab73c14698ad1477b4bc76f9cef0fe724bacc6c92b576ac247d"},
+            {"T860-Fedora44-GPU18-rootfs.img.gz.part001", "1800000000", "db41d80c3f1aca17bf6a0891e455dde72241359f31d400c3c504a4e4a5263e8b"},
+            {"T860-Fedora44-GPU18-rootfs.img.gz.part002", "1761929796", "50ca7a017fe9ba6d9995f7e438ecc681efafd4fa8d40543b626dac589385dd78"},
+    };
+    String[] switchPkg;
+    volatile boolean cancelDownload;
+
+    static String folderOf(String path) { return path.substring(path.lastIndexOf('/') + 1); }
+    static String driveOf(String pkgPath) { return pkgPath.substring(0, pkgPath.indexOf("/S6Migrate/")); }
+
+    String[] newestExternalPackage() {
+        String[] best = null;
+        for (String[] p : packages) {
+            if (p[1].startsWith("/data/media") || !p[1].contains("/S6Migrate/")) continue;
+            if (best == null || folderOf(p[1]).compareTo(folderOf(best[1])) > 0) best = p;
+        }
+        return best;
+    }
+
+    View checkRow(boolean ok, String title, String detail) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.VERTICAL);
+        r.setPadding(0, dp(6), 0, dp(6));
+        TextView t = text((ok ? "✓  " : "✗  ") + title, 16, true);
+        t.setTextColor(ok ? Color.rgb(46, 160, 90) : Color.rgb(230, 126, 34));
+        r.addView(t);
+        if (detail != null) r.addView(text("     " + detail, 13, false));
+        return r;
+    }
+
+    void switchStart() {
+        switchPkg = newestExternalPackage();
+        if (switchPkg == null) {
+            LinearLayout b = new LinearLayout(this);
+            b.setOrientation(LinearLayout.VERTICAL);
+            b.addView(text("The switch needs your package on a USB drive or microSD card (internal storage is erased). "
+                    + "Make a package on a drive first, then come back here.", 15, false));
+            screen("Switch to Fedora", null, b, false, null, null, "Back", this::home);
+            return;
+        }
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(new ProgressBar(this));
+        body.addView(text("Checking your tablet (read-only)...", 15, false));
+        screen("Switch to Fedora", null, body, false, null, null, "Back", this::home);
+        final String drive = driveOf(switchPkg[1]);
+        final String fdir = drive + "/S6Migrate/fedora";
+        new Thread(() -> {
+            StringBuilder names = new StringBuilder();
+            for (String[] f : FEDORA_FILES) names.append(' ').append(f[0]);
+            String sh = "echo MODEL=$(getprop ro.product.vendor.model);"
+                    + "echo BAT=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null);"
+                    + "echo CHG=$(cat /sys/class/power_supply/battery/status 2>/dev/null);"
+                    + "for f in" + names + "; do [ -f " + q(fdir) + "/$f.verified ] && echo VERIFIED=$f;"
+                    + " [ -f " + q(fdir) + "/$f.partial ] && echo PARTIAL=$f=$(stat -c %s " + q(fdir) + "/$f.partial); done;"
+                    + "echo FREE=$(df -k " + q(drive) + " | tail -1 | tr -s ' ' | cut -d' ' -f4)";
+            final Map<String, String> v = new HashMap<>();
+            final Set<String> verified = new HashSet<>();
+            final long[] partialBytes = {0};
+            try {
+                runRoot(sh, l -> {
+                    int i = l.indexOf('=');
+                    if (i < 0) return;
+                    String k = l.substring(0, i), val = l.substring(i + 1);
+                    if (k.equals("VERIFIED")) verified.add(val);
+                    else if (k.equals("PARTIAL")) partialBytes[0] += parse(val.substring(val.lastIndexOf('=') + 1));
+                    else v.put(k, val);
+                });
+            } catch (Exception e) {
+                ui.post(() -> message("Could not check", String.valueOf(e.getMessage())));
+                return;
+            }
+            ui.post(() -> showSwitchChecks(v, verified, partialBytes[0], drive, fdir));
+        }).start();
+    }
+
+    void showSwitchChecks(Map<String, String> v, Set<String> verified, long partialBytes, String drive, String fdir) {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        String model = v.getOrDefault("MODEL", "");
+        boolean modelOk = model.startsWith("SM-T860");
+        long bat = parse(v.getOrDefault("BAT", "0"));
+        String chg = v.getOrDefault("CHG", "");
+        boolean charging = chg.equalsIgnoreCase("Charging") || chg.equalsIgnoreCase("Full");
+        boolean batOk = bat >= 60;
+        boolean pkgOk = "complete".equals(switchPkg[4]);
+        long need = 0, total = 0;
+        for (String[] f : FEDORA_FILES) {
+            total += Long.parseLong(f[1]);
+            if (!verified.contains(f[0])) need += Long.parseLong(f[1]);
+        }
+        boolean fedoraOk = need == 0;
+        long freeKb = parse(v.getOrDefault("FREE", "0"));
+        long needKb = Math.max(0, need - partialBytes) / 1024 + 204800;
+
+        body.addView(checkRow(modelOk, "Galaxy Tab S6 Wi-Fi (SM-T860)", modelOk ? null : "This tablet reports '" + model + "'. The switch only supports the SM-T860."));
+        body.addView(checkRow(batOk, "Battery " + bat + "%" + (charging ? ", charging" : ""), batOk ? (charging ? null : "Plug in the charger during the switch.") : "Charge to at least 60% and keep the charger plugged in."));
+        body.addView(checkRow(pkgOk, "Your package from " + folderOf(switchPkg[1]) + " (" + parse(switchPkg[2]) + " items, " + human(parse(switchPkg[3])) + ")",
+                pkgOk ? "Tip: check it for changes right before switching." : "This package did not finish cleanly. Update it or make a new one."));
+        Button upd = new Button(this);
+        upd.setText("Check package for changes");
+        upd.setOnClickListener(x -> openPackage(switchPkg, folderOf(switchPkg[1]), "your drive"));
+        body.addView(upd);
+        body.addView(checkRow(fedoraOk, "Fedora downloaded and verified (" + human(total / 1024) + ")",
+                fedoraOk ? "Stored next to your package in S6Migrate/fedora." :
+                        "Needs " + human(Math.max(0, need - partialBytes) / 1024) + " more" + (partialBytes > 0 ? " (resumes where it stopped)" : "")
+                                + ". Free on the drive: " + human(freeKb) + "."));
+        if (!fedoraOk) {
+            Button dl = new Button(this);
+            dl.setText(freeKb >= needKb ? "Download Fedora" : "Not enough space on the drive");
+            dl.setEnabled(freeKb >= needKb);
+            dl.setOnClickListener(x -> downloadFedora(fdir));
+            body.addView(dl);
+        }
+        body.addView(text("\nBefore you continue, confirm:", 16, true));
+        CheckBox twrp = new CheckBox(this);
+        twrp.setText("TWRP (the official one for gts6lwifi) is installed as my recovery");
+        CheckBox auth = new CheckBox(this);
+        auth.setText("I exported my authenticator codes and backed up anything not in the package");
+        body.addView(twrp);
+        body.addView(auth);
+        screen("Switch to Fedora", "Nothing is changed on this screen.", body, false, "Continue", () -> {
+            if (!modelOk || !batOk || !pkgOk || !fedoraOk) {
+                Toast.makeText(this, "Fix the items marked ✗ first.", Toast.LENGTH_LONG).show();
+            } else if (!twrp.isChecked() || !auth.isChecked()) {
+                Toast.makeText(this, "Please confirm both points.", Toast.LENGTH_LONG).show();
+            } else {
+                finalConfirm(drive);
+            }
+        }, "Back", this::home);
+    }
+
+    static String hex(byte[] b) {
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format("%02x", x));
+        return sb.toString();
+    }
+
+    void downloadFedora(String fdir) {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        TextView status = text("Starting...", 16, true);
+        ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        TextView detail = text("", 14, false);
+        body.addView(status);
+        body.addView(bar);
+        body.addView(detail);
+        body.addView(text("\nKeep this screen open and Wi-Fi on. If it stops, start again: it resumes where it left off.", 13, false));
+        cancelDownload = false;
+        busy = true;
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        screen("Downloading Fedora", null, body, false, null, null, "Pause", () -> cancelDownload = true);
+        long total = 0;
+        for (String[] f : FEDORA_FILES) total += Long.parseLong(f[1]);
+        final long fTotal = total;
+        new Thread(() -> {
+            String err = null;
+            long doneAll = 0;
+            try {
+                // Which files are already verified?
+                Set<String> verified = new HashSet<>();
+                runRoot("for f in " + q(fdir) + "/*.verified; do [ -f \"$f\" ] && basename \"$f\" .verified; done", verified::add);
+                for (String[] f : FEDORA_FILES) {
+                    String name = f[0];
+                    long size = Long.parseLong(f[1]);
+                    if (verified.contains(name)) { doneAll += size; continue; }
+                    String target = fdir + "/" + name, part = target + ".partial";
+                    final long[] have = {0};
+                    runRoot("stat -c %s " + q(part) + " 2>/dev/null || echo 0", l -> have[0] = parse(l));
+                    if (have[0] > size) { runRoot("rm -f " + q(part), l -> { }); have[0] = 0; }
+                    MessageDigest md = MessageDigest.getInstance("SHA-256");
+                    if (have[0] > 0) { // re-read what is already there so the checksum covers the whole file
+                        final long base0 = doneAll;
+                        ui.post(() -> status.setText("Checking what was already downloaded of " + name + "..."));
+                        Process rp = new ProcessBuilder("su", "-c", "cat " + q(part)).start();
+                        try (InputStream in = rp.getInputStream()) {
+                            byte[] buf = new byte[1 << 20];
+                            int k;
+                            while ((k = in.read(buf)) > 0) md.update(buf, 0, k);
+                        }
+                        rp.waitFor();
+                    }
+                    HttpURLConnection c = (HttpURLConnection) new URL(FEDORA_BASE + name).openConnection();
+                    c.setRequestProperty("User-Agent", "S6Migrate");
+                    c.setConnectTimeout(30000);
+                    c.setReadTimeout(60000);
+                    if (have[0] > 0) c.setRequestProperty("Range", "bytes=" + have[0] + "-");
+                    int code = c.getResponseCode();
+                    if (have[0] > 0 && code == 200) { // server ignored the range: start this file again
+                        runRoot("rm -f " + q(part), l -> { });
+                        have[0] = 0;
+                        md.reset();
+                    } else if (code != 200 && code != 206) {
+                        throw new IOException("server answered " + code + " for " + name);
+                    }
+                    Process w = new ProcessBuilder("su", "-c", "mkdir -p " + q(fdir) + " && cat >> " + q(part)).start();
+                    long got = have[0];
+                    long lastUi = 0, t0 = System.currentTimeMillis(), startGot = got;
+                    try (InputStream in = c.getInputStream(); OutputStream os = w.getOutputStream()) {
+                        byte[] buf = new byte[1 << 20];
+                        int k;
+                        while (!cancelDownload && (k = in.read(buf)) > 0) {
+                            os.write(buf, 0, k);
+                            md.update(buf, 0, k);
+                            got += k;
+                            long now = System.currentTimeMillis();
+                            if (now - lastUi > 500) {
+                                lastUi = now;
+                                long all = doneAll + got;
+                                long rate = (got - startGot) / Math.max(1, (now - t0) / 1000); // bytes/s
+                                String eta = rate > 0 ? ", about " + Math.max(1, (fTotal - all) / rate / 60) + " min left" : "";
+                                String st = "Downloading " + name.replace("T860-Fedora44-GPU18-", "");
+                                String dt = human(all / 1024) + " of " + human(fTotal / 1024) + " (" + human(rate / 1024) + "/s" + eta + ")";
+                                int prog = (int) (all * 1000 / fTotal);
+                                ui.post(() -> { status.setText(st); detail.setText(dt); bar.setProgress(prog); });
+                            }
+                        }
+                    }
+                    w.waitFor();
+                    if (cancelDownload) { err = "paused"; break; }
+                    if (got != size) throw new IOException(name + " is incomplete (" + got + " of " + size + " bytes); start again to resume");
+                    String sum = hex(md.digest());
+                    if (!sum.equals(f[2])) {
+                        runRoot("rm -f " + q(part), l -> { });
+                        throw new IOException(name + " failed its checksum and was removed; start again");
+                    }
+                    runRoot("mv " + q(part) + " " + q(target) + " && echo " + sum + " > " + q(target + ".verified"), l -> { });
+                    doneAll += size;
+                }
+                if (err == null) { // description and checksums for the TWRP switch script
+                    StringBuilder env = new StringBuilder("INSTALLER_BUNDLE=\"" + FEDORA_FILES[0][0] + "\"\nROOTFS_PARTS=\"");
+                    StringBuilder sums = new StringBuilder();
+                    for (int i = 0; i < FEDORA_FILES.length; i++) {
+                        if (i > 0) env.append(i > 1 ? " " : "").append(FEDORA_FILES[i][0]);
+                        sums.append(FEDORA_FILES[i][2]).append("  ").append(FEDORA_FILES[i][0]).append('\n');
+                    }
+                    env.append("\"\n");
+                    File e1 = new File(getCacheDir(), "s6-download.env"), e2 = new File(getCacheDir(), "SHA256SUMS");
+                    try (FileOutputStream o = new FileOutputStream(e1)) { o.write(env.toString().getBytes("UTF-8")); }
+                    try (FileOutputStream o = new FileOutputStream(e2)) { o.write(sums.toString().getBytes("UTF-8")); }
+                    runRoot("cp " + q(e1.getAbsolutePath()) + " " + q(e2.getAbsolutePath()) + " " + q(fdir) + "/", l -> { });
+                }
+            } catch (Exception e) {
+                err = String.valueOf(e.getMessage());
+            }
+            final String fe = err;
+            ui.post(() -> {
+                busy = false;
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                if (fe == null) {
+                    Toast.makeText(this, "Fedora downloaded and verified.", Toast.LENGTH_LONG).show();
+                    switchStart();
+                } else if (fe.equals("paused")) {
+                    Toast.makeText(this, "Paused. Start the download again to resume.", Toast.LENGTH_LONG).show();
+                    switchStart();
+                } else {
+                    LinearLayout b = new LinearLayout(this);
+                    b.setOrientation(LinearLayout.VERTICAL);
+                    b.addView(text("The download stopped: " + fe + "\n\nNothing on the tablet was changed. Try again; it resumes.", 15, false));
+                    screen("Download stopped", null, b, false, "Try again", () -> downloadFedora(fdir), "Back", this::switchStart);
+                }
+            });
+        }).start();
+    }
+
+    void finalConfirm(String drive) {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(text("What happens now", 18, true));
+        body.addView(text("1. The tablet restarts into TWRP. If TWRP asks for a password, tap Cancel.\n"
+                + "2. TWRP checks the Fedora download and saves your Android boot backup to the drive.\n"
+                + "3. Fedora is installed. Android and everything not in your package is erased.\n"
+                + "4. The tablet restarts into Fedora (log in as fedora / fedora), and S6 Migrate brings your files, "
+                + "settings and apps back.\n\nIt takes about 30-40 minutes. Keep the charger plugged in and the drive connected. "
+                + "Don't press any buttons in TWRP.", 15, false));
+        body.addView(text("\nIf anything fails before step 3, TWRP says \"Nothing was erased\" and you can go back to Android.", 14, false));
+        screen("Ready to switch", null, body, false, "Switch to Fedora", () -> {
+            EditText et = new EditText(this);
+            et.setHint("Type SWITCH");
+            new AlertDialog.Builder(this).setTitle("Erase Android and install Fedora?")
+                    .setMessage("Type SWITCH to confirm. This is the point of no return.")
+                    .setView(et)
+                    .setPositiveButton("Switch", (d, w) -> {
+                        if ("SWITCH".equals(et.getText().toString().trim())) prepareSwitch();
+                        else Toast.makeText(this, "Not confirmed. Nothing was changed.", Toast.LENGTH_LONG).show();
+                    })
+                    .setNegativeButton("Cancel", null).show();
+        }, "Back", this::switchStart);
+    }
+
+    void zipAsset(ZipOutputStream z, String entry, String asset) throws IOException {
+        z.putNextEntry(new ZipEntry(entry));
+        try (InputStream in = getAssets().open(asset)) {
+            byte[] buf = new byte[16384];
+            int k;
+            while ((k = in.read(buf)) > 0) z.write(buf, 0, k);
+        }
+        z.closeEntry();
+    }
+
+    void prepareSwitch() {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(new ProgressBar(this));
+        body.addView(text("Preparing the switch for TWRP...", 15, false));
+        screen("Switch to Fedora", null, body, false, null, null, null, null);
+        new Thread(() -> {
+            String err = null;
+            try {
+                File zip = new File(getCacheDir(), "s6migrate-switch.zip");
+                try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
+                    zipAsset(z, "META-INF/com/google/android/update-binary", "switch/update-binary");
+                    z.putNextEntry(new ZipEntry("META-INF/com/google/android/updater-script"));
+                    z.write("# S6 Migrate: the work is done by update-binary\n".getBytes("UTF-8"));
+                    z.closeEntry();
+                    zipAsset(z, "s6migrate/s6-restore", "s6-restore.sh");
+                    zipAsset(z, "s6migrate/s6-doctor", "s6-doctor.sh");
+                    zipAsset(z, "s6migrate/s6-android", "s6-android.sh");
+                    zipAsset(z, "s6migrate/s6-firstrun", "switch/s6-firstrun");
+                    zipAsset(z, "s6migrate/s6migrate-firstrun.desktop", "switch/s6migrate-firstrun.desktop");
+                }
+                final List<String> out = new ArrayList<>();
+                runRoot("{ mountpoint -q /cache || mount /cache || mount -t ext4 $(readlink -f /dev/block/by-name/cache) /cache; } 2>/dev/null;"
+                        + " mkdir -p /cache/recovery && cp " + q(zip.getAbsolutePath()) + " /cache/recovery/s6migrate-switch.zip"
+                        + " && echo 'install /cache/recovery/s6migrate-switch.zip' > /cache/recovery/openrecoveryscript"
+                        + " && sync && echo READY", out::add);
+                if (!out.contains("READY")) err = "could not queue the switch for TWRP (" + String.join(" ", out) + ")";
+            } catch (Exception e) {
+                err = String.valueOf(e.getMessage());
+            }
+            final String fe = err;
+            ui.post(() -> {
+                LinearLayout b = new LinearLayout(this);
+                b.setOrientation(LinearLayout.VERTICAL);
+                if (fe != null) {
+                    b.addView(text("Could not prepare the switch: " + fe + "\n\nNothing was changed.", 15, false));
+                    screen("Switch not started", null, b, false, null, null, "Back", this::switchStart);
+                    return;
+                }
+                b.addView(text("Everything is ready. When you tap Restart, the tablet starts TWRP and the switch runs by itself.\n\n"
+                        + "If TWRP asks for a password: tap Cancel.\nDon't touch anything else until Fedora starts.", 16, false));
+                screen("Ready", null, b, false, "Restart into TWRP", () -> {
+                    try { runRoot("reboot recovery", l -> { }); } catch (Exception ignored) { }
+                }, "Cancel switch", () -> {
+                    try { runRoot("rm -f /cache/recovery/openrecoveryscript /cache/recovery/s6migrate-switch.zip", l -> { }); } catch (Exception ignored) { }
+                    Toast.makeText(this, "Switch cancelled. Nothing was changed.", Toast.LENGTH_LONG).show();
+                    home();
+                });
+            });
+        }).start();
+    }
+
     /** Start screen: saved packages (compare / update) or make a new one. Shown only when packages exist. */
     void home() {
         if (packages.isEmpty()) {
@@ -759,7 +1126,12 @@ public class MainActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.addView(savedPackages());
-        body.addView(text("Or make a new, separate package with a different selection. Your saved package is not changed.", 14, false));
+        Button sw = new Button(this);
+        sw.setText("Switch to Fedora\u2026");
+        sw.setOnClickListener(v -> switchStart());
+        body.addView(sw);
+        body.addView(text("Checks everything and downloads Fedora first. Nothing is erased until you confirm at the very end.", 13, false));
+        body.addView(text("\nOr make a new, separate package with a different selection. Your saved package is not changed.", 14, false));
         screen("Tab S6 Migration Assistant", "Your apps, data and files, packed for the move to Fedora",
                 body, false, "Make a new package", this::pickApps, "Close", this::finish);
     }

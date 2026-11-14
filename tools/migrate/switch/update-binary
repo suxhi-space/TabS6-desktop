@@ -12,7 +12,7 @@
 # Arguments from TWRP: $1 = updater API version, $2 = output fd for messages, $3 = path of this ZIP.
 # Test hooks (never set on a real tablet): S6S_TEST=1, S6S_MOUNTS, S6S_ROOTMNT, S6S_INSTALLER, S6S_PAYLOAD.
 #
-# The drive holds:  S6Migrate/fedora/manifest.env   INSTALLER_BUNDLE="<file>"  ROOTFS_PARTS="<file> <file> ..."
+# The drive holds:  S6Migrate/fedora/s6-download.env  INSTALLER_BUNDLE="<file>"  ROOTFS_PARTS="<file> <file> ..."
 #                   S6Migrate/fedora/SHA256SUMS     checksums of those files (from the release manifest)
 #                   S6Migrate/<date>/               the package made by the app
 # On failure the script stops and stays in TWRP; it only reboots after everything succeeded.
@@ -23,6 +23,11 @@ W=${S6S_WORK:-/tmp/s6migrate-switch}
 INST=${S6S_INSTALLER:-/tmp/t860-fedora-installer}
 LOG=$W/switch.log
 
+clear_bcb() { # make the next restart a normal boot (not back into TWRP)
+  [ "${S6S_TEST:-0}" = 1 ] && { echo "(test) BCB cleared" >> "$LOG"; return 0; }
+  local misc; misc=$(readlink -f /dev/block/by-name/misc 2>/dev/null || readlink -f /dev/block/bootdevice/by-name/misc)
+  [ -b "$misc" ] && dd if=/dev/zero of="$misc" bs=32 count=1 conv=notrunc 2>/dev/null
+}
 ui() { # show a line on the TWRP screen and in the log
   if [ "${S6S_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >&"$OUTFD"; echo "ui_print" >&"$OUTFD"; fi
   echo "$*" >> "$LOG"
@@ -31,13 +36,19 @@ progress() { [ "${S6S_TEST:-0}" = 1 ] || echo "set_progress $1" >&"$OUTFD"; }
 die() {
   ui " "
   ui "STOPPED: $*"
-  [ -n "${STAGE_ERASED:-}" ] && ui "Android was already replaced. Do NOT reboot yet: see S6Migrate/switch-log.txt on your drive and ask for help." \
-                              || ui "Nothing was erased. You can reboot to Android normally."
+  if [ -n "${STAGE_ERASED:-}" ]; then
+    ui "Android was already replaced. Do NOT reboot yet: see S6Migrate/switch-log.txt on your drive and ask for help."
+  else
+    clear_bcb
+    ui "Nothing was erased. Tap Reboot > System to go back to Android."
+  fi
   [ -n "${DRIVE:-}" ] && cp "$LOG" "$DRIVE/S6Migrate/switch-log.txt" 2>/dev/null
   exit 1
 }
 
 mkdir -p "$W"; : > "$LOG"
+# Never run twice: remove the queued TWRP command that started us.
+[ "${S6S_TEST:-0}" = 1 ] || rm -f /cache/recovery/openrecoveryscript
 ui "S6 Migrate: switching this Galaxy Tab S6 to Fedora"
 ui "Keep the tablet plugged in. Do not press any buttons."
 
@@ -77,9 +88,9 @@ progress 0.05
 
 # ---------------------------------------------------------------- 2. verify the download
 ui "2/6 Checking the Fedora download (a few minutes)..."
-[ -f "$F/manifest.env" ] && [ -f "$F/SHA256SUMS" ] || die "the Fedora download is incomplete (manifest or checksums missing)"
+[ -f "$F/s6-download.env" ] && [ -f "$F/SHA256SUMS" ] || die "the Fedora download is incomplete (description or checksums missing)"
 ( cd "$F" && sha256sum -c SHA256SUMS >> "$LOG" 2>&1 ) || die "the Fedora download is damaged. Download it again from the app."
-. "$F/manifest.env"
+. "$F/s6-download.env"
 ui "   Fedora download OK"
 progress 0.15
 
@@ -151,6 +162,7 @@ ui " "
 ui "Done. Fedora is installed."
 ui "The tablet restarts into Fedora. Log in as fedora / fedora and change the password."
 ui "S6 Migrate opens by itself and brings your files and apps back."
+clear_bcb
 ui "Restarting in 15 seconds..."
 if [ "${S6S_TEST:-0}" != 1 ]; then sleep 15; reboot; fi
 exit 0

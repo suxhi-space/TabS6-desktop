@@ -1402,8 +1402,8 @@ public class MainActivity extends Activity {
     final List<String[]> altPrefix = new ArrayList<>();
 
     static final String[] LIVE_LIST = {
-            "https://raw.githubusercontent.com/suxhi-space/TabS6-mac/main/tools/migrate/lib/alternatives.tsv",
-            "https://raw.githubusercontent.com/suxhi-space/TabS6-mac/claude/android-tablet-desktop-ui-755uqh/tools/migrate/lib/alternatives.tsv"};
+            "https://raw.githubusercontent.com/suxhi-space/TabS6-desktop/main/tools/migrate/lib/alternatives.tsv",
+            "https://raw.githubusercontent.com/suxhi-space/TabS6-desktop/claude/android-tablet-desktop-ui-755uqh/tools/migrate/lib/alternatives.tsv"};
 
     /** Newest hand-picked list from GitHub (works once the repository is public); keeps the bundled one otherwise. */
     void loadLiveAlternatives() {

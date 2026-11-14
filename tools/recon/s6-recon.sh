@@ -123,6 +123,22 @@ say ">> boot ramdisk_size=0 means a ramdisk-less boot image: on a rooted unit Ma
 say ">> which usually goes together with BCB=boot-recovery above. The test plan explains why that matters."
 say ""
 
+say "-- Data partition: encryption, filesystem, free space (decides the in-place migration design) --"
+for p in ro.crypto.state ro.crypto.type ro.crypto.volume.filenames_mode ro.crypto.dm_default_key.options_format.version; do
+  say "$p = $(sh_ getprop "$p")"
+done
+grab fstab-userdata.txt 'grep -h -E "[[:space:]]/data[[:space:]]" /vendor/etc/fstab.* /system/etc/fstab.* 2>/dev/null'
+say "fstab /data line(s):"; cat "$OUT/fstab-userdata.txt" | tee -a "$SUMMARY"
+if grep -q metadata_encryption "$OUT/fstab-userdata.txt"; then
+  say ">> metadata_encryption present: the whole userdata block device is encrypted. Linux could not mount it at all; in-place design B is ruled out."
+elif grep -q fileencryption "$OUT/fstab-userdata.txt"; then
+  say ">> File-based encryption without metadata encryption: the filesystem itself is readable by Linux, only file contents are encrypted. In-place design B is possible in principle."
+fi
+say "mounted: $(su_ 'grep -E " /data " /proc/mounts' | head -1)"
+say "free on /data: $(su_ 'df -h /data' | tail -1)"
+grab data-toplevel.txt 'ls -la /data/'
+say ""
+
 say "-- Memory --"
 grab meminfo.txt 'cat /proc/meminfo'
 say "$(grep MemTotal "$OUT/meminfo.txt")"

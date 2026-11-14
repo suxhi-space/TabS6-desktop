@@ -25,6 +25,7 @@ findings and read-only tools. No boot or flash code yet, by design.
 
 | File | Contents |
 |---|---|
+| [docs/my-unit.md](docs/my-unit.md) | Recon results from your tablet and what they mean |
 | [docs/hardware.md](docs/hardware.md) | Every chip, address, GPIO and memory region, with sources |
 | [docs/prior-art.md](docs/prior-art.md) | Every relevant port, what actually works vs what is claimed, SoC-vs-device code map, gap list |
 | [docs/boot-path.md](docs/boot-path.md) | Boot path decision (UEFI chainload) with evidence and device-specific traps |

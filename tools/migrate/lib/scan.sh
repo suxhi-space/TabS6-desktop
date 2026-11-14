@@ -16,6 +16,13 @@ for d in "$MEDIA"/*; do
   n=${d##*/}; [ "$n" = Android ] && continue
   echo "DIR|$n|$(kb "$d")"
 done
+# Files directly in internal storage (not in any folder): one item for all of them.
+tc=0; tk=0
+for f in "$MEDIA"/* "$MEDIA"/.[!.]*; do
+  [ -f "$f" ] || continue
+  tc=$((tc+1)); s=$(du -sk "$f" 2>/dev/null | cut -f1); tk=$((tk+${s:-0}))
+done
+[ $tc -gt 0 ] && echo "TOPFILES|$tc|$tk"
 for m in "$RP"/mnt/media_rw/*; do
   [ -d "$m" ] || continue
   free=$(df -k "$m" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)

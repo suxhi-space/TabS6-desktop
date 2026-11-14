@@ -32,6 +32,17 @@ while IFS='|' read -r t a rest; do
     n=$(newer "$ref" "$MEDIA/$name")
     [ "$n" -gt 0 ] && echo "CMP|DIR|$name|changed|$n" || echo "CMP|DIR|$name|same|0"
     ;;
+  TOP)
+    ref="$PKG/files/_loose_files.stamp"
+    [ -f "$ref" ] || { echo "CMP|TOP|loose files|unknown|0"; continue; }
+    n=0; any=0
+    for f in "$MEDIA"/* "$MEDIA"/.[!.]*; do
+      [ -f "$f" ] || continue; any=1
+      [ "$f" -nt "$ref" ] && n=$((n + 1))
+    done
+    if [ $any = 0 ]; then echo "CMP|TOP|loose files|gone|0"
+    elif [ $n -gt 0 ]; then echo "CMP|TOP|loose files|changed|$n"; else echo "CMP|TOP|loose files|same|0"; fi
+    ;;
   esac
 done < "$PKG/plan.txt"
 echo "CMP-DONE"

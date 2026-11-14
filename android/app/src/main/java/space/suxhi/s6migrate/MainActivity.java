@@ -77,6 +77,14 @@ public class MainActivity extends Activity {
         String name;
         long kb;
         boolean selected;
+        boolean top;   // "files directly in internal storage" (not a folder)
+        long count;
+    }
+
+    static final String TOP_LABEL = "Files directly in internal storage";
+
+    static String dirLine(DirItem d) {
+        return d.top ? "TOP|loose files" : "DIR|" + d.name;
     }
 
     static class Vol {
@@ -335,6 +343,16 @@ public class MainActivity extends Activity {
                 case "PROBE":
                     probeHash = f[1];
                     break;
+                case "TOPFILES": {
+                    if (f.length < 3) break;
+                    DirItem d = new DirItem();
+                    d.name = TOP_LABEL;
+                    d.top = true;
+                    d.count = parse(f[1]);
+                    d.kb = parse(f[2]);
+                    dirs.add(0, d);
+                    break;
+                }
                 case "PKG":
                     if (f.length >= 5) packages.add(f);
                     break;
@@ -348,7 +366,7 @@ public class MainActivity extends Activity {
             return;
         }
         Collections.sort(apps, (x, y) -> x.label.compareToIgnoreCase(y.label));
-        pickApps();
+        home();
     }
 
     static long parse(String s) {
@@ -473,8 +491,7 @@ public class MainActivity extends Activity {
             row.setOnClickListener(v -> openPackage(p, fWhen, fWhere));
             card.addView(row);
         }
-        card.addView(text("Tap a package to see what changed since you made it and update just those items. "
-                + "Packing new below makes a separate package.", 13, false));
+        card.addView(text("Tap a package to see what changed since you made it and update just those items.", 13, false));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(12);
@@ -505,8 +522,12 @@ public class MainActivity extends Activity {
             } else {
                 c.line = existingLine != null ? existingLine : "APP|" + name + "||";
             }
+        } else if ("TOP".equals(kind)) {
+            c.label = TOP_LABEL;
+            for (DirItem d : dirs) if (d.top) c.kb = d.kb;
+            c.line = "TOP|loose files";
         } else {
-            for (DirItem d : dirs) if (d.name.equals(name)) c.kb = d.kb;
+            for (DirItem d : dirs) if (!d.top && d.name.equals(name)) c.kb = d.kb;
             c.line = "DIR|" + name;
         }
         return c;
@@ -522,7 +543,7 @@ public class MainActivity extends Activity {
         body.setOrientation(LinearLayout.VERTICAL);
         body.addView(new ProgressBar(this));
         body.addView(text("Comparing your package with what is on the tablet now (read-only)...", 15, false));
-        screen("Your package from " + when, null, body, false, null, null, "Back", this::pickApps);
+        screen("Your package from " + when, null, body, false, null, null, "Back", this::home);
         new Thread(() -> {
             List<String> plan = new ArrayList<>();
             List<String> cmp = new ArrayList<>();
@@ -575,8 +596,8 @@ public class MainActivity extends Activity {
                 fresh.add(c);
             }
         for (DirItem d : dirs)
-            if (!inPlan.contains("DIR|" + d.name)) {
-                Change c = makeChange("DIR", d.name, null);
+            if (!inPlan.contains(d.top ? "TOP|loose files" : "DIR|" + d.name)) {
+                Change c = makeChange(d.top ? "TOP" : "DIR", d.name, null);
                 c.sub = "Not in the package \u00b7 " + human(c.kb);
                 fresh.add(c);
             }
@@ -619,7 +640,7 @@ public class MainActivity extends Activity {
         }
         refresh.run();
         screen("Your package from " + when, null, body, false,
-                "Update package", () -> confirmUpdate(p, all), "Back", this::pickApps);
+                "Update package", () -> confirmUpdate(p, all), "Back", this::home);
     }
 
     void confirmUpdate(String[] p, List<Change> all) {
@@ -649,10 +670,23 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null).show();
     }
 
+    /** Start screen: saved packages (compare / update) or make a new one. Shown only when packages exist. */
+    void home() {
+        if (packages.isEmpty()) {
+            pickApps();
+            return;
+        }
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(savedPackages());
+        body.addView(text("Or make a new, separate package with a different selection. Your saved package is not changed.", 14, false));
+        screen("Tab S6 Migration Assistant", "Your apps, data and files, packed for the move to Fedora",
+                body, false, "Make a new package", this::pickApps, "Close", this::finish);
+    }
+
     void pickApps() {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        if (!packages.isEmpty()) body.addView(savedPackages());
         if (!keystoreChecked) {
             body.addView(text("(Keystore check unavailable: no warnings about apps whose data cannot move.)", 12, false));
         }
@@ -665,14 +699,16 @@ public class MainActivity extends Activity {
                     }));
         }
         screen("1. Apps to take along", "Only apps you installed are listed. Google and Samsung apps stay behind.",
-                body, true, "Next", this::pickDirs, "Cancel", this::finish);
+                body, true, "Next", this::pickDirs, packages.isEmpty() ? "Cancel" : "Back",
+                packages.isEmpty() ? this::finish : this::home);
     }
 
     void pickDirs() {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         for (DirItem d : dirs) {
-            body.addView(row(null, d.name, human(d.kb), null, d.selected, c -> {
+            body.addView(row(null, d.name, d.top ? d.count + " files that are not in a folder \u00b7 " + human(d.kb) : human(d.kb),
+                    null, d.selected, c -> {
                 d.selected = c;
                 updateSpace();
             }));
@@ -751,7 +787,7 @@ public class MainActivity extends Activity {
             }
         for (DirItem d : dirs)
             if (d.selected) {
-                sb.append("DIR|").append(d.name).append('\n');
+                sb.append(dirLine(d)).append('\n');
                 n++;
             }
         runPack(out, sb.toString(), n, selectedKb(), false);

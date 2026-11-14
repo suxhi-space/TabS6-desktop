@@ -56,6 +56,13 @@ for d in "$MEDIA"/*; do
   n=${d##*/}; [ "$n" = Android ] && continue
   echo "DIR|$n|$(kb "$d")"
 done
+# Files directly in internal storage (not in any folder): one item for all of them.
+tc=0; tk=0
+for f in "$MEDIA"/* "$MEDIA"/.[!.]*; do
+  [ -f "$f" ] || continue
+  tc=$((tc+1)); s=$(du -sk "$f" 2>/dev/null | cut -f1); tk=$((tk+${s:-0}))
+done
+[ $tc -gt 0 ] && echo "TOPFILES|$tc|$tk"
 for m in "$RP"/mnt/media_rw/*; do
   [ -d "$m" ] || continue
   free=$(df -k "$m" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)
@@ -274,6 +281,23 @@ while IFS='|' read -r t a b c; do
       ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy of $a"
     fi
     ;;
+  TOP)
+    echo "[$n] files directly in internal storage"
+    safe=_loose_files; new="$OUT/files/.new-$safe"; list="$OUT/files/.new-$safe.list"
+    rm -f "$new".tar.* "$new.stamp" "$list"; touch "$new.stamp"
+    ( cd "$MEDIA" && for f in * .[!.]*; do [ -f "$f" ] && echo "$f"; done ) > "$list"
+    if [ -s "$list" ] && pack_tar "$new" -C "$MEDIA" -T "$list"; then
+      rm -f "$OUT/files/$safe".tar.*
+      for f in "$new".tar.*; do mv "$f" "$OUT/files/$safe${f#$new}"; done
+      mv "$new.stamp" "$OUT/files/$safe.stamp"; rm -f "$list"
+      printf '%s|%s\n' "$safe" "(files directly in internal storage)" >> "$OUT/files/index.txt"
+    elif [ ! -s "$list" ]; then
+      echo "  no loose files any more"; rm -f "$new.stamp" "$list"
+    else
+      bad=1; rm -f "$new".tar.* "$new.stamp" "$list"
+      ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy"
+    fi
+    ;;
   esac
 done < "$PLAN"
 # Merge this run's items into the package's item list (an update adds to it).
@@ -293,6 +317,7 @@ apps/<package>/extdata.tar.aaa...   /sdcard/Android/data/<package>
 apps/<package>/obb.tar.aaa...       /sdcard/Android/obb/<package>
 apps/<package>/meta.txt             package, uid, version, keystore warning
 files/<name>.tar.aaa...             folders from internal storage (index.txt maps names)
+files/_loose_files.tar.aaa...       files directly in internal storage, not in a folder
 SHA256SUMS                          checksums of every file
 
 Archives are split into parts; join them with:  cat NAME.tar.* | tar -xf -

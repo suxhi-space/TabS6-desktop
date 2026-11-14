@@ -52,13 +52,28 @@ mkdir -p "$W"; : > "$LOG"
 ui "S6 Migrate: switching this Galaxy Tab S6 to Fedora"
 ui "Keep the tablet plugged in. Do not press any buttons."
 
-# Unpack this ZIP first: TWRP's cache partition (where the ZIP sits) is replaced later.
-if [ -n "$ZIP" ] && [ "${S6S_TEST:-0}" != 1 ]; then
-  unzip -o "$ZIP" -d "$W/zip" >/dev/null 2>&1 || die "could not unpack the switch package"
+# Tools: TWRP builds differ. Use busybox's or toybox's copy of a tool when the plain command is missing.
+for t in tar sha256sum gzip unzip; do
+  command -v "$t" >/dev/null 2>&1 && continue
+  for bb in busybox toybox /sbin/busybox /system/bin/toybox /system/bin/busybox; do
+    command -v "$bb" >/dev/null 2>&1 || [ -x "$bb" ] || continue
+    if { "$bb" --list 2>/dev/null; "$bb" 2>/dev/null; } | tr ' ' '\n' | grep -qx "$t"; then
+      eval "$t() { $bb $t \"\$@\"; }"
+      echo "using $bb $t" >> "$LOG"
+      break
+    fi
+  done
+done
+
+# The S6 Migrate files (restore tool, first-start assistant, ...). The app embeds them in this script at the
+# marker below, so nothing has to be unzipped in TWRP (many TWRP builds have no unzip).
+# @S6_EMBED@
+if [ "${S6_EMBEDDED:-0}" != 1 ] && [ -n "$ZIP" ] && [ "${S6S_TEST:-0}" != 1 ]; then
+  unzip -o "$ZIP" -d "$W/zip" >/dev/null 2>&1 || die "could not unpack the switch package (this TWRP has no unzip; update the S6 Migrate app)"
 fi
 
 REHEARSAL=0
-{ [ -f "$W/zip/s6migrate/REHEARSAL" ] || [ -f "${S6S_PAYLOAD:-/nonexistent}/REHEARSAL" ]; } && REHEARSAL=1
+{ [ "${S6_MODE:-}" = rehearsal ] || [ -f "$W/zip/s6migrate/REHEARSAL" ] || [ -f "${S6S_PAYLOAD:-/nonexistent}/REHEARSAL" ]; } && REHEARSAL=1
 [ $REHEARSAL = 1 ] && ui "REHEARSAL: runs every check, then returns to Android. Nothing is erased."
 
 # ---------------------------------------------------------------- 1. find the drives
@@ -66,9 +81,13 @@ ui "1/6 Looking for your USB drive and microSD card..."
 # Every drive we can see, mounted by TWRP or mounted here: "<mount point>|<block device>" lines.
 list_drives() {
   local m dev n=0
-  for m in ${S6S_MOUNTS:-$(awk '{print $2}' /proc/mounts)}; do
-    [ -d "$m/S6Migrate" ] && echo "$m|$(awk -v m="$m" '$2==m {print $1}' /proc/mounts | head -1)"
-  done
+  if [ -n "${S6S_MOUNTS:-}" ]; then
+    for m in $S6S_MOUNTS; do [ -d "$m/S6Migrate" ] && echo "$m|"; done
+  else
+    while read -r dev m rest; do       # plain shell: some TWRP builds have no awk
+      [ -d "$m/S6Migrate" ] && echo "$m|$dev"
+    done < /proc/mounts
+  fi
   [ -n "${S6S_MOUNTS:-}" ] && return 0
   # Not mounted yet: USB drives (sde and up; sda-sdd are internal storage) and the microSD card.
   for dev in /dev/block/sd[e-z]1 /dev/block/sd[e-z] /dev/block/mmcblk0p1 /dev/block/mmcblk1p1; do
@@ -112,7 +131,8 @@ progress 0.15
 ui "3/6 Preparing (checks only, nothing is written yet)..."
 if [ -z "${S6S_INSTALLER:-}" ]; then
   rm -rf "$INST"; mkdir -p "$INST"
-  tar -xzf "$F/$INSTALLER_BUNDLE" -C "$INST" || die "could not unpack the installer"
+  { tar -xzf "$F/$INSTALLER_BUNDLE" -C "$INST" 2>>"$LOG" || gzip -dc "$F/$INSTALLER_BUNDLE" | tar -xf - -C "$INST"; } \
+    || die "could not unpack the installer"
   chmod 755 "$INST/busybox" "$INST/magiskboot" "$INST/patcher" "$INST/bootverify"
   mkdir -p "$INST/bin" && "$INST/busybox" --install -s "$INST/bin"
 fi

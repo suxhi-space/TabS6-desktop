@@ -1029,6 +1029,36 @@ public class MainActivity extends Activity {
 
     void prepareSwitch() { prepareSwitch(false); }
 
+    String readAsset(String name) throws IOException {
+        try (InputStream in = getAssets().open(name)) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int k;
+            while ((k = in.read(buf)) > 0) b.write(buf, 0, k);
+            return b.toString("UTF-8");
+        }
+    }
+
+    /** The TWRP script with S6 Migrate's files embedded as here-documents, so TWRP needs no unzip. */
+    String embeddedUpdateBinary(boolean rehearsal) throws IOException {
+        String script = readAsset("switch/update-binary");
+        if (!script.contains("# @S6_EMBED@")) throw new IOException("switch script has no embed marker");
+        String[][] files = {{"s6-restore", "s6-restore.sh"}, {"s6-doctor", "s6-doctor.sh"}, {"s6-android", "s6-android.sh"},
+                {"s6-firstrun", "switch/s6-firstrun"}, {"alternatives.tsv", "alternatives.tsv"},
+                {"s6migrate-firstrun.desktop", "switch/s6migrate-firstrun.desktop"}};
+        String tag = "S6_EOF_" + Long.toHexString(System.nanoTime());
+        StringBuilder e = new StringBuilder("S6_EMBEDDED=1\nS6_MODE=" + (rehearsal ? "rehearsal" : "switch")
+                + "\nmkdir -p \"$W/zip/s6migrate\"\n");
+        for (String[] f : files) {
+            String c = readAsset(f[1]).replace("\r\n", "\n");
+            if (c.contains(tag)) throw new IOException("embed marker clash in " + f[1]);
+            if (!c.endsWith("\n")) c += "\n";
+            e.append("cat > \"$W/zip/s6migrate/").append(f[0]).append("\" <<'").append(tag).append("'\n").append(c).append(tag).append('\n');
+        }
+        if (rehearsal) e.append("echo 'checks only, nothing is erased' > \"$W/zip/s6migrate/REHEARSAL\"\n");
+        return script.replace("# @S6_EMBED@", e.toString());
+    }
+
     String manualZip;
 
     String manualSteps() {
@@ -1053,7 +1083,9 @@ public class MainActivity extends Activity {
             try {
                 File zip = new File(getCacheDir(), "s6migrate-switch.zip");
                 try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
-                    zipAsset(z, "META-INF/com/google/android/update-binary", "switch/update-binary");
+                    z.putNextEntry(new ZipEntry("META-INF/com/google/android/update-binary"));
+                    z.write(embeddedUpdateBinary(rehearsal).getBytes("UTF-8"));
+                    z.closeEntry();
                     z.putNextEntry(new ZipEntry("META-INF/com/google/android/updater-script"));
                     z.write("# S6 Migrate: the work is done by update-binary\n".getBytes("UTF-8"));
                     z.closeEntry();

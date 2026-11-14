@@ -324,3 +324,9 @@ The app follows the concept design: a sidebar with six steps on the tablet (a st
 - **Cause:** TWRP passes a two-digit output descriptor (for example 54), and mksh (TWRP's shell) rejects `>&54` ("illegal file descriptor name"). Every message was lost, and the real stop reason was hidden.
 - **Fix:** the script now writes through `/proc/self/fd/$OUTFD`, as Magisk does. The rehearsal and the full switch pass the mocked tests under mksh, busybox ash, dash and bash.
 - **Guard:** CI checks that the old redirect doesn't come back.
+
+**No unzip or awk in TWRP (app 0.3.2).** On TWRP 3.7.0_9-15_mentalmuso (Android 9 base) the rehearsal then stopped at "could not unpack the switch package": this TWRP has no `unzip`.
+- **Embedded files:** the app now embeds S6 Migrate's files (restore tool, doctor, Android helper, first-start assistant, Linux list, autostart entry) into `update-binary` as here-documents, at the `# @S6_EMBED@` marker, together with `S6_MODE=rehearsal|switch`. TWRP only needs `cat`.
+- **No awk:** drive detection reads `/proc/mounts` in plain shell.
+- **Fallbacks:** `tar`, `sha256sum`, `gzip` and `unzip` fall back to busybox or toybox applets.
+- **Tested:** rehearsal and full switch pass the mocked tests under mksh with only basic busybox applets (no unzip, awk or plain tar).

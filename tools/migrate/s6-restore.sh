@@ -161,11 +161,12 @@ if [ $DO_FILES = 1 ]; then
     ls "$PKG/files/$safe".tar.* >/dev/null 2>&1 || { say "  $name: archive missing, skipped"; continue; }
     dest=$(target_for "$name")
     say "  $name -> $dest"
+    [ "$safe" != _loose_files ] && [ $DRY = 1 ] && echo "$dest|$name" >> "$STAGE/shares.list"
     [ $DRY = 1 ] && continue
     s="$STAGE/files/$safe"; mkdir -p "$s"
     if ! cat "$PKG/files/$safe".tar.* | tar -xf - -C "$s" 2>>"$LOG"; then say "    could not unpack, skipped"; continue; fi
     if [ "$safe" = _loose_files ]; then merge_into "$s" "$dest"
-    else merge_into "$s/$name" "$dest"; fi
+    else merge_into "$s/$name" "$dest"; echo "$dest|$name" >> "$STAGE/shares.list"; fi
     rm -rf "$s"
   done < "$PKG/files/index.txt"
 else
@@ -264,8 +265,19 @@ if command -v waydroid >/dev/null && [ -d "$WD" ]; then
   say "  $hidden Android system app(s) hidden from the menu (Waydroid's own Settings stays in its menu entry)"
   # Share the Linux folders with Android apps, so there is one set of files.
   SHARE="$ETC/s6migrate/waydroid-share.sh"
-  if [ $DRY = 1 ]; then say "  would set up folder sharing: Pictures, Downloads, Documents, Music, Videos -> Android"
+  LIST="$ETC/s6migrate/shares.list"   # "<Linux folder>|<name inside Android>", one per line
+  if [ $DRY = 1 ]; then
+    say "  would share with Android apps: Pictures, Downloads, Documents, Music, Videos"
+    [ -f "$STAGE/shares.list" ] && while IFS='|' read -r d n; do
+      case "$n" in Pictures|Download|Downloads|Documents|Music|Movies|Videos) continue ;; esac
+      say "    and ${d/#$HOME/~} as /sdcard/$n"
+    done < "$STAGE/shares.list"
   else
+    $SUDO mkdir -p "$ETC/s6migrate"
+    if [ -f "$STAGE/shares.list" ]; then   # merge with folders shared by earlier runs
+      { [ -f "$LIST" ] && cat "$LIST"; cat "$STAGE/shares.list"; } | awk -F'|' '!seen[$2]++' > "$STAGE/shares.merged"
+      $SUDO install -m 644 "$STAGE/shares.merged" "$LIST"
+    fi
     tmp=$(mktemp)
     cat > "$tmp" <<EOF
 #!/bin/sh
@@ -286,6 +298,12 @@ share "$(xdg DOWNLOAD Downloads)" Download
 share "$(xdg DOCUMENTS Documents)" Documents
 share "$(xdg MUSIC Music)" Music
 share "$(xdg VIDEOS Videos)" Movies
+# Every folder restored from the tablet, at the name Android apps knew it by
+# (so e.g. the Android Telegram app finds ~/Android/Telegram as /sdcard/Telegram).
+[ -f "$LIST" ] && while IFS='|' read -r d n; do
+  case "\$n" in Pictures|Download|Downloads|Documents|Music|Movies|Videos|""|*/*) continue ;; esac
+  share "\$d" "\$n"
+done < "$LIST"
 EOF
     $SUDO mkdir -p "$ETC/s6migrate" && $SUDO install -m 755 "$tmp" "$SHARE"
     rm -f "$tmp"
@@ -308,7 +326,7 @@ EOF
     $SUDO install -m 644 "$unit" "$ETC/systemd/system/s6migrate-waydroid-share.service"; rm -f "$unit"
     $SUDO systemctl daemon-reload >>"$LOG" 2>&1
     $SUDO systemctl enable --now s6migrate-waydroid-share.service >>"$LOG" 2>&1 \
-      && say "  Pictures, Downloads, Documents, Music and Videos are shared with Android apps" \
+      && say "  Pictures, Downloads, Documents, Music, Videos and $( [ -f "$LIST" ] && grep -c . "$LIST" || echo 0) restored folder(s) are shared with Android apps at their old names" \
       || say "  folder sharing could not start; see the log (bindfs gives the best results: sudo dnf install bindfs)"
     command -v bindfs >/dev/null || say "  tip: sudo dnf install bindfs  lets Android apps also save into those folders"
   fi

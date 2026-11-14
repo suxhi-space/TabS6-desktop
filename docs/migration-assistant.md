@@ -4,7 +4,25 @@
 data to keep, it installs Linux, moves your selection over, and removes the old OS, without
 you managing backups yourself.
 
-**Status: design.** Nothing here is built yet.
+**Status: v0.1 (Pack) built** as `tools/migrate/s6-migrate.sh`. It runs in Termux with root and does
+not change Android. v0.2 (restore on Fedora) and v0.3 (one-button switch) are next.
+
+| Version | Does | State |
+|---|---|---|
+| v0.1 Pack | Menus to pick your own apps (with data) and internal-storage folders; packs them to the microSD card or internal storage as split, checksummed archives; flags apps with Android Keystore keys | Built, tested against a simulated tablet |
+| v0.2 Restore | Fedora side: installs the packed apps into Waydroid with their data, unpacks folders into `~/`, sets up the native-feel integration below | Planned |
+| v0.3 Switch | Downloads Fedora to the card, writes a TWRP script, installs from TWRP (the t860-fedora installer reads the image from a stream), copies the package into the new system, boots Fedora | Planned |
+
+### Installing and running v0.1
+
+In Termux (needs a GitHub token with Contents: read on this repo, see README):
+
+```bash
+pkg install -y sqlite; read -rsp 'GitHub token: ' T; echo; curl -fsSL -H "Authorization: Bearer $T" -H 'Accept: application/vnd.github.raw' 'https://api.github.com/repos/suxhi-space/TabS6-desktop/contents/tools/migrate/s6-migrate.sh?ref=claude/android-tablet-desktop-ui-755uqh' -o $PREFIX/bin/s6-migrate && chmod +x $PREFIX/bin/s6-migrate; unset T; echo 'Installed. Run: s6-migrate'
+```
+
+Then run `s6-migrate` any time. Package layout: `S6Migrate/<date>/apps/<package>/{apk/,data.tar.*,data_de.tar.*,extdata.tar.*,obb.tar.*,meta.txt}`,
+`files/<folder>.tar.*`, `SHA256SUMS`, `README.txt`.
 
 ## The constraint that shapes everything
 

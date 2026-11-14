@@ -31,7 +31,7 @@ findings and read-only tools. No boot or flash code yet, by design.
 | [docs/boot-path.md](docs/boot-path.md) | Boot path decision (UEFI chainload) with evidence and device-specific traps |
 | [docs/macos-feasibility.md](docs/macos-feasibility.md) | Why macOS is blocked by silicon and what is realistic instead |
 | [docs/linux-install-plan.md](docs/linux-install-plan.md) | **Recommended practical path:** Fedora + KDE on the tablet, keeping files and bringing Android apps via Waydroid |
-| [docs/migration-assistant.md](docs/migration-assistant.md) | Design for a tool that moves your files, apps and data from Android to Linux for you |
+| [docs/migration-assistant.md](docs/migration-assistant.md) | The Migration Assistant app (`s6-migrate`): v0.1 packs your apps, data and folders; install command inside |
 | [docs/phase1-test-plan.md](docs/phase1-test-plan.md) | Step-by-step Phase 1 plan with expected outcomes, rollback procedures and abort criteria |
 
 ## Your next step: one command, on the tablet

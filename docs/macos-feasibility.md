@@ -9,7 +9,7 @@ iPadOS already has the tablet UI.
 | Requirement | Why | Tab S6 (Snapdragon 855, Kryo 485) | Snapintosh's X2 Elite |
 |---|---|---|---|
 | **Pointer authentication (PAC, ARMv8.3)** | Apple-silicon macOS (kernel, drivers and system userland) is **arm64e**, which uses PAC instructions throughout. iOS/iPadOS 27 are arm64e-only too | **Missing.** Kryo 485 is ARMv8.2 (A76/A55-derived). Non-HINT PAC instructions (`BLRAA`, `RETAA`, `LDRAA`, ...) are undefined and trap | Present |
-| **Control of EL2** (for the Snapintosh approach) | Snapintosh is an EL2 monitor that emulates Apple's SPTM/TXM and fakes Apple devices under an unmodified kernelcache | **Not available.** Qualcomm's hypervisor owns EL2 (`Hypervisor` carve-out at `0x85700000`); Android/UEFI enter at EL1 | UEFI hands over at EL2 on Windows-on-ARM laptops |
+| **Control of EL2** (only for the Snapintosh approach) | Snapintosh is an EL2 monitor that emulates Apple's SPTM/TXM and fakes Apple devices under an unmodified kernelcache. The source-built route (macOS-ForSheng, Pixel 8a) does **not** need EL2: XNU runs at EL1 | **Not available** (Qualcomm hypervisor, `Hypervisor` carve-out at `0x85700000`). Fine for the source-built route, which enters at EL1 anyway | UEFI hands over at EL2 on Windows-on-ARM laptops |
 | **16 KiB pages** | XNU uses 16K translation granules | Supported (A76/A55 designs). This is *not* a blocker; the earlier assumption in our chat was wrong | Not supported; Snapintosh shadows 16K tables onto 4K |
 
 Sources:
@@ -24,6 +24,21 @@ Sources:
 
 Confirm on your unit: `tools/recon/s6-recon.sh` prints the CPU `Features` line (no `paca`
 means no PAC) and the `started at EL1` line.
+
+## Native macOS ports that exist (Nov 2026)
+
+Every working one runs on a CPU **with** PAC:
+
+| Project | Device / CPU | PAC | How |
+|---|---|---|---|
+| [Rubanoxd/macos-pixel8a](https://github.com/Rubanoxd/macos-pixel8a) `58f2ce5` | Pixel 8a, Tensor G3 (ARMv9) | yes | **Bare metal.** `fastboot boot` → Mu-Silicium UEFI → DarwinBoot → source-built XNU 12377 **arm64e** → macOS 26.5 desktop. Own Mali GPU driver, touch, Wi-Fi, battery. Drops EL2 to EL1 |
+| [CrossDarwin/macOS-ForSheng](https://github.com/CrossDarwin/macOS-ForSheng) `ca57db7` | Xiaomi Pad 6S Pro, Snapdragon 8 Gen 2 | yes | The base the Pixel 8a port builds on. Its patch set `platform/sheng/macos26/pac/` (`0001-native-el1-pac-abi` … `0006-native-smp-key-bootstrap`) programs the CPU's real PAC keys |
+| UniXNU `macos-27.3` profile | Pad 6S Pro | yes | arm64e profile; requires PAC by its own docs |
+| Snapintosh | X2 Elite | yes | EL2 monitor, stock kernelcache |
+
+The Pixel 8a port is the strongest evidence yet that macOS can run natively on phone-class
+hardware. It also confirms the dividing line: its kernel, userland and even its Mesa port
+are arm64e. A Snapdragon 855 cannot execute that code.
 
 ## Could PAC be worked around?
 

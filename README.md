@@ -10,7 +10,7 @@ findings and read-only tools. No boot or flash code yet, by design.
 
 | Question | Answer |
 |---|---|
-| Can it run **macOS**? | **No, not natively.** The Snapdragon 855 lacks pointer authentication (ARMv8.3 PAC), and all Apple-silicon macOS is built for it. EL2 is also held by Qualcomm's hypervisor, which rules out the Snapintosh approach. [Details](docs/macos-feasibility.md) |
+| Can it run **macOS**? | **No, not natively.** The Snapdragon 855 lacks pointer authentication (ARMv8.3 PAC), and all Apple-silicon macOS is built for it. Every native macOS port so far (Pixel 8a, Xiaomi Pad 6S Pro, Snapintosh) runs on a PAC-capable CPU. [Details](docs/macos-feasibility.md) |
 | Can it run **iPadOS**? | **Plausibly iPadOS 17 (maybe 18)**, as a long research project. Same SoC as an existing iPadOS bring-up (Xiaomi Pad 5), same touch, pen and amp family as a working Samsung port (Galaxy Tab S7+) |
 | How do we get past Samsung's bootloader? | **Already solved for this exact tablet.** Mainline Linux boots on the SM-T860 through Project Aloha UEFI. XNU should load from that UEFI. [Details](docs/boot-path.md) |
 | What is the hardware? | Fully identified. [Hardware table](docs/hardware.md) |

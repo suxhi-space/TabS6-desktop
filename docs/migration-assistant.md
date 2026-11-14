@@ -68,7 +68,7 @@ Boot menu: [Fedora] [Android]   ← Android stays bootable until you choose to r
 | Open question | How we find out |
 |---|---|
 | Does your vendor fstab use **metadata encryption**? If so, the whole partition is encrypted and Linux cannot even mount it, which rules out B | `s6-recon.sh` now prints the `/data` fstab line and says which case you are in |
-| Is there a plaintext directory where the image stays readable to Linux? | Recon lists `/data` top-level; test with a small file first |
+| Is there a plaintext directory where the image stays readable to Linux? | `s6-plaintext-probe.sh` (see "How we will know" below) |
 | Is it safe for mainline Linux to mount Samsung's `userdata` (f2fs or ext4) read-write? A mistake here could damage Android's data | Read-only mount tests first; Android stays the fallback |
 | Can Aloha UEFI boot the stock Android kernel as a second entry? | UEFI experiment; otherwise switch by swapping boot images from TWRP |
 | Fedora needs ~20-30 GB inside the image | Recon prints free space on `/data` |
@@ -82,12 +82,58 @@ Boot menu: [Fedora] [Android]   ← Android stays bootable until you choose to r
 
 The assistant warns about each app in the third column before anything is erased.
 
-## Recommendation
+## Scope: your own apps only
 
-1. **Build Design A first.** It delivers most of what you described (pick what to keep,
-   automatic move, automatic app restore) with the risk profile we already understand.
-2. **Investigate Design B in parallel** once your recon results are in. The encryption line
-   decides it. If B is viable, Design A's selection and restore code is reused unchanged:
-   only the "where does the data wait" part changes.
+The picker lists only apps **you installed** (`pm list packages -3`). Google and Samsung
+system apps are hidden and never moved; their Linux equivalents take over: Dolphin for files,
+Gwenview for photos, Firefox for the web, and so on. Google services, if you want any of them,
+come from Waydroid's own Google image, not from Android.
+
+## Making Waydroid feel native
+
+The goal: Android apps behave like Linux apps, and Linux apps do the system jobs.
+
+| Feature | How | Status |
+|---|---|---|
+| Each Android app in its own KDE window, no Android home screen | Waydroid multi-window mode (`waydroid prop set persist.waydroid.multi_windows true`) | Built into Waydroid |
+| Android apps in the KDE app menu and taskbar, with their icons | Waydroid creates a `.desktop` launcher per installed app | Built into Waydroid |
+| Android's own system apps (Files, Gallery, Browser, Launcher) hidden from the menu | The assistant marks those launchers hidden | To build |
+| One set of folders: Android apps see your Linux `~/Pictures`, `~/Documents`, `~/Downloads`, etc. | Bind-mount the Linux XDG folders into Android's shared storage, so there is no separate Android "Internal storage" | To build and verify on the device |
+| Open a file from **Dolphin** in an Android app ("Open with…") | Generate KDE file associations that call `waydroid app intent android.intent.action.VIEW <file>` for apps that handle that file type | To build |
+| Copy and paste between Linux and Android apps | Waydroid clipboard sharing (needs `wl-clipboard`) | Built into Waydroid; verify |
+| Files picked inside an Android app | Android's file picker still appears, but it shows your Linux folders because they are shared | Limitation: Android apps cannot call Dolphin's picker directly |
+| Android notifications in KDE | Not supported by Waydroid today | Not available |
+
+## How we will know which design works on your tablet
+
+Two checks, both before anything is erased.
+
+| Step | What | Result |
+|---|---|---|
+| 1 | Run `tools/recon/s6-recon.sh` and read the **Data partition** section | `metadata_encryption` present: **only Design A** is possible. `fileencryption` only: go to step 2 |
+| 2 | Run `tools/recon/s6-plaintext-probe.sh create`. It writes one 1 MiB test file and records its hash | Hash saved |
+| 3 | Later, in TWRP, press **Cancel** at the decrypt prompt and run `sha256sum /data/linux-probe/probe.bin` | **Same hash: Design B is possible.** Different or unreadable: Design A |
+| 4 | Recon also prints free space on `/data` | Design B needs roughly 30 GB free for the Linux image |
+
+The assistant runs these same checks itself and offers Design B only when they pass.
+Otherwise it uses Design A automatically. Both designs share the picker and the restore
+code; only where the data waits in between differs.
+
+## Order matters on your tablet
+
+On the SM-T860, Magisk (your root) normally lives in the **recovery** partition, and copying
+app data off Android needs root. Installing TWRP replaces recovery, which removes root.
+So the assistant's Android step (picking and copying apps and data) **must run before TWRP
+is installed**. For Design B, which keeps Android, how to switch between the two systems at
+boot also depends on this. The recon output (BCB line, boot `ramdisk_size`) tells us which
+case you are in.
+
+## Plan
+
+1. **Build Design A first.** It delivers what you described (pick what to keep, automatic
+   move, automatic app restore, native-feeling Waydroid) with the risk profile already
+   understood.
+2. **Add Design B** if your checks pass. The picker, Waydroid integration and restore code
+   from Design A carry over unchanged.
 
 Either way, the first input needed is `tools/recon/s6-recon.sh` output from your tablet.

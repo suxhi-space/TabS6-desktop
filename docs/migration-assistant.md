@@ -161,18 +161,36 @@ Either way, the first input needed is `tools/recon/s6-recon.sh` output from your
 Mockup: https://claude.ai/artifact/YR2y4ZwEGa9dpSFCFb8Act (private to the owner).
 
 A guided upgrade wizard in the spirit of desktop OS upgrade assistants, with original artwork
-(no Microsoft, Apple or Fedora logos):
+(no Microsoft, Apple or Fedora logos). **Fedora-themed**: Fedora's blue palette (#3C6EB4 for
+light mode, #51A2DA for dark) and the open-licensed Red Hat Display / Red Hat Text fonts.
+**Follows the tablet's light/dark setting.**
 
 1. **Welcome**: "Move this tablet to Fedora", readiness checklist (model, bootloader, TWRP,
    battery, pre-release note).
 2. **Choose what to keep**: three choices (selected apps and files / files only / start fresh),
    app and folder lists with sizes and Keystore warnings, live space bar.
-3. **Space check**: Plan A (replace Android, carry the package on a USB drive or card, with and
+3. **Apps on Fedora**: for each app you bring, choose *Keep Android app* (Waydroid, with its data),
+   *Use the Linux alternative*, or *Both*. Apps without a Linux version are kept automatically.
+   A second list shows the Google/Samsung apps that stay behind and their Fedora replacements
+   (Chrome to Firefox, Gallery/Photos to Gwenview, My Files to Dolphin, phone link to KDE Connect,
+   Gmail to Thunderbird, Samsung Notes to Joplin with an "export first" warning), with install
+   toggles for those not preinstalled.
+4. **Space check**: Plan A (replace Android, carry the package on a USB drive or card, with and
    without the Fedora download) and Plan B (keep Android alongside), each showing fit or shortfall;
    Plan B locked until there is room and the TWRP check passes.
-4. **Ready to upgrade**: summary, what gets erased, what doesn't work in Fedora yet, a
-   confirmation checkbox for exported authenticator codes.
-5. **Upgrading**: full-screen progress with stages (pack, download, install, restore, first start).
+5. **Ready to upgrade**: summary (what is kept, which Android apps stay and which Linux apps are
+   added), what gets erased, what doesn't work in Fedora yet, a confirmation checkbox for exported
+   authenticator codes.
+6. **Upgrading**: full-screen progress with stages (pack, download, install, restore and set up
+   chosen Linux apps, first start).
 
-Layout: step sidebar on the left (steps 1-4), white content panel, one accent colour, 48 px touch
-targets, landscape tablet first.
+Layout: step sidebar on the left (steps 1-5), content panel, 48 px touch targets, landscape tablet
+first.
+
+### App replacement map (first version)
+
+A small built-in table maps Android package names to Linux alternatives; unknown apps default to
+"Keep Android app". Examples: `com.android.chrome` / browsers -> Firefox; gallery and photo apps ->
+Gwenview; file managers -> Dolphin; music players -> Elisa; video players -> Haruna or VLC; mail ->
+Thunderbird; note apps -> Joplin; office apps -> LibreOffice; PDF readers -> Okular. The map lives in
+the app so it can grow without changing the restore logic.

@@ -91,6 +91,10 @@ Before any flashing, also run the verified backup (stays on your computer, never
 - No Apple binaries (IPSW, kernelcache), Samsung/Qualcomm firmware, or device dumps in git.
   Apple's licence limits its OS to Apple hardware; supply your own IPSW and keep it local.
 
+## Credits
+
+S6 Migrate builds on other people's work, above all [Bentlybro/gts6l-mainline-linux](https://github.com/Bentlybro/gts6l-mainline-linux) and [starlight4you/t860-fedora](https://github.com/starlight4you/t860-fedora). See [CREDITS.md](CREDITS.md) for everyone.
+
 ## Key references
 
 - [Bentlybro/gts6l-mainline-linux](https://github.com/Bentlybro/gts6l-mainline-linux): mainline Linux on this exact tablet (boot method, hardware map)

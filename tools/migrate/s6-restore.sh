@@ -21,7 +21,7 @@
 
 set -u
 VERSION=0.2.0
-DRY=0; VERIFY=1; DO_FILES=1; DO_APPS=1; DO_SET=1; KS_DATA=0; YES=0; PKG=""
+DRY=0; VERIFY=1; DO_FILES=1; DO_APPS=1; DO_SET=1; DO_ALT=1; KS_DATA=0; YES=0; PKG=""
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
@@ -30,6 +30,7 @@ for a in "$@"; do
     --apps-only) DO_FILES=0 ;;
     --keystore-data) KS_DATA=1 ;;
     --no-settings) DO_SET=0 ;;
+    --no-linux-apps) DO_ALT=0 ;;
     --yes|-y) YES=1 ;;
     -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     -*) echo "Unknown option $a"; exit 2 ;;
@@ -40,6 +41,11 @@ done
 WD=${S6R_WAYDROID_DATA:-$HOME/.local/share/waydroid/data}   # Waydroid's /data on the host
 ETC=${S6R_ETC:-/etc}                                           # test hook
 USER=${USER:-$(id -un)}
+HERE=$(dirname "$(readlink -f "$0")")
+ALT=${S6R_ALTERNATIVES:-}                                      # Android app -> Linux version list
+for f in "$HERE/alternatives.tsv" "$HERE/lib/alternatives.tsv" /usr/local/share/s6migrate/alternatives.tsv; do
+  [ -z "$ALT" ] && [ -f "$f" ] && ALT=$f
+done
 BTDIR=${S6R_BTDIR:-/var/lib/bluetooth}                         # test hook
 SUDO=${S6R_SUDO-sudo}                                          # test hook
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -62,7 +68,7 @@ say "Tab S6 Migration Assistant restore v$VERSION  $( [ $DRY = 1 ] && echo '(dry
 say "Log: $LOG"
 
 # ------------------------------------------------------------------ 1. find the package
-step "1/6 Find your package"
+step "1/7 Find your package"
 if [ -z "$PKG" ]; then
   mapfile -t found < <(ls -d /run/media/"$USER"/*/S6Migrate/*/ /media/"$USER"/*/S6Migrate/*/ \
       /var/lib/s6migrate/package*/ "$HOME"/S6Migrate/*/ ${S6R_SEARCH:-} 2>/dev/null \
@@ -85,7 +91,7 @@ say "Package: $PKG"
 say "Contains $NAPPS apps and $NDIRS folders ($(du -sh "$PKG" 2>/dev/null | cut -f1)). Status: $(cat "$PKG/status.txt" 2>/dev/null || echo unknown)"
 
 # ------------------------------------------------------------------ 2. verify
-step "2/6 Check the package"
+step "2/7 Check the package"
 if [ $VERIFY = 1 ] && [ -f "$PKG/SHA256SUMS" ]; then
   total=$(grep -c . "$PKG/SHA256SUMS"); n=0; bad=0
   while read -r sum file; do
@@ -157,7 +163,7 @@ merge_into() { # merge_into SRC_DIR DEST_DIR : move files, never overwrite; clas
 }
 
 if [ $DO_FILES = 1 ]; then
-  step "3/6 Restore your folders"
+  step "3/7 Restore your folders"
   while IFS='|' read -r safe name; do
     [ -n "$safe" ] || continue
     ls "$PKG/files/$safe".tar.* >/dev/null 2>&1 || { say "  $name: archive missing, skipped"; continue; }
@@ -172,7 +178,7 @@ if [ $DO_FILES = 1 ]; then
     rm -rf "$s"
   done < "$PKG/files/index.txt"
 else
-  step "3/6 Restore your folders (skipped)"
+  step "3/7 Restore your folders (skipped)"
 fi
 
 # ------------------------------------------------------------------ 4. settings
@@ -313,11 +319,21 @@ PY
 }
 
 if [ $DO_FILES = 1 ] && [ $DO_SET = 1 ] && { [ -d "$PKG/settings" ] || [ -d "$PKG/wifi" ]; }; then
-  step "4/6 Your settings"
+  step "4/7 Your settings"
   apply_settings
 else
-  step "4/6 Your settings (skipped)"
+  step "4/7 Your settings (skipped)"
 fi
+
+alt_for() { # alt_for PKG -> "name<TAB>method<TAB>target<TAB>note" or nothing
+  [ -f "$ALT" ] || return 0
+  awk -F'\t' -v p="$1" '!/^#/ && NF>=4 { pat=$1; if (pat==p || (substr(pat,length(pat))=="*" && index(p, substr(pat,1,length(pat)-1))==1)) { print $2 "\t" $3 "\t" $4 "\t" $5; exit } }' "$ALT"
+}
+choice_for() { # keep | linux | both (the wizard writes choices.txt; default both when a Linux version exists)
+  local c=""
+  [ -f "$PKG/choices.txt" ] && c=$(grep -F -m1 "$1|" "$PKG/choices.txt" | while IFS='|' read -r p ch; do [ "$p" = "$1" ] && echo "$ch"; done)
+  if [ -n "$c" ]; then echo "$c"; elif [ -n "$(alt_for "$1")" ]; then echo both; else echo keep; fi
+}
 
 # ------------------------------------------------------------------ 5. apps into Waydroid
 install_apk_set() { # install_apk_set PKG : copy APKs into the container and install them as one session
@@ -348,7 +364,7 @@ restore_tree() { # restore_tree ARCHIVE_BASENAME HOST_PARENT OWNER : unpack <pkg
 }
 
 if [ $DO_APPS = 1 ] && [ "$NAPPS" -gt 0 ]; then
-  step "5/6 Bring your apps into Waydroid"
+  step "5/7 Bring your apps into Waydroid"
   if ! command -v waydroid >/dev/null; then
     say "Waydroid is not installed. Install it with:  sudo dnf install waydroid  then run:  s6-restore --apps-only"
   elif [ ! -d "$WD" ]; then
@@ -362,6 +378,7 @@ if [ $DO_APPS = 1 ] && [ "$NAPPS" -gt 0 ]; then
     while IFS='|' read -r t pkg olduid ks; do
       [ "$t" = APP ] || continue
       [ -d "$PKG/apps/$pkg" ] || { say "  $pkg: not in the package, skipped"; continue; }
+      if [ "$(choice_for "$pkg")" = linux ]; then say "  $pkg: using the Linux version instead (next step)"; continue; fi
       say "  $pkg"
       if ! install_apk_set "$pkg"; then say "    install failed (see log)"; fail=$((fail+1)); continue; fi
       if [ "$ks" = keystore ] && [ $KS_DATA = 0 ]; then
@@ -388,11 +405,57 @@ if [ $DO_APPS = 1 ] && [ "$NAPPS" -gt 0 ]; then
     say "Apps: $ok done, $fail with problems."
   fi
 else
-  step "5/6 Bring your apps into Waydroid (skipped)"
+  step "5/7 Bring your apps into Waydroid (skipped)"
 fi
 
-# ------------------------------------------------------------------ 6. make Waydroid feel native
-step "6/6 Make Android apps feel native"
+# ------------------------------------------------------------------ 6. Linux versions of your apps
+install_alt() { # install_alt NAME METHOD TARGET
+  local name=$1 method=$2 target=$3
+  case "$method" in
+    preinstalled|dnf)
+      rpm -q "$target" >/dev/null 2>&1 && { say "  $name: already installed"; return 0; }
+      run $SUDO dnf install -y "$target" ;;
+    flatpak)
+      flatpak info "$target" >/dev/null 2>&1 && { say "  $name: already installed"; return 0; }
+      run flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
+        && run flatpak install --user -y --noninteractive flathub "$target" ;;
+    rpm-github)
+      local repo=${target%%|*} rest=${target#*|} asset fallback tag ver url f
+      asset=${rest%%|*}; fallback=""; [ "$rest" != "$asset" ] && fallback=${rest#*|}
+      # Newest release: GitHub's redirect, then its API, then the known-good tag from the list.
+      tag=$(curl -sL -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest" | sed -n 's#.*/releases/tag/##p')
+      [ -n "$tag" ] || tag=$(curl -s "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+      [ -n "$tag" ] || tag=$fallback
+      [ -n "$tag" ] || { say "  $name: could not find its latest release"; return 1; }
+      ver=${tag#v}; asset=${asset//\{ver\}/$ver}
+      url="https://github.com/$repo/releases/download/$tag/$asset"
+      if [ $DRY = 1 ]; then say "  would download $url and install it"; return 0; fi
+      f="$STAGE/$asset"
+      curl -fsSL -o "$f" "$url" || { say "  $name: download failed"; return 1; }
+      run $SUDO dnf install -y "$f" ;;
+    *) say "  $name: unknown install method $method"; return 1 ;;
+  esac
+}
+if [ $DO_ALT = 1 ] && [ "$NAPPS" -gt 0 ] && [ $DO_APPS = 1 ]; then
+  step "6/7 Linux versions of your apps"
+  seen=" "; nalt=0
+  while IFS='|' read -r t pkg rest; do
+    [ "$t" = APP ] || continue
+    ch=$(choice_for "$pkg"); [ "$ch" = keep ] && continue
+    a=$(alt_for "$pkg"); [ -n "$a" ] || continue
+    IFS=$'\t' read -r aname amethod atarget anote <<< "$a"
+    case "$seen" in *" $aname "*) continue ;; esac; seen="$seen$aname "
+    if install_alt "$aname" "$amethod" "$atarget"; then
+      say "  $pkg -> $aname${anote:+ ($anote)}"; nalt=$((nalt+1))
+    else say "  $aname could not be installed now; install it later from Discover"; fi
+  done < "$PKG/plan.txt"
+  [ $nalt = 0 ] && say "  none of your apps has a Linux version on the list; they stay Android apps"
+else
+  step "6/7 Linux versions of your apps (skipped)"
+fi
+
+# ------------------------------------------------------------------ 7. make Waydroid feel native
+step "7/7 Make Android apps feel native"
 if command -v waydroid >/dev/null && [ -d "$WD" ]; then
   # One window per app instead of an Android home screen.
   run waydroid prop set persist.waydroid.multi_windows true && say "  Android apps open in their own windows"

@@ -1096,6 +1096,7 @@ public class MainActivity extends Activity {
                     zipAsset(z, "s6migrate/s6-doctor", "s6-doctor.sh");
                     zipAsset(z, "s6migrate/s6-android", "s6-android.sh");
                     zipAsset(z, "s6migrate/s6-firstrun", "switch/s6-firstrun");
+                    zipAsset(z, "s6migrate/alternatives.tsv", "alternatives.tsv");
                     zipAsset(z, "s6migrate/s6migrate-firstrun.desktop", "switch/s6migrate-firstrun.desktop");
                     if (rehearsal) {
                         z.putNextEntry(new ZipEntry("s6migrate/REHEARSAL"));

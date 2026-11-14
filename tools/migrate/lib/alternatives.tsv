@@ -1,0 +1,41 @@
+# Android app -> Linux version installed on Fedora by s6-restore (and shown in the app).
+# Columns (tab separated): android package (exact, or prefix ending in *) | Linux app name | method | target | note
+# Methods:
+#   preinstalled  part of Fedora KDE already; target = rpm package name (installed with dnf if missing)
+#   dnf           Fedora package; target = package name
+#   flatpak       Flathub app id (installed per user)
+#   rpm-github    owner/repo|asset file name with {ver}|known-good tag: newest release asset (falls back to the known-good tag), installed with dnf
+# Only apps with a working ARM64 (aarch64) Linux version are listed. Unknown apps simply stay Android apps.
+com.android.chrome	Firefox	preinstalled	firefox	Import bookmarks via Firefox > Bookmarks > Import
+com.sec.android.app.sbrowser	Firefox	preinstalled	firefox
+com.brave.browser	Firefox	preinstalled	firefox
+com.microsoft.emmx	Firefox	preinstalled	firefox
+org.mozilla.firefox	Firefox	preinstalled	firefox	Sign in to Firefox to bring tabs and bookmarks
+com.google.android.apps.youtube.music	Pear Desktop (YouTube Music)	rpm-github	pear-devs/pear-desktop|youtube-music-{ver}.aarch64.rpm|v3.12.0	https://github.com/pear-devs/pear-desktop
+com.google.android.youtube	FreeTube	flatpak	io.freetubeapp.FreeTube	Private YouTube client
+org.telegram.messenger	Telegram Desktop	flatpak	org.telegram.desktop
+org.telegram.messenger.web	Telegram Desktop	flatpak	org.telegram.desktop
+com.discord	Vesktop (Discord)	flatpak	dev.vencord.Vesktop
+com.google.android.gm	Thunderbird	dnf	thunderbird
+com.microsoft.office.outlook	Thunderbird	dnf	thunderbird
+com.samsung.android.email.provider	Thunderbird	dnf	thunderbird
+com.google.android.apps.photos	Gwenview	preinstalled	gwenview
+com.sec.android.gallery3d	Gwenview	preinstalled	gwenview
+com.sec.android.app.myfiles	Dolphin	preinstalled	dolphin
+com.google.android.apps.nbu.files	Dolphin	preinstalled	dolphin
+com.adobe.reader	Okular	preinstalled	okular
+com.google.android.apps.pdfviewer	Okular	preinstalled	okular
+org.videolan.vlc	VLC	dnf	vlc
+com.mxtech.videoplayer.ad	Haruna	dnf	haruna
+com.microsoft.office.*	LibreOffice	dnf	libreoffice
+com.google.android.apps.docs.editors.*	LibreOffice	dnf	libreoffice
+cn.wps.moffice_eng	LibreOffice	dnf	libreoffice
+com.google.android.keep	Marknote	dnf	marknote	KDE notes app
+com.samsung.android.app.notes	Marknote	dnf	marknote	Export Samsung Notes first: they cannot move
+md.obsidian	Obsidian	flatpak	md.obsidian.Obsidian
+com.sec.android.app.popupcalculator	KCalc	dnf	kcalc
+com.google.android.calculator	KCalc	dnf	kcalc
+com.ibis.paint.x	Krita	dnf	krita	Drawing and painting
+com.adobe.psmobile	GIMP	dnf	gimp
+com.android.camera2	Kamoso	dnf	kamoso
+com.google.android.apps.messaging	KDE Connect	preinstalled	kdeconnectd	Texts from your phone on the tablet

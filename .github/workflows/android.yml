@@ -25,6 +25,7 @@ jobs:
           bash -n tools/migrate/s6-migrate.sh
           sh -n tools/migrate/lib/scan.sh
           sh -n tools/migrate/lib/pack.sh
+          sh -n tools/migrate/lib/compare.sh
 
       - uses: actions/setup-java@v4
         with:

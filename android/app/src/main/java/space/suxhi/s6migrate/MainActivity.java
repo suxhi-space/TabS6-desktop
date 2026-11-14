@@ -37,9 +37,11 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -248,6 +250,7 @@ public class MainActivity extends Activity {
             try {
                 File scanSh = asset("scan.sh");
                 asset("pack.sh");
+                asset("compare.sh");
                 List<String> lines = new ArrayList<>();
                 int rc = runRoot("sh " + q(scanSh.getAbsolutePath()) + " ''", lines::add);
                 Set<String> keyUids = readKeystoreUids();
@@ -463,15 +466,187 @@ public class MainActivity extends Activity {
             String where = path.startsWith("/data/media") ? "internal storage" : "external drive";
             for (Vol v : vols) if (path.startsWith(v.path + "/")) where = vName(v);
             String status = "complete".equals(p[4]) ? "verified" : "errors".equals(p[4]) ? "finished with errors" : "status unknown";
-            card.addView(text("• " + when + ": " + parse(p[2]) + " items, " + human(parse(p[3])) + " on " + where + " (" + status + ")", 14, false));
+            final String fWhen = when, fWhere = where;
+            TextView row = text("\u2022 " + when + ": " + parse(p[2]) + " items, " + human(parse(p[3])) + " on " + where
+                    + " (" + status + ")   See what changed \u203a", 14, false);
+            row.setPadding(0, dp(10), 0, dp(10));
+            row.setOnClickListener(v -> openPackage(p, fWhen, fWhere));
+            card.addView(row);
         }
-        card.addView(text("It stays saved for the switch to Fedora. Pack again only if you want a fresher copy; "
-                + "a new package does not replace the old one.", 13, false));
+        card.addView(text("Tap a package to see what changed since you made it and update just those items. "
+                + "Packing new below makes a separate package.", 13, false));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(12);
         card.setLayoutParams(lp);
         return card;
+    }
+
+    static class Change {
+        String kind, name, label, sub, line;
+        long kb;
+        boolean selected;
+        Drawable icon;
+    }
+
+    Change makeChange(String kind, String name, String existingLine) {
+        Change c = new Change();
+        c.kind = kind;
+        c.name = name;
+        c.label = name;
+        if ("APP".equals(kind)) {
+            AppItem found = null;
+            for (AppItem a : apps) if (a.pkg.equals(name)) found = a;
+            if (found != null) {
+                c.label = found.label;
+                c.icon = found.icon;
+                c.kb = found.kb;
+                c.line = planLine(found);
+            } else {
+                c.line = existingLine != null ? existingLine : "APP|" + name + "||";
+            }
+        } else {
+            for (DirItem d : dirs) if (d.name.equals(name)) c.kb = d.kb;
+            c.line = "DIR|" + name;
+        }
+        return c;
+    }
+
+    long freeFor(String path) {
+        for (Vol v : vols) if (path.startsWith(v.path + "/")) return v.freeKb;
+        return internalFreeKb;
+    }
+
+    void openPackage(String[] p, String when, String where) {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(new ProgressBar(this));
+        body.addView(text("Comparing your package with what is on the tablet now (read-only)...", 15, false));
+        screen("Your package from " + when, null, body, false, null, null, "Back", this::pickApps);
+        new Thread(() -> {
+            List<String> plan = new ArrayList<>();
+            List<String> cmp = new ArrayList<>();
+            try {
+                runRoot("cat " + q(p[1] + "/plan.txt"), plan::add);
+                runRoot("sh " + q(new File(getCacheDir(), "compare.sh").getAbsolutePath()) + " '' " + q(p[1]), cmp::add);
+            } catch (Exception e) {
+                ui.post(() -> message("Could not compare", String.valueOf(e.getMessage())));
+                return;
+            }
+            ui.post(() -> showPackage(p, when, where, plan, cmp));
+        }).start();
+    }
+
+    void showPackage(String[] p, String when, String where, List<String> plan, List<String> cmp) {
+        Set<String> inPlan = new HashSet<>();
+        Map<String, String> planLines = new HashMap<>();
+        for (String l : plan) {
+            String[] f = l.split("\\|", -1);
+            if (f.length >= 2) {
+                inPlan.add(f[0] + "|" + f[1]);
+                planLines.put(f[0] + "|" + f[1], l);
+            }
+        }
+        List<Change> changed = new ArrayList<>();
+        List<Change> fresh = new ArrayList<>();
+        List<String> gone = new ArrayList<>();
+        int same = 0;
+        for (String l : cmp) {
+            String[] f = l.split("\\|", -1);
+            if (f.length < 5 || !"CMP".equals(f[0])) continue;
+            if ("same".equals(f[3])) {
+                same++;
+            } else if ("gone".equals(f[3])) {
+                gone.add(makeChange(f[1], f[2], planLines.get(f[1] + "|" + f[2])).label);
+            } else {
+                Change c = makeChange(f[1], f[2], planLines.get(f[1] + "|" + f[2]));
+                long n = parse(f[4]);
+                c.sub = "changed".equals(f[3])
+                        ? (n >= 1000 ? "1000+ files changed" : n + (n == 1 ? " file changed" : " files changed")) + " \u00b7 " + human(c.kb)
+                        : "Could not compare; re-packing is the safe choice";
+                c.selected = true;
+                changed.add(c);
+            }
+        }
+        for (AppItem a : apps)
+            if (!inPlan.contains("APP|" + a.pkg)) {
+                Change c = makeChange("APP", a.pkg, null);
+                c.sub = "Not in the package \u00b7 " + human(c.kb);
+                fresh.add(c);
+            }
+        for (DirItem d : dirs)
+            if (!inPlan.contains("DIR|" + d.name)) {
+                Change c = makeChange("DIR", d.name, null);
+                c.sub = "Not in the package \u00b7 " + human(c.kb);
+                fresh.add(c);
+            }
+        final List<Change> all = new ArrayList<>(changed);
+        all.addAll(fresh);
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(text(parse(p[2]) + " items, " + human(parse(p[3])) + " on " + where + ".\nSince then: "
+                + changed.size() + " changed, " + fresh.size() + " new, " + gone.size() + " no longer on the tablet, "
+                + same + " unchanged.", 15, false));
+        TextView need = text("", 14, true);
+        need.setPadding(0, dp(8), 0, dp(8));
+        Runnable refresh = () -> {
+            long kb = 0;
+            int n = 0;
+            for (Change c : all) if (c.selected) { kb += c.kb; n++; }
+            long free = freeFor(p[1]), req = kb + margin(kb);
+            need.setText(n == 0 ? "Nothing selected to update."
+                    : "Update " + n + (n == 1 ? " item" : " items") + ", about " + human(kb) + ": "
+                    + (free >= req ? "fits (" + human(free) + " free)." : "not enough space (needs " + human(req) + ", " + human(free) + " free)."));
+        };
+        body.addView(need);
+        if (changed.isEmpty() && fresh.isEmpty()) {
+            body.addView(text("\nYour package is up to date: nothing has changed since you made it.", 16, true));
+        }
+        if (!changed.isEmpty()) {
+            body.addView(text("\nChanged since then (ticked: re-pack recommended)", 16, true));
+            for (Change c : changed)
+                body.addView(row(c.icon, c.label, c.sub, null, c.selected, on -> { c.selected = on; refresh.run(); }));
+        }
+        if (!fresh.isEmpty()) {
+            body.addView(text("\nOn the tablet but not in the package", 16, true));
+            for (Change c : fresh)
+                body.addView(row(c.icon, c.label, c.sub, null, c.selected, on -> { c.selected = on; refresh.run(); }));
+        }
+        if (!gone.isEmpty()) {
+            body.addView(text("\nNo longer on the tablet", 16, true));
+            body.addView(text(String.join(", ", gone) + "\nTheir copies stay in the package.", 14, false));
+        }
+        refresh.run();
+        screen("Your package from " + when, null, body, false,
+                "Update package", () -> confirmUpdate(p, all), "Back", this::pickApps);
+    }
+
+    void confirmUpdate(String[] p, List<Change> all) {
+        StringBuilder plan = new StringBuilder();
+        int n = 0;
+        long kb = 0;
+        for (Change c : all)
+            if (c.selected) {
+                plan.append(c.line).append('\n');
+                n++;
+                kb += c.kb;
+            }
+        if (n == 0) {
+            Toast.makeText(this, "Nothing selected to update.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (freeFor(p[1]) < kb + margin(kb)) {
+            Toast.makeText(this, "Not enough free space on that drive for this update.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final int fn = n;
+        final long fkb = kb;
+        new AlertDialog.Builder(this).setTitle("Update this package?")
+                .setMessage(n + (n == 1 ? " item" : " items") + " (about " + human(kb) + ") will be re-packed into\n" + p[1]
+                        + "\n\nEach item replaces its old copy only after the new one is verified. Nothing on Android is changed.")
+                .setPositiveButton("Update", (d, w) -> runPack(p[1], plan.toString(), fn, fkb, true))
+                .setNegativeButton("Cancel", null).show();
     }
 
     void pickApps() {
@@ -565,25 +740,32 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------------ pack
 
+    /** Plan lines for the current selection on the pickers. */
     void pack(String out) {
-        final int total;
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (AppItem a : apps)
+            if (a.selected) {
+                sb.append(planLine(a)).append('\n');
+                n++;
+            }
+        for (DirItem d : dirs)
+            if (d.selected) {
+                sb.append("DIR|").append(d.name).append('\n');
+                n++;
+            }
+        runPack(out, sb.toString(), n, selectedKb(), false);
+    }
+
+    static String planLine(AppItem a) {
+        return "APP|" + a.pkg + "|" + a.uid + "|" + (a.keystore ? "keystore" : "");
+    }
+
+    /** Runs pack.sh with the given plan into OUT. update = adding to an existing package. */
+    void runPack(String out, String planText, int total, long expectedKb, boolean update) {
         File plan = new File(getCacheDir(), "plan.txt");
         try (FileOutputStream os = new FileOutputStream(plan)) {
-            int n = 0;
-            StringBuilder sb = new StringBuilder();
-            for (AppItem a : apps)
-                if (a.selected) {
-                    sb.append("APP|").append(a.pkg).append('|').append(a.uid).append('|')
-                            .append(a.keystore ? "keystore" : "").append('\n');
-                    n++;
-                }
-            for (DirItem d : dirs)
-                if (d.selected) {
-                    sb.append("DIR|").append(d.name).append('\n');
-                    n++;
-                }
-            os.write(sb.toString().getBytes("UTF-8"));
-            total = n;
+            os.write(planText.getBytes("UTF-8"));
         } catch (IOException e) {
             message("Error", "Could not write the plan: " + e.getMessage());
             return;
@@ -593,7 +775,7 @@ public class MainActivity extends Activity {
         body.setOrientation(LinearLayout.VERTICAL);
         TextView status = text("Starting...", 16, true);
         ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(total);
+        bar.setMax(Math.max(1, total));
         TextView written = text("", 14, false);
         TextView log = text("", 12, false);
         log.setTypeface(Typeface.MONOSPACE);
@@ -601,30 +783,40 @@ public class MainActivity extends Activity {
         body.addView(bar);
         body.addView(written);
         body.addView(log);
-        final long expectedKb = selectedKb();
+        screen(update ? "Updating package" : "Packing", "Keep this screen open. It stays on until packing finishes.",
+                body, false, null, null, null, null);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        busy = true; // set before the counter thread starts, or it would exit at once
+
         final long startMs = System.currentTimeMillis();
         // Live "written so far" counter, so a big item does not look frozen.
         new Thread(() -> {
+            long base = 0;
+            if (update) { // an update starts from the existing package size
+                final long[] b0 = {0};
+                try {
+                    runRoot("du -sk " + q(out) + " 2>/dev/null", l -> b0[0] = parse(l.split("\\s+")[0]));
+                } catch (Exception ignored) {
+                }
+                base = b0[0];
+            }
             while (busy) {
                 try {
                     Thread.sleep(4000);
                     final long[] kb = {0};
                     runRoot("du -sk " + q(out) + " 2>/dev/null", l -> kb[0] = parse(l.split("\\s+")[0]));
+                    long done = Math.max(0, kb[0] - base);
                     long secs = Math.max(1, (System.currentTimeMillis() - startMs) / 1000);
-                    long rate = kb[0] / secs; // KB/s
-                    String eta = rate > 0 && expectedKb > kb[0]
-                            ? ", about " + Math.max(1, (expectedKb - kb[0]) / rate / 60) + " min left" : "";
-                    String s = "Written so far: " + human(kb[0]) + " of about " + human(expectedKb)
+                    long rate = done / secs; // KB/s
+                    String eta = rate > 0 && expectedKb > done
+                            ? ", about " + Math.max(1, (expectedKb - done) / rate / 60) + " min left" : "";
+                    String s = "Written so far: " + human(done) + " of about " + human(expectedKb)
                             + (rate > 0 ? " (" + human(rate) + "/s" + eta + ")" : "");
                     ui.post(() -> { if (busy) written.setText(s); });
                 } catch (Exception ignored) {
                 }
             }
         }).start();
-        screen("Packing", "Keep this screen open. It stays on until packing finishes.", body, false,
-                null, null, null, null);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        busy = true;
 
         String cmd = "sh " + q(new File(getCacheDir(), "pack.sh").getAbsolutePath()) + " '' "
                 + q(plan.getAbsolutePath()) + " " + q(out) + " " + PART_SIZE;
@@ -651,23 +843,24 @@ public class MainActivity extends Activity {
                 last[0] = "ERROR: " + e.getMessage();
             }
             final boolean ok = rc == 0 && "PACK-OK".equals(last[0].trim());
-            ui.post(() -> done(ok, out, all.toString()));
+            ui.post(() -> done(ok, out, all.toString(), update));
         }).start();
     }
 
-    void done(boolean ok, String out, String log) {
+    void done(boolean ok, String out, String log, boolean update) {
         busy = false;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.addView(text(ok
-                ? "Your package was written and verified:\n\n" + out
+                ? (update ? "Your package was updated and verified:\n\n" : "Your package was written and verified:\n\n") + out
                 + "\n\nNothing on Android was changed. Keep the drive or card safe until you have switched."
-                : "Packing finished with errors. Nothing on Android was changed.\n\nDetails are in "
-                + out + "/pack-warnings.log and below.", 15, false));
+                : "Packing finished with errors. Nothing on Android was changed"
+                + (update ? ", and items that failed kept their previous copy." : ".")
+                + "\n\nDetails are in " + out + "/pack-warnings.log and below.", 15, false));
         TextView l = text("\n" + log, 12, false);
         l.setTypeface(Typeface.MONOSPACE);
         body.addView(l);
-        screen(ok ? "Done ✓" : "Finished with errors", null, body, false, "Close", this::finish, null, null);
+        screen(ok ? "Done \u2713" : "Finished with errors", null, body, false, "Close", this::finish, null, null);
     }
 }

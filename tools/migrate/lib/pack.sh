@@ -10,33 +10,54 @@ pack_tar() {
   want=$(tar -cf - "$@" 2>/dev/null | tar -tf - | wc -l)
   got=$(cat "$name".tar.* | tar -tf - 2>/dev/null | wc -l)
   [ "$want" = "$got" ] || { echo "VERIFY-FAIL $name ($got of $want entries)"; return 1; }
-  echo "  ok: ${name##*/} ($got entries)"
+  label=${name##*/}; echo "  ok: ${label#.new-} ($got entries)"
 }
 n=0; bad=0
+# Each item is packed into a ".new-" staging copy and only replaces an existing copy once it
+# verifies, so updating a package never loses the previous copy of an item.
 while IFS='|' read -r t a b c; do
   n=$((n+1))
   case "$t" in
   APP)
-    pkg="$a"; dir="$OUT/apps/$pkg"; mkdir -p "$dir/apk"
+    pkg="$a"; final="$OUT/apps/$pkg"; dir="$OUT/apps/.new-$pkg"
+    rm -rf "$dir"; mkdir -p "$dir/apk"
     echo "[$n] app $pkg"
-    for p in $(pm path "$pkg" | sed 's/^package://'); do cp "$RP$p" "$dir/apk/" || bad=1; done
-    ver=$(dumpsys package "$pkg" 2>/dev/null | grep -m1 versionName | sed 's/.*versionName=//')
+    ok=1
+    for p in $(pm path "$pkg" </dev/null | sed 's/^package://'); do cp "$RP$p" "$dir/apk/" || ok=0; done
+    ver=$(dumpsys package "$pkg" </dev/null 2>/dev/null | grep -m1 versionName | sed 's/.*versionName=//')
     printf 'package=%s\nuid=%s\nversion=%s\nkeystore=%s\n' "$pkg" "$b" "$ver" "$c" > "$dir/meta.txt"
-    am force-stop "$pkg" 2>/dev/null
-    [ -d "$RP/data/data/$pkg" ]          && { pack_tar "$dir/data" -C "$RP/data/data" "$pkg" || bad=1; }
-    [ -d "$RP/data/user_de/0/$pkg" ]     && { pack_tar "$dir/data_de" -C "$RP/data/user_de/0" "$pkg" || bad=1; }
-    [ -d "$MEDIA/Android/data/$pkg" ]    && { pack_tar "$dir/extdata" -C "$MEDIA/Android/data" "$pkg" || bad=1; }
-    [ -d "$MEDIA/Android/obb/$pkg" ]     && { pack_tar "$dir/obb" -C "$MEDIA/Android/obb" "$pkg" || bad=1; }
+    am force-stop "$pkg" </dev/null 2>/dev/null
+    [ -d "$RP/data/data/$pkg" ]          && { pack_tar "$dir/data" -C "$RP/data/data" "$pkg" || ok=0; }
+    [ -d "$RP/data/user_de/0/$pkg" ]     && { pack_tar "$dir/data_de" -C "$RP/data/user_de/0" "$pkg" || ok=0; }
+    [ -d "$MEDIA/Android/data/$pkg" ]    && { pack_tar "$dir/extdata" -C "$MEDIA/Android/data" "$pkg" || ok=0; }
+    [ -d "$MEDIA/Android/obb/$pkg" ]     && { pack_tar "$dir/obb" -C "$MEDIA/Android/obb" "$pkg" || ok=0; }
+    if [ $ok = 1 ]; then rm -rf "$final"; mv "$dir" "$final"
+    else bad=1; rm -rf "$dir"; [ -d "$final" ] && echo "  kept the previous copy of $pkg"; fi
     ;;
   DIR)
     echo "[$n] folder $a"
     safe=$(printf '%s' "$a" | tr -c 'A-Za-z0-9._-' '_')
-    pack_tar "$OUT/files/$safe" -C "$MEDIA" "$a" || bad=1
-    printf '%s|%s\n' "$safe" "$a" >> "$OUT/files/index.txt"
+    new="$OUT/files/.new-$safe"
+    rm -f "$new".tar.* "$new.stamp"; touch "$new.stamp"
+    if pack_tar "$new" -C "$MEDIA" "$a"; then
+      rm -f "$OUT/files/$safe".tar.*
+      for f in "$new".tar.*; do mv "$f" "$OUT/files/$safe${f#$new}"; done
+      mv "$new.stamp" "$OUT/files/$safe.stamp"
+      printf '%s|%s\n' "$safe" "$a" >> "$OUT/files/index.txt"
+    else
+      bad=1; rm -f "$new".tar.* "$new.stamp"
+      ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy of $a"
+    fi
     ;;
   esac
 done < "$PLAN"
-cp "$PLAN" "$OUT/plan.txt"
+# Merge this run's items into the package's item list (an update adds to it).
+if [ -f "$OUT/plan.txt" ]; then
+  cat "$PLAN" "$OUT/plan.txt" | awk -F'|' '!seen[$1 "|" $2]++' > "$OUT/plan.tmp" && mv "$OUT/plan.tmp" "$OUT/plan.txt"
+else
+  cp "$PLAN" "$OUT/plan.txt"
+fi
+[ -f "$OUT/files/index.txt" ] && sort -u -o "$OUT/files/index.txt" "$OUT/files/index.txt"
 cat > "$OUT/README.txt" <<'EOF2'
 Tab S6 Migration Assistant package
 
@@ -51,7 +72,7 @@ SHA256SUMS                          checksums of every file
 
 Archives are split into parts; join them with:  cat NAME.tar.* | tar -xf -
 EOF2
-( cd "$OUT" && find . -type f ! -name SHA256SUMS | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS )
+( cd "$OUT" && find . -type f ! -name SHA256SUMS ! -name status.txt | sort | while read -r f; do sha256sum "$f"; done > SHA256SUMS )
 # Internal storage files must belong to media_rw (1023) to stay readable over MTP/adb; no-op on FAT/exFAT cards.
 chown -R 1023:1023 "${OUT%/*}" 2>/dev/null
 if [ $bad = 0 ]; then echo complete > "$OUT/status.txt"; echo "PACK-OK"; else echo errors > "$OUT/status.txt"; echo "PACK-HAD-ERRORS"; fi

@@ -33,28 +33,49 @@ findings and read-only tools. No boot or flash code yet, by design.
 | [docs/migration-assistant.md](docs/migration-assistant.md) | Design for a tool that moves your files, apps and data from Android to Linux for you |
 | [docs/phase1-test-plan.md](docs/phase1-test-plan.md) | Step-by-step Phase 1 plan with expected outcomes, rollback procedures and abort criteria |
 
-## Your next step: one command
+## Your next step: one command, on the tablet
 
-1. On the tablet: Settings → Developer options → **USB debugging** on. Plug it into your
-   computer and accept the prompt. In Magisk → Superuser, allow **Shell** when asked.
-2. On your computer (Windows: open **Git Bash**; it comes with Git for Windows), with
-   [platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb`) installed:
+You need Termux (you have it) and Magisk root (you have it). Nothing is installed or left
+behind except `curl` inside Termux if it is missing.
+
+**1. Make a short-lived GitHub token** (in the tablet's browser, signed in to GitHub):
+Settings → Developer settings → Personal access tokens → **Fine-grained tokens** →
+Generate new token:
+- Expiration: **1 day**
+- Repository access: **Only select repositories** → `TabS6-desktop`
+- Permissions → Repository permissions → **Contents: Read and write**
+
+Copy the token.
+
+**2. Paste this one line into Termux** and press Enter (copy it from this page in the browser):
+
+```bash
+command -v curl >/dev/null || pkg install -y curl; read -rsp 'GitHub token: ' T; echo; curl -fsSL -H "Authorization: Bearer $T" -H 'Accept: application/vnd.github.raw' 'https://api.github.com/repos/suxhi-space/TabS6-desktop/contents/tools/recon/tabs6-onetap.sh?ref=claude/android-tablet-desktop-ui-755uqh' | GH_TOKEN="$T" bash; unset T
+```
+
+Paste the token when asked (it stays hidden), tap **Grant** in the Magisk prompt, answer the
+Design B question (`y` writes one 1 MiB test file, `n` writes nothing), read the report, and
+type `yes` to upload.
+
+What it does: surveys the tablet as root (read-only), builds a **scrubbed report** (serial
+number, MAC and e-mail addresses removed; no raw device tree, kernel log or partition data),
+shows you all of it, and uploads only that report to the temporary branch `recon-upload` under
+a generic author name. The token lives only in memory, and every temporary file is deleted when
+it finishes, even on error.
+
+**3. Afterwards:** tell Claude "recon uploaded", then delete the token on GitHub. Uninstall
+Termux too if you want nothing left at all.
+
+<details><summary>Alternative: run it from a computer over USB</summary>
+
+With `adb` and `git` on the computer (Windows: Git Bash):
 
 ```bash
 git clone https://github.com/suxhi-space/TabS6-desktop.git
-cd TabS6-desktop
-git checkout claude/android-tablet-desktop-ui-755uqh
+cd TabS6-desktop && git checkout claude/android-tablet-desktop-ui-755uqh
 ./tools/recon/collect.sh
 ```
-
-`collect.sh` surveys the tablet (read-only), builds a **scrubbed report** (serial number, MAC
-and e-mail addresses removed; no raw device tree, kernel log or partition images), shows you
-the whole report, and uploads it only after you type `yes`. The upload is a single file on its
-own temporary branch, `recon-upload`, with a generic author name. It also offers to run the
-Design B test (one 1 MiB test file). Full raw output stays on your computer in `recon-out/`.
-
-Then tell Claude "recon uploaded". Remove the branch afterwards with
-`git push origin --delete recon-upload`.
+</details>
 
 Before any flashing, also run the verified backup (stays on your computer, never uploaded):
 

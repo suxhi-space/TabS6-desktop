@@ -276,3 +276,15 @@ saves the boot backup, writes `S6MIGRATE-REHEARSAL-PASSED` to `S6Migrate/switch-
 bootloader control block and restarts into Android. The app's switch screen shows the last result.
 Do a rehearsal before the real switch: it proves TWRP runs the queued ZIP, has the needed tools, and
 can read the drive, without erasing anything.
+
+## Linux versions: hand-picked list plus Flathub (app 0.2.3)
+
+1. **Hand-picked** (`tools/migrate/lib/alternatives.tsv`): checked to run on ARM64; installed by restore.
+2. **Flathub lookup** for every other app: the app sends the app's *name* to Flathub's public search
+   (`POST https://flathub.org/api/v2/search`), keeps only desktop apps whose `arches` include
+   `aarch64`, and scores them (exact name or "<name> Desktop", name in the description, verified
+   developer, installs). Exact, non-generic matches are **high** and installed by restore (Flatpak);
+   others are **maybe** and only suggested in restore's summary. If the official app exists only for
+   x86_64 (Spotify, Discord, Steam, Zoom, Blender), the app says so and still offers ARM alternatives
+   (e.g. Riff for Spotify, Vesktop for Discord). Results are cached for 14 days and saved in the
+   package as `alternatives-found.tsv`. Offline, the lookup is skipped.

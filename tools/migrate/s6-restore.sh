@@ -326,8 +326,13 @@ else
 fi
 
 alt_for() { # alt_for PKG -> "name<TAB>method<TAB>target<TAB>note" or nothing
-  [ -f "$ALT" ] || return 0
-  awk -F'\t' -v p="$1" '!/^#/ && NF>=4 { pat=$1; if (pat==p || (substr(pat,length(pat))=="*" && index(p, substr(pat,1,length(pat)-1))==1)) { print $2 "\t" $3 "\t" $4 "\t" $5; exit } }' "$ALT"
+  local r=""
+  # 1. the hand-picked list
+  [ -f "$ALT" ] && r=$(awk -F'\t' -v p="$1" '!/^#/ && NF>=4 { pat=$1; if (pat==p || (substr(pat,length(pat))=="*" && index(p, substr(pat,1,length(pat)-1))==1)) { print $2 "\t" $3 "\t" $4 "\t" $5; exit } }' "$ALT")
+  # 2. confident matches the app found on Flathub (saved in the package)
+  [ -z "$r" ] && [ -f "$PKG/alternatives-found.tsv" ] && \
+    r=$(awk -F'\t' -v p="$1" '!/^#/ && $1==p && $5=="high" { print $2 " (from Flathub)\t" $3 "\t" $4 "\t" $6; exit }' "$PKG/alternatives-found.tsv")
+  [ -n "$r" ] && printf '%s\n' "$r"
 }
 choice_for() { # keep | linux | both (the wizard writes choices.txt; default both when a Linux version exists)
   local c=""
@@ -450,6 +455,11 @@ if [ $DO_ALT = 1 ] && [ "$NAPPS" -gt 0 ] && [ $DO_APPS = 1 ]; then
     else say "  $aname could not be installed now; install it later from Discover"; fi
   done < "$PKG/plan.txt"
   [ $nalt = 0 ] && say "  none of your apps has a Linux version on the list; they stay Android apps"
+  # Less certain Flathub matches: suggest, never install on a guess.
+  if [ -f "$PKG/alternatives-found.tsv" ]; then
+    sug=$(awk -F'\t' '!/^#/ && $5=="maybe" { printf "%s%s (%s)", (n++ ? ", " : ""), $2, $4 }' "$PKG/alternatives-found.tsv")
+    [ -n "$sug" ] && say "  Possible Linux versions to check in Discover (not installed): $sug"
+  fi
 else
   step "6/7 Linux versions of your apps (skipped)"
 fi

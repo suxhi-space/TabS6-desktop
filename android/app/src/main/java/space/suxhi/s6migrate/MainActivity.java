@@ -39,6 +39,7 @@ import java.net.URL;
 import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -50,6 +51,9 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Tab S6 Migration Assistant, v0.1 "Pack".
@@ -446,7 +450,7 @@ public class MainActivity extends Activity {
         }
         Collections.sort(apps, (x, y) -> x.label.compareToIgnoreCase(y.label));
         loadAlternatives();
-        home();
+        lookupLinuxVersions();
     }
 
     static long parse(String s) {
@@ -1188,8 +1192,14 @@ public class MainActivity extends Activity {
         }
         for (AppItem a : apps) {
             String alt = altFor(a.pkg);
-            body.addView(row(a.icon, a.label, a.pkg + "  ·  " + human(a.kb)
-                            + (alt != null ? "\nOn Fedora: " + alt + " is installed for you, and this Android app is kept too" : ""),
+            Found fd;
+            synchronized (found) { fd = found.get(a.pkg); }
+            String linux = alt != null ? "\nOn Fedora: " + alt + " is installed for you, and this Android app is kept too"
+                    : fd != null && "high".equals(fd.conf) ? "\nOn Fedora: " + fd.name + " (from Flathub) is installed for you, and this Android app is kept too"
+                    : fd != null && "maybe".equals(fd.conf) ? "\nPossible Linux version on Flathub: " + fd.name + " (suggested after the move, check it)"
+                    : "";
+            if (fd != null && !fd.note.isEmpty()) linux += "\nNote: " + fd.note;
+            body.addView(row(a.icon, a.label, a.pkg + "  ·  " + human(a.kb) + linux,
                     a.keystore ? "Data is locked to this tablet's security chip: the app moves, its data may not" : null,
                     a.selected, c -> {
                         a.selected = c;
@@ -1317,6 +1327,138 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    // ------------------------------------------------------------------ Flathub lookups
+
+    /** A Linux version found on Flathub for an app that has no hand-picked alternative. */
+    static class Found {
+        String name = "", appId = "", conf = "none", note = "";
+    }
+
+    final Map<String, Found> found = new HashMap<>();
+    static final Set<String> GENERIC = new HashSet<>(Arrays.asList("notes", "calculator", "camera", "gallery", "files",
+            "music", "clock", "weather", "calendar", "contacts", "messages", "email", "mail", "browser", "phone", "settings",
+            "photos", "video", "videos", "radio", "recorder", "voice recorder", "translate", "maps", "news", "podcasts"));
+
+    static String norm(String s) {
+        return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+    }
+
+    static Found flathubLookup(String label) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL("https://flathub.org/api/v2/search").openConnection();
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(15000);
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setRequestProperty("User-Agent", "S6Migrate");
+        try (OutputStream os = c.getOutputStream()) {
+            os.write(new JSONObject().put("query", label).toString().getBytes("UTF-8"));
+        }
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"))) {
+            String l;
+            while ((l = r.readLine()) != null) sb.append(l);
+        }
+        JSONArray hits = new JSONObject(sb.toString()).optJSONArray("hits");
+        String L = norm(label);
+        JSONObject official = null, best = null;
+        double bestScore = -1;
+        List<JSONObject> arm = new ArrayList<>();
+        for (int i = 0; hits != null && i < hits.length(); i++) {
+            JSONObject h = hits.getJSONObject(i);
+            if (!"desktop-application".equals(h.optString("type"))) continue;
+            if (official == null && norm(h.optString("name")).equals(L)) official = h;
+            JSONArray ar = h.optJSONArray("arches");
+            if (ar != null && ar.toString().contains("aarch64")) arm.add(h);
+        }
+        for (JSONObject h : arm) {
+            String n = norm(h.optString("name"));
+            // tools for an x86-only official app ("Steam ROM Manager") are not replacements
+            if (official != null && n.startsWith(L + " ") && !n.equals(L + " desktop")) continue;
+            double sc = 0;
+            if (n.equals(L)) sc += 100;
+            else if (!L.isEmpty() && (n.contains(L) || L.contains(n))) sc += 40;
+            else if (!Collections.disjoint(Arrays.asList(L.split(" ")), Arrays.asList(n.split(" ")))) sc += 15;
+            if (!L.isEmpty() && norm(h.optString("summary")).contains(L)) sc += 30;
+            if (h.optBoolean("verification_verified")) sc += 15;
+            sc += Math.min(20, h.optLong("installs_last_month") / 2000.0);
+            if (sc > bestScore) { bestScore = sc; best = h; }
+        }
+        Found f = new Found();
+        JSONArray oa = official == null ? null : official.optJSONArray("arches");
+        if (oa != null && !oa.toString().contains("aarch64"))
+            f.note = "the official " + official.optString("name") + " app does not run on this tablet's ARM processor";
+        if (best != null) {
+            String n = norm(best.optString("name"));
+            boolean exact = n.equals(L) || n.equals(L + " desktop");
+            f.conf = exact && !GENERIC.contains(L) ? "high" : (exact || bestScore >= 35) ? "maybe" : "none";
+            if (!"none".equals(f.conf)) { f.name = best.optString("name"); f.appId = best.optString("app_id"); }
+        }
+        return f;
+    }
+
+    /** Looks up apps without a hand-picked alternative on Flathub (cached 14 days), then shows the home screen. */
+    void lookupLinuxVersions() {
+        final List<AppItem> todo = new ArrayList<>();
+        for (AppItem a : apps) if (altFor(a.pkg) == null) todo.add(a);
+        final File cacheFile = new File(getFilesDir(), "flathub-cache.json");
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(new ProgressBar(this));
+        TextView st = text("Looking up Linux versions of your apps on Flathub...", 15, false);
+        body.addView(st);
+        body.addView(text("\nOnly app names are sent to Flathub's public search. Results are remembered for 14 days. "
+                + "Tap Skip to continue without it.", 13, false));
+        screen("Tab S6 Migration Assistant", null, body, false, null, null, "Skip", () -> { cancelDownload = true; });
+        cancelDownload = false;
+        new Thread(() -> {
+            JSONObject cache = new JSONObject();
+            try {
+                if (cacheFile.exists()) cache = new JSONObject(new String(java.nio.file.Files.readAllBytes(cacheFile.toPath()), "UTF-8"));
+            } catch (Exception ignored) {
+            }
+            long now = System.currentTimeMillis();
+            boolean online = true;
+            int n = 0;
+            for (AppItem a : todo) {
+                if (cancelDownload) break;
+                n++;
+                JSONObject e = cache.optJSONObject(a.pkg);
+                Found f = new Found();
+                if (e != null && now - e.optLong("t") < 14L * 86400000L && a.label.equals(e.optString("label"))) {
+                    f.name = e.optString("name"); f.appId = e.optString("appId"); f.conf = e.optString("conf"); f.note = e.optString("note");
+                } else if (online) {
+                    final String msg = "Looking up Linux versions on Flathub (" + n + " of " + todo.size() + "): " + a.label;
+                    ui.post(() -> st.setText(msg));
+                    try {
+                        f = flathubLookup(a.label);
+                        cache.put(a.pkg, new JSONObject().put("t", now).put("label", a.label).put("name", f.name)
+                                .put("appId", f.appId).put("conf", f.conf).put("note", f.note));
+                    } catch (Exception ex) {
+                        online = false; // offline or Flathub unreachable: stop asking, keep what we have
+                    }
+                }
+                synchronized (found) { found.put(a.pkg, f); }
+            }
+            try (FileOutputStream o = new FileOutputStream(cacheFile)) { o.write(cache.toString().getBytes("UTF-8")); } catch (Exception ignored) { }
+            ui.post(this::home);
+        }).start();
+    }
+
+    /** "pkg TAB name TAB flatpak TAB appId TAB conf TAB note" lines for the package, used by s6-restore. */
+    String foundTsv() {
+        StringBuilder sb = new StringBuilder("# Linux versions found on Flathub by S6 Migrate (high = installed, maybe = suggested)\n");
+        synchronized (found) {
+            for (Map.Entry<String, Found> e : found.entrySet()) {
+                Found f = e.getValue();
+                if ("none".equals(f.conf)) continue;
+                sb.append(e.getKey()).append('\t').append(f.name).append("\tflatpak\t").append(f.appId).append('\t')
+                        .append(f.conf).append('\t').append(f.note).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
     static String planLine(AppItem a) {
         return "APP|" + a.pkg + "|" + a.uid + "|" + (a.keystore ? "keystore" : "");
     }
@@ -1406,6 +1548,14 @@ public class MainActivity extends Activity {
                 last[0] = "ERROR: " + e.getMessage();
             }
             final boolean ok = rc == 0 && "PACK-OK".equals(last[0].trim());
+            if (ok) {
+                try {
+                    File ft = new File(getCacheDir(), "alternatives-found.tsv");
+                    try (FileOutputStream o = new FileOutputStream(ft)) { o.write(foundTsv().getBytes("UTF-8")); }
+                    runRoot("cp " + q(ft.getAbsolutePath()) + " " + q(out + "/alternatives-found.tsv"), l -> { });
+                } catch (Exception ignored) {
+                }
+            }
             ui.post(() -> done(ok, out, all.toString(), update));
         }).start();
     }

@@ -483,6 +483,9 @@ fi
 # Keep it working: the repair tool also installs a watcher that re-hides Android system apps if Waydroid
 # recreates their menu entries.
 if command -v s6-doctor >/dev/null && [ $DRY = 0 ]; then s6-doctor --fix >>"$LOG" 2>&1; say "  s6-doctor: checked and repaired (run 's6-doctor' any time)"; fi
+# Android only while it is used: start on demand, stop after idle minutes, "Stop Android apps" in the menu.
+if command -v s6-android >/dev/null && [ $DRY = 0 ]; then s6-android install >>"$LOG" 2>&1 \
+  && say "  Android apps start when you open one and stop by themselves when you're done (s6-android status)"; fi
 
 step "Done"
 say "Your package is untouched at $PKG; keep it until everything looks right."

@@ -258,3 +258,14 @@ own Android system (LineageOS). `s6-doctor` looks after everything around it:
 `s6-doctor --update` also updates Fedora's Waydroid package and Waydroid's Android system
 (`waydroid upgrade`). Restore runs `s6-doctor --fix` at the end, and the switch installs it.
 The companion app will put these behind buttons and notify when something needs attention.
+
+## Making Android apps feel native: what works and what is planned
+
+| Topic | State |
+|---|---|
+| Copy and paste text between Linux and Android apps | Works (Waydroid clipboard sharing) |
+| Drag and drop between Linux and Android apps | Not supported by Waydroid. Workaround: drop into a shared folder; Android apps see it at once |
+| Android apps see your Linux folders | Done (s6-restore folder sharing) |
+| **Memory: Android only while you use it** | Done: `tools/migrate/s6-android.sh`. Starts with the first Android app, stops after `IDLE_MIN` minutes (default 5) without an Android window (counted through KWin; if windows cannot be counted it never stops on a guess), "Stop Android apps" in the menu, `s6-android status` shows memory use. Installed by restore |
+| Open a Linux file in an Android app (Dolphin "Open with") | Planned: generate MIME associations from each Android app's VIEW intent filters, launching `waydroid app intent android.intent.action.VIEW <file in shared folder>` |
+| KDE file dialog when an Android app asks for a file | Planned research: a small "picker bridge" Android app inside Waydroid that takes over GET_CONTENT / OPEN_DOCUMENT and asks the host's KDE file dialog (xdg-desktop-portal) over the Waydroid network bridge, returning the file through a shared folder |

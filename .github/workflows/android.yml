@@ -28,6 +28,7 @@ jobs:
           sh -n tools/migrate/lib/compare.sh
           bash -n tools/migrate/s6-restore.sh
           bash -n tools/migrate/s6-doctor.sh
+          bash -n tools/migrate/s6-android.sh
           sh -n tools/migrate/switch/update-binary
           bash -n tools/migrate/switch/s6-firstrun
 

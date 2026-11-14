@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=S6 Migrate: bring my files and apps back
+Exec=konsole --hold -e /usr/local/bin/s6-firstrun
+X-KDE-autostart-condition=s6migrate:firstrun:enabled:true
+OnlyShowIn=KDE;
+NoDisplay=true

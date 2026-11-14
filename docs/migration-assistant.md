@@ -216,3 +216,13 @@ Tested against a simulated Fedora home and a simulated Waydroid. **To confirm on
 (the first Fedora boot): the `waydroid shell -- sh -c` form on the installed Waydroid version, `pm`
 install sessions inside the Waydroid image, file ownership seen through Android's storage layer for
 `Android/data`, `obb` and the shared folders, and SELinux relabelling inside the container.
+
+## v0.3 Switch (in progress)
+
+| Piece | File | State |
+|---|---|---|
+| Recovery side: a TWRP flashable ZIP script that finds the drive, verifies the Fedora download, runs the t860-fedora installer's `prepare` / `write-root` / `finish` from the drive (no computer), saves the Android boot backup to the drive, installs `s6-restore` and the first-start assistant into the new system, copies the package in when it is on the microSD card (Fedora cannot read the card yet), and reboots only when everything succeeded | `tools/migrate/switch/update-binary` | Built; simulated success, damaged download, failed checks and failure after erase |
+| First start in Fedora: opens a terminal once, restores your files, asks for Wi-Fi, sets up Waydroid (optional Google Play), restores your apps | `tools/migrate/switch/s6-firstrun`, `s6migrate-firstrun.desktop` | Built |
+| Android side: download Fedora (checksummed) to the drive with `manifest.env` + `SHA256SUMS`, final package top-up, build the ZIP, queue it for TWRP (`/cache/recovery/openrecoveryscript`), reboot to recovery | app | Next |
+
+Failure behaviour: anything that fails before the `write-root` step stops in TWRP with "Nothing was erased. You can reboot to Android normally." A failure after it stops in TWRP with "Android was already replaced. Do NOT reboot yet" and the log saved on the drive.

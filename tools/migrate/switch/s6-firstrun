@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# s6-firstrun - first start of Fedora after the switch: brings your files and apps back.
+# Opened once by /etc/xdg/autostart/s6migrate-firstrun.desktop; marks itself done in ~/.config.
+DONE="$HOME/.config/s6migrate/firstrun-done"
+[ -f "$DONE" ] && exit 0
+echo "Welcome to Fedora on your Galaxy Tab S6."
+echo
+PKG=""
+for d in /var/lib/s6migrate/package-*; do [ -f "$d/plan.txt" ] && PKG=$d; done
+if [ -z "$PKG" ] && [ -f /var/lib/s6migrate/package-location ]; then
+  echo "Your package is on your USB drive. Plug it in now (with a USB-C adapter if needed)."
+  read -r -p "Press Enter when it is plugged in... " _
+fi
+echo "Step 1: your files"
+s6-restore --files-only --yes ${PKG:+"$PKG"} || echo "(files: see the log in your home folder)"
+echo
+echo "Step 2: your Android apps. This needs Wi-Fi (Waydroid downloads its Android system once, about 1 GB)."
+until ping -c1 -W3 fedoraproject.org >/dev/null 2>&1; do
+  read -r -p "Connect to Wi-Fi (network icon, bottom right), then press Enter... " _
+done
+if [ ! -d "$HOME/.local/share/waydroid/data" ]; then
+  echo "Setting up Waydroid (asks for your password: fedora unless you changed it)..."
+  read -r -p "Add Google Play? Only needed for Play Store apps [y/N] " g
+  if [ "$g" = y ] || [ "$g" = Y ]; then sudo waydroid init -s GAPPS; else sudo waydroid init; fi
+fi
+waydroid session start >/dev/null 2>&1 &
+echo "Starting Android..."
+for _ in $(seq 1 60); do waydroid status 2>/dev/null | grep -q 'Session:.*RUNNING' && break; sleep 3; done
+s6-restore --apps-only --yes --skip-verify ${PKG:+"$PKG"}
+mkdir -p "$(dirname "$DONE")" && touch "$DONE"
+echo
+echo "All done. Your package was not deleted; remove it once everything looks right."
+read -r -p "Press Enter to close. " _

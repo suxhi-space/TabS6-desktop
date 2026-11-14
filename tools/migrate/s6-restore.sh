@@ -105,7 +105,23 @@ trap 'rm -rf "$STAGE"' EXIT
 
 # ------------------------------------------------------------------ 3. folders
 xdg() { local d; d=$(xdg-user-dir "$1" 2>/dev/null); [ -n "$d" ] && [ "$d" != "$HOME" ] && echo "$d" || echo "$HOME/$2"; }
+is_app_folder() { # folders that apps create in Android's shared storage (case-insensitive)
+  local n; n=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+  case "$n" in
+    .*|com.*|org.*|net.*|io.*|*.*.*) return 0 ;;
+    telegram|telegram\ *|whatsapp|signal|snapchat|instagram|facebook|messenger|viber|discord|voxer*|\
+    inshot|capcut|kinemaster|bluetooth|samsung*|soundcamp|walkband|twrp|temp|tmp|cache|backups|\
+    tencent|miui|fonts|logs|log|android) return 0 ;;
+  esac
+  return 1
+}
 target_for() { # Android folder name -> Linux destination
+  local over
+  # The wizard can record the owner's own choice per folder: "<name>|<destination relative to ~>"
+  if [ -f "$PKG/destinations.txt" ]; then
+    over=$(grep -F -m1 "$1|" "$PKG/destinations.txt" | while IFS='|' read -r n d; do [ "$n" = "$1" ] && echo "$d"; done)
+    [ -n "$over" ] && { echo "$HOME/${over#/}"; return; }
+  fi
   case "$1" in
     DCIM)                         echo "$(xdg PICTURES Pictures)/DCIM" ;;
     Pictures|Screenshots)         echo "$(xdg PICTURES Pictures)" ;;
@@ -113,9 +129,11 @@ target_for() { # Android folder name -> Linux destination
     Documents)                    echo "$(xdg DOCUMENTS Documents)" ;;
     Music)                        echo "$(xdg MUSIC Music)" ;;
     Movies|Videos)                echo "$(xdg VIDEOS Videos)" ;;
-    Podcasts|Audiobooks|Recordings|Ringtones|Alarms|Notifications) echo "$(xdg MUSIC Music)/$1" ;;
+    Podcasts|Audiobooks|Recordings|Ringtones|Alarms|Notifications|"Voice Recorder"|"Sound recordings"|Call)
+                                  echo "$(xdg MUSIC Music)/$1" ;;
     "(files directly in internal storage)") echo "$HOME/Android" ;;
-    *)                            echo "$HOME/Android/$1" ;;
+    *) if is_app_folder "$1"; then echo "$HOME/Android/$1"   # made by an app: keep it out of the way
+       else echo "$HOME/$1"; fi ;;                            # your own folder: top of your home, like on Android
   esac
 }
 merge_into() { # merge_into SRC_DIR DEST_DIR : move files, never overwrite; clash -> keep both

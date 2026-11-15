@@ -444,3 +444,18 @@ Changing the layout also restyles Dolphin through `s6-look dolphin`:
 - Top bar and dock: icon grid with previews, and genie-style minimise.
 
 Fully frosted app backgrounds would need a third-party window style (Kvantum or similar), which isn't included.
+
+**Better Blur DX and Darkly (0.4.3).** Both are optional, installed at the first login (`s6-helper look-extras`) from the Fedora COPR repositories `infinality/kwin-effects-better-blur-dx` and `deltacopy/darkly`.
+- **Better Blur DX** (xarblu) replaces Plasma's blur: KWin effect `better_blur_dx`, settings in `[Effect-better-blur-dx]`.
+- **Darkly** (Bali10050) replaces the Breeze app style and window borders, with settings in `darklyrc`.
+
+Kept light on the GPU:
+- Soft: moderate blur strength (7), no noise, the blur cache on, no blurred window borders, only panels and menus blurred, Darkly menus 90% opaque.
+- Glassy: strength 10, plus forced blur for a short app list (Dolphin, Konsole, System Settings, Kate, Ark); Darkly's sidebar, toolbars and tabs see-through. Dolphin's file list stays solid.
+- Off: Breeze and no blur.
+
+Fallbacks:
+- If the repositories have no build for the tablet, Plasma's own blur and Breeze are used.
+- Better Blur DX only works with the KWin version it was built for. `s6-look heal` runs at every login: if the effect didn't load (for example right after a Fedora update), it turns Plasma's blur back on and switches back once Better Blur DX loads again. If Darkly is missing, it falls back to Breeze.
+
+Not yet confirmed: whether either COPR builds for aarch64 (the COPR site wasn't reachable from the build machine).

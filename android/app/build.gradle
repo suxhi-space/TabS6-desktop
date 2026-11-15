@@ -7,8 +7,8 @@ android {
         applicationId 'space.suxhi.s6migrate'
         minSdk 30
         targetSdk 34
-        versionCode 19
-        versionName '0.4.2'
+        versionCode 20
+        versionName '0.4.3'
     }
     // A fixed development key so new builds install over old ones. Not a secret: personal, sideloaded app.
     signingConfigs {

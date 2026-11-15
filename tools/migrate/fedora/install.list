@@ -13,6 +13,7 @@ fedora/s6-look|/usr/local/bin/s6-look|755|
 fedora/system/s6-setup-session|/usr/local/libexec/s6migrate/s6-setup-session|755|
 fedora/system/s6-companion|/usr/local/bin/s6-companion|755|
 fedora/system/s6-companion.desktop|/usr/local/share/applications/s6-companion.desktop|644|
+fedora/system/s6-look-heal.desktop|/etc/xdg/autostart/s6-look-heal.desktop|644|
 fedora/system/49-s6migrate.rules|/etc/polkit-1/rules.d/49-s6migrate.rules|644|
 fedora/system/zz-s6migrate.conf|/etc/sddm.conf.d/zz-s6migrate.conf|644|
 fedora/system/s6-setup.desktop|/var/lib/s6migrate/setup-home/.config/autostart/s6-setup.desktop|644|s6setup

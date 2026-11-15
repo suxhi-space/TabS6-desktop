@@ -60,6 +60,7 @@ ApplicationWindow {
             if (migrate) for (var i = 0; i < found.length; i++)
                 t.push({ title: "Your wallpaper and settings from Android" + (found.length > 1 ? " (part " + (i + 1) + ")" : ""), argv: ["/usr/local/bin/s6-restore", "--settings-only", "--skip-verify", "--yes", found[i]] })
             var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "soft"
+            if (eff !== "off") t.push({ title: "Better blur and the Darkly style (optional, needs Wi-Fi)", argv: h(["look-extras"]), optional: true })
             t.push({ title: "Your layout, size and effects (" + layoutName(lay) + ", " + size + ", " + eff + ")",
                      argv: sh("s6-look theme " + theme + "; s6-look effects " + eff + "; s6-look layout " + lay + "; s6-look size " + size) })
             if (android) {
@@ -84,7 +85,9 @@ ApplicationWindow {
             else if (/^==/.test(l)) setTask(i, { detail: l.replace(/=/g, "").trim() })
             else if (/installed|Downloading|downloading|started|restored|set:|->/.test(l)) setTask(i, { detail: l.trim() })
         }, function (code) {
-            setTask(i, { state: code === 0 ? "done" : "fail", progress: -1, detail: code === 0 ? "" : "Didn't finish. You can try again from the Android apps page." })
+            var opt = firstTasks[i].optional === true
+            setTask(i, { state: code === 0 ? "done" : (opt ? "skip" : "fail"), progress: -1,
+                         detail: code === 0 ? "" : (opt ? "Not available right now: Plasma's own blur and style are used." : "Didn't finish. You can try again from the Android apps page.") })
             firstStep(i + 1)
         })
     }
@@ -288,6 +291,9 @@ ApplicationWindow {
             id: lk
             width: parent.width; spacing: 16
             property var cur: ({})
+            property var extras: ({})
+            function loadExtras() { var x = {}; win.run("extras", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "extras"], function (l) { var f = l.split("|"); x[f[0]] = f.slice(1) }, function () {
+                if (backend.mock) x = { BBDX: ["installed", "loaded"], DARKLY: ["installed"] }; extras = x }) }
             property string out: ""
             function load() { var c = {}; win.run("lookst", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "status"], function (l) { var f = l.split("|"); c[f[0]] = f[1] }, function () { cur = c }) }
             function apply(args) { out = "Applying..."; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work."; load() }) }
@@ -295,7 +301,7 @@ ApplicationWindow {
                 frame.eyebrow = ""; frame.title = "Look"
                 frame.subtitle = "Layout, size, effects and light or dark. The file manager follows the layout. Changes apply right away."
                 frame.primary = ""; frame.secondary = ""; frame.note = lk.out
-                load()
+                load(); loadExtras()
             }
             onOutChanged: frame.note = out
             LayoutPicker { width: parent.width; value: lk.cur.LAYOUT || win.setup.layout || "touch"; onPicked: (id) => lk.apply(["layout", id]) }
@@ -316,6 +322,19 @@ ApplicationWindow {
                 Choice { width: parent.cw; title: "Off"; sub: "Solid and simple; saves battery"; on: parent.v === "off"; onPicked: lk.apply(["effects", "off"]) }
                 Choice { width: parent.cw; title: "Soft"; sub: "Frosted panels and menus"; on: parent.v === "soft"; onPicked: lk.apply(["effects", "soft"]) }
                 Choice { width: parent.cw; title: "Glassy"; sub: "See-through panels, menus and background windows"; on: parent.v === "glassy"; onPicked: lk.apply(["effects", "glassy"]) }
+            }
+            Card {
+                id: exCard
+                width: parent.width
+                property bool bb: (lk.extras.BBDX || [""])[0] === "installed"
+                property bool dk: (lk.extras.DARKLY || [""])[0] === "installed"
+                Row { spacing: 10
+                      Glyph { kind: exCard.bb && exCard.dk ? "ok" : "clock"; tint: exCard.bb && exCard.dk ? Theme.ok : Theme.muted; width: 22; height: 22 }
+                      Label2 { text: "Better Blur DX and Darkly"; strong: true } }
+                Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
+                         text: (exCard.bb ? ((lk.extras.BBDX || [])[1] === "loaded" ? "Better Blur DX is on. " : "Better Blur DX is installed; Plasma's blur is used until it matches this Plasma version. ") : "Better Blur DX isn't installed (Plasma's own blur is used). ")
+                               + (exCard.dk ? "Darkly gives apps rounded, frosted surfaces." : "Darkly isn't installed (Breeze is used).") }
+                Btn { visible: !(exCard.bb && exCard.dk); text: "Install them"; onClicked: { lk.out = "Installing..."; win.run("extrasi", win.h(["look-extras"]), function (l) { lk.out = l }, function () { lk.loadExtras(); lk.apply(["effects", lk.cur.EFFECTS || "soft"]) }) } }
             }
             Label2 { text: "Appearance"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {

@@ -22,6 +22,8 @@ projects below. Thank you.
 |---|---|
 | t860-fedora's `tabs6-kernel` (starlight4you) | LAST KNOWN GOOD kernel snapshot and rollback, used by `s6-update` before and after a tablet system update |
 | [RPM Fusion](https://rpmfusion.org) | Optional media codecs (full ffmpeg, GStreamer plugins) |
+| [Better Blur DX](https://github.com/xarblu/kwin-effects-better-blur-dx) by **xarblu** (continuing Better Blur by taj-ny, with DaddelZeit and iGerman00; GPL-3.0), Fedora COPR by Infinality | Frosted blur for panels, menus and chosen apps (optional, installed at first login) |
+| [Darkly](https://github.com/Bali10050/Darkly) by **Bali10050** (a Lightly fork; GPL), Fedora COPR by deltacopy | Rounded app style and window borders with see-through menus, toolbars and Dolphin sidebar (optional) |
 | [KDE Plasma](https://kde.org) scripting, kscreen-doctor, Discover | Layouts, screen size, and Fedora updates in S6 Companion |
 | [PikaOS](https://pika-os.com), [Nobara](https://nobaraproject.org), [Zorin OS](https://zorin.com) | Inspiration for the welcome app, tune-ups and layout picker (no code or artwork used) |
 

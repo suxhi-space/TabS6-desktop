@@ -24,6 +24,7 @@
 #   tune NAME on|off                 tune-ups: memory logs shutdown downloads background protect codecs indexing
 #   tune-status                      TUNE|name|on/off for each
 #   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
+#   look-extras                      install Better Blur DX and Darkly (COPR); optional, falls back to Plasma defaults
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ST=${S6H_STATE:-/var/lib/s6migrate}
@@ -352,6 +353,23 @@ tune)
       echo "media codecs: installed" ;;
     *) die "unknown tune-up: $name" ;;
   esac
+  ;;
+
+look-extras)
+  # Better Blur DX (xarblu) and Darkly (Bali10050) from their Fedora COPR repositories. Without them, Plasma's own
+  # blur and Breeze are used, so a failure here changes nothing.
+  ok=0
+  if dnf copr enable -y infinality/kwin-effects-better-blur-dx >/dev/null 2>&1 && dnf install -y kwin-effects-better-blur-dx; then
+    echo "Better Blur DX installed"; ok=$((ok+1))
+  else
+    echo "Better Blur DX isn't available for this tablet right now (Plasma's own blur is used)"
+  fi
+  if dnf copr enable -y deltacopy/darkly >/dev/null 2>&1 && { dnf install -y darkly || dnf install -y darkly-qt6; }; then
+    echo "Darkly installed"; ok=$((ok+1))
+  else
+    echo "Darkly isn't available for this tablet right now (Breeze is used)"
+  fi
+  [ $ok -gt 0 ] || exit 3
   ;;
 
 update-system) /usr/local/bin/s6-update system "${1:-}" ;;

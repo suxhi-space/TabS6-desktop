@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=S6 look check
+Comment=Falls back to Plasma's own blur and Breeze if Better Blur DX or Darkly stopped working after an update
+Exec=/usr/local/bin/s6-look heal
+NoDisplay=true
+X-KDE-autostart-phase=2

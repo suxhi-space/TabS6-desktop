@@ -62,7 +62,7 @@ ApplicationWindow {
             var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "soft"
             if (eff !== "off") t.push({ title: "Better blur and the Darkly style (optional, needs Wi-Fi)", argv: h(["look-extras"]), optional: true })
             t.push({ title: "Your layout, size and effects (" + layoutName(lay) + ", " + size + ", " + eff + ")",
-                     argv: sh("s6-look theme " + theme + "; s6-look effects " + eff + "; s6-look layout " + lay + "; s6-look size " + size) })
+                     argv: sh("s6-look theme " + theme + "; s6-look effects " + eff + "; s6-look layout " + lay + "; s6-look size " + size + "; s6-look install-themes") })
             if (android) {
                 t.push({ title: "Download Android for apps (about 1 GB)" + (setup.gapps === "1" ? ", with Google Play" : ""), argv: h(["waydroid-init", setup.gapps === "1" ? "1" : "0"]) })
                 t.push({ title: "Start Android", argv: ["/usr/local/bin/s6-android", "start"] })
@@ -299,12 +299,12 @@ ApplicationWindow {
             function apply(args) { out = "Applying..."; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work."; load() }) }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Look"
-                frame.subtitle = "Layout, size, effects and light or dark. The file manager follows the layout. Changes apply right away."
+                frame.subtitle = "Layout, size, effects and light or dark. Window buttons and the file manager follow the layout. The layouts are also in System Settings as Global Themes."
                 frame.primary = ""; frame.secondary = ""; frame.note = lk.out
                 load(); loadExtras()
             }
             onOutChanged: frame.note = out
-            LayoutPicker { width: parent.width; value: lk.cur.LAYOUT || win.setup.layout || "touch"; onPicked: (id) => lk.apply(["layout", id]) }
+            LayoutPicker { width: parent.width; effects: lk.cur.EFFECTS || win.setup.effects || "soft"; value: lk.cur.LAYOUT || win.setup.layout || "touch"; onPicked: (id) => lk.apply(["layout", id]) }
             Label2 { text: "Size"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
                 width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12

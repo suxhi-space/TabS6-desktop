@@ -1189,7 +1189,7 @@ public class MainActivity extends Activity {
             if (l.trim().isEmpty() || l.startsWith("#")) continue;
             String[] f = (l + "|||").split("\\|", -1);
             byte[] data = readAssetBytes(f[0]);
-            String c = f[0].endsWith(".ttf")
+            String c = (f[0].endsWith(".ttf") || f[0].endsWith(".png"))
                     ? java.util.Base64.getMimeEncoder(76, new byte[]{(byte) 10}).encodeToString(data)
                     : new String(data, "UTF-8").replace("\r\n", "\n");
             if (c.contains(tag)) throw new IOException("embed marker clash in " + f[0]);

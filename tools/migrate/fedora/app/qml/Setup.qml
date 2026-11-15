@@ -331,7 +331,7 @@ ApplicationWindow {
                 frame.subtitle = "Pick a layout, size and effects. The file manager matches the layout. Change any of it later in S6 Companion."
                 frame.primary = win.migrate ? "Move my stuff in" : "Set it up"; frame.secondary = "Back"; frame.note = "Nothing on your drives is changed or erased."
             }
-            LayoutPicker { width: parent.width; value: win.layout; onPicked: (id) => win.layout = id }
+            LayoutPicker { width: parent.width; value: win.layout; effects: win.effects; onPicked: (id) => win.layout = id }
             Label2 { text: "Size"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
                 width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12

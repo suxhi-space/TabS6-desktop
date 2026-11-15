@@ -32,7 +32,7 @@ def build(mode):
             continue
         a, dest, mode_, owner = (line.split("|") + ["", "", ""])[:4]
         data = asset(a)
-        text = base64.encodebytes(data).decode() if a.endswith(".ttf") else data.decode().replace("\r\n", "\n")
+        text = base64.encodebytes(data).decode() if a.endswith((".ttf", ".png")) else data.decode().replace("\r\n", "\n")
         if tag in text:
             raise SystemExit("tag clash")
         if not text.endswith("\n"):

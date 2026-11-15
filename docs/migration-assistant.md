@@ -459,3 +459,20 @@ Fallbacks:
 - Better Blur DX only works with the KWin version it was built for. `s6-look heal` runs at every login: if the effect didn't load (for example right after a Fedora update), it turns Plasma's blur back on and switches back once Better Blur DX loads again. If Darkly is missing, it falls back to Breeze.
 
 Not yet confirmed: whether either COPR builds for aarch64 (the COPR site wasn't reachable from the build machine).
+
+**Layouts as complete looks (0.4.4).** Each layout now also sets window borders, applied to Darkly, or to Breeze when Darkly is missing:
+
+| Layout | Window buttons | Button size | Title | Corner radius |
+|---|---|---|---|---|
+| Touch | Right (minimise, maximise, close) | Large | Centred | 12 |
+| Centered taskbar | Right | Default | Left | 10 |
+| Traditional | Menu on the left, buttons on the right | Default | Left | 4 |
+| Top bar and dock | Left (close, minimise, maximise) | Default | Centred | 12 |
+| Plasma default | KDE's default arrangement | Default | Left | 6 |
+
+Layout changes also restyle Dolphin and keep the chosen effects on the new panels.
+
+- **Global Themes:** `s6-look install-themes` (run at first login) installs the five layouts as Plasma Global Themes ("S6 Touch", "S6 Centered", "S6 Traditional", "S6 Top Bar and Dock", "S6 Plasma") in `~/.local/share/plasma/look-and-feel`.
+  - Each has the layout script, app style, window borders and a preview picture rendered from the same drawing as the setup screen.
+  - They can be picked in System Settings too. Light/dark and effects are left as the user chose them.
+- **Previews:** they show the chosen effects (see-through bars, a frosted sidebar for Glassy) and the window-button side.

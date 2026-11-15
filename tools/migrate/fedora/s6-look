@@ -7,6 +7,7 @@
 #   s6-look theme light|dark
 #   s6-look effects off|soft|glassy          blur, translucency and window animations (KWin's own effects)
 #   s6-look dolphin touch|centered|traditional|topdock|plasma   the file manager to match a layout
+#   s6-look install-themes                   the layouts as Plasma Global Themes ("S6 Touch"...), also in System Settings
 #   s6-look heal                             at login: if Better Blur DX or Darkly stopped working after an update,
 #                                            fall back to Plasma's own blur / Breeze until they work again
 #
@@ -52,6 +53,26 @@ use_style() { # use_style darkly|breeze: app style and window borders
     kw --file kwinrc --group org.kde.kdecoration2 --key library org.kde.breeze
     kw --file kwinrc --group org.kde.kdecoration2 --key theme Breeze
   fi
+}
+# Window borders per layout: buttons (M menu, I minimise, A maximise, X close), button size, title, roundness.
+layout_borders() { # layout_borders NAME -> "left|right|size|title|radius"
+  case "$1" in
+    touch)       echo "|IAX|ButtonLarge|AlignCenter|12" ;;
+    centered)    echo "|IAX|ButtonDefault|AlignLeft|10" ;;
+    traditional) echo "M|IAX|ButtonDefault|AlignLeft|4" ;;
+    topdock)     echo "XIA||ButtonDefault|AlignCenter|12" ;;
+    *)           echo "MS|HIAX|ButtonDefault|AlignLeft|6" ;;
+  esac
+}
+apply_borders() {
+  IFS='|' read -r bl br bs ta cr <<< "$(layout_borders "$1")"
+  kw --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnLeft "$bl"
+  kw --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnRight "$br"
+  for f in darklyrc breezerc; do
+    kw --file "$f" --group Windeco --key ButtonSize "$bs"
+    kw --file "$f" --group Windeco --key TitleAlignment "$ta"
+  done
+  kw --file darklyrc --group Common --key CornerRadius "$cr"
 }
 kwin_reload() { "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
@@ -100,8 +121,10 @@ layout)
     plasma) js='clear(); loadTemplate("org.kde.plasma.desktop.defaultPanel");' ;;
     *) echo "unknown layout: $name"; exit 2 ;;
   esac
+  if [ "${3:-}" = --print ]; then printf '%s\n%s\n' "$js_common" "$js"; exit 0; fi
   plasma_js "$js_common $js" && setconf layout "$name" && echo "layout: $name"
   bash "$SELF" dolphin "$name"
+  apply_borders "$name"
   eff=$(getconf effects); [ -n "$eff" ] && bash "$SELF" effects "$eff" >/dev/null   # new panels get the chosen look too
   # The genie-style minimise suits the dock layout; the others shrink windows into the bar.
   if [ "$name" = topdock ]; then kw --file kwinrc --group Plugins --key magiclampEnabled true; kw --file kwinrc --group Plugins --key squashEnabled false
@@ -195,6 +218,51 @@ dolphin)
     *) echo "unknown style"; exit 2 ;;
   esac
   echo "file manager: ${2:-plasma} style (applies the next time Dolphin opens)"
+  ;;
+install-themes)
+  # Each layout as a Plasma Global Theme in your own folder: pick them in System Settings > Colors & Themes > Global Theme
+  # too. They set the layout, app style and window borders; light/dark and effects stay as you chose them.
+  base="$HOME/.local/share/plasma/look-and-feel"
+  n=0
+  for id in touch centered traditional topdock plasma; do
+    case "$id" in
+      touch) title="S6 Touch"; desc="One tall floating bar with big icons, made for fingers" ;;
+      centered) title="S6 Centered"; desc="A bottom taskbar with the app icons in the middle" ;;
+      traditional) title="S6 Traditional"; desc="Menu on the left and window names in a full-width bar" ;;
+      topdock) title="S6 Top Bar and Dock"; desc="A slim top bar with the menu and clock, and a dock below" ;;
+      plasma) title="S6 Plasma"; desc="KDE Plasma's own default layout with the S6 look" ;;
+    esac
+    d="$base/org.s6migrate.$id"; mkdir -p "$d/contents/layouts" "$d/contents/previews"
+    cat > "$d/metadata.json" <<JSON
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [ { "Name": "S6 Migrate" } ],
+        "Description": "$desc",
+        "Id": "org.s6migrate.$id",
+        "License": "GPL-2.0-or-later",
+        "Name": "$title",
+        "Version": "1.0"
+    },
+    "X-Plasma-APIVersion": "2"
+}
+JSON
+    js=$(bash "$SELF" layout-js "$id")
+    printf '%s\n' "$js" > "$d/contents/layouts/org.kde.plasma.desktop-layout.js"
+    IFS='|' read -r bl br bs ta cr <<< "$(layout_borders "$id")"
+    if has_darkly; then style=Darkly; deco=org.kde.darkly; theme=Darkly; else style=Breeze; deco=org.kde.breeze; theme=Breeze; fi
+    printf '[kdeglobals][KDE]\nwidgetStyle=%s\n\n[kwinrc][org.kde.kdecoration2]\nlibrary=%s\ntheme=%s\nButtonsOnLeft=%s\nButtonsOnRight=%s\n' \
+      "$style" "$deco" "$theme" "$bl" "$br" > "$d/contents/defaults"
+    for pre in /usr/local/share/s6migrate/previews "${S6L_PREVIEWS:-}"; do
+      [ -f "$pre/$id.png.b64" ] && { base64 -d "$pre/$id.png.b64" > "$d/contents/previews/preview.png"; cp "$d/contents/previews/preview.png" "$d/contents/previews/fullscreenpreview.jpg"; break; }
+    done
+    n=$((n+1))
+  done
+  echo "installed $n S6 layouts as Global Themes"
+  ;;
+layout-js)
+  # the panel script for a layout (shared by "layout" and the Global Themes)
+  bash "$SELF" layout "${2:-touch}" --print
   ;;
 heal)
   # Better Blur DX is built for one exact KWin version; after a Fedora update it may not load until it's rebuilt.

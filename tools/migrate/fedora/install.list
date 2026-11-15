@@ -1,6 +1,6 @@
 # Files S6 Migrate puts into Fedora during the switch (TWRP step 5).
 # asset (path inside the app's assets) | destination in Fedora | mode | owner (empty = root, s6setup = the setup account)
-# Assets ending in .ttf are carried as base64 text (TWRP can only write text from the switch script); their
+# Assets ending in .ttf or .png are carried as base64 text (TWRP can only write text from the switch script); their
 # destination ends in .b64 and S6 Setup / S6 Companion decode them.
 s6-restore.sh|/usr/local/bin/s6-restore|755|
 s6-doctor.sh|/usr/local/bin/s6-doctor|755|
@@ -39,3 +39,8 @@ fonts/RedHatDisplay-Bold.ttf|/usr/local/share/s6migrate/fonts/RedHatDisplay-Bold
 fonts/RedHatText-Regular.ttf|/usr/local/share/s6migrate/fonts/RedHatText-Regular.ttf.b64|644|
 fonts/RedHatText-SemiBold.ttf|/usr/local/share/s6migrate/fonts/RedHatText-SemiBold.ttf.b64|644|
 fonts/OFL.txt|/usr/local/share/s6migrate/fonts/OFL.txt|644|
+fedora/previews/touch.png|/usr/local/share/s6migrate/previews/touch.png.b64|644|
+fedora/previews/centered.png|/usr/local/share/s6migrate/previews/centered.png.b64|644|
+fedora/previews/traditional.png|/usr/local/share/s6migrate/previews/traditional.png.b64|644|
+fedora/previews/topdock.png|/usr/local/share/s6migrate/previews/topdock.png.b64|644|
+fedora/previews/plasma.png|/usr/local/share/s6migrate/previews/plasma.png.b64|644|

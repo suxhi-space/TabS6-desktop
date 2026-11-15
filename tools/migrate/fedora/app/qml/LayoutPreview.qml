@@ -5,15 +5,35 @@ import "."
 Rectangle {
     id: pv
     property string layout: "touch"
+    property string effects: "soft"     // off soft glassy: how see-through the bars are
+    readonly property real barOpacity: effects === "glassy" ? 0.72 : effects === "soft" ? 0.9 : 1.0
+    readonly property bool buttonsLeft: layout === "topdock"
+    readonly property real winRadius: layout === "traditional" ? 2 : layout === "plasma" ? 3 : 6
     radius: 8
     color: Theme.dark ? "#1E3550" : "#BFD6EE"
     clip: true
     readonly property color bar: Theme.dark ? "#0E141D" : "#F7FAFD"
     readonly property color icon: Theme.accent
     // a window
-    Rectangle { x: parent.width * 0.16; y: parent.height * (pv.layout === "topdock" ? 0.2 : 0.12); width: parent.width * 0.5; height: parent.height * 0.5; radius: 4; color: Theme.dark ? "#2B3748" : "#FFFFFF"; opacity: 0.9 }
+    Rectangle {
+        id: winr
+        x: parent.width * 0.16; y: parent.height * (pv.layout === "topdock" ? 0.2 : 0.12); width: parent.width * 0.5; height: parent.height * 0.5
+        radius: pv.winRadius; color: Theme.dark ? "#2B3748" : "#FFFFFF"; opacity: 0.95
+        // title bar buttons, on the side this layout uses
+        Row {
+            spacing: 3; y: 4
+            x: pv.buttonsLeft ? 5 : winr.width - width - 5
+            Repeater {
+                model: 3
+                Rectangle { width: pv.layout === "touch" ? 7 : 5; height: width; radius: width / 2
+                    color: pv.buttonsLeft ? ["#E5534B", "#D9A33E", "#57A55A"][index] : (index === 2 ? "#E5534B" : Theme.muted) }
+            }
+        }
+        // a frosted sidebar when effects are glassy
+        Rectangle { visible: pv.effects === "glassy"; y: 14; width: winr.width * 0.28; height: winr.height - 14; radius: pv.winRadius; color: Theme.accent; opacity: 0.18 }
+    }
     // top bar (top bar and dock)
-    Rectangle { visible: pv.layout === "topdock"; width: parent.width; height: parent.height * 0.09; color: pv.bar
+    Rectangle { visible: pv.layout === "topdock"; width: parent.width; height: parent.height * 0.09; color: Qt.rgba(pv.bar.r, pv.bar.g, pv.bar.b, pv.barOpacity)
         Rectangle { x: 6; anchors.verticalCenter: parent.verticalCenter; width: 8; height: 8; radius: 2; color: pv.icon }
         Rectangle { anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; width: 18; height: 4; radius: 2; color: Theme.muted } }
     // bottom bar
@@ -26,7 +46,7 @@ Rectangle {
         x: (pv.width - width) / 2
         y: pv.height - height - (floaty ? 6 : 0)
         radius: floaty ? 6 : 0
-        color: pv.bar
+        color: Qt.rgba(pv.bar.r, pv.bar.g, pv.bar.b, pv.barOpacity)
         Row {
             anchors.verticalCenter: parent.verticalCenter
             x: pv.layout === "centered" || b.dock ? (b.width - width) / 2 : 6

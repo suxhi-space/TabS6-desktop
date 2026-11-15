@@ -5,6 +5,7 @@ import "."
 Grid {
     id: lp
     property string value: "touch"
+    property string effects: "soft"
     signal picked(string id)
     readonly property var options: [
         { id: "touch", name: "Touch", sub: "One big floating bar, made for fingers" },
@@ -26,7 +27,7 @@ Grid {
             Column {
                 id: col
                 x: 12; y: 12; width: parent.width - 24; spacing: 10
-                LayoutPreview { layout: modelData.id; width: parent.width; height: width * 0.5 }
+                LayoutPreview { layout: modelData.id; effects: lp.effects; width: parent.width; height: width * 0.5 }
                 Row {
                     spacing: 10; width: parent.width
                     Glyph { kind: lp.value === modelData.id ? "radioOn" : "radio"; width: 20; height: 20; y: 2 }

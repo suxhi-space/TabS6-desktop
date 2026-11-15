@@ -476,3 +476,12 @@ Layout changes also restyle Dolphin and keep the chosen effects on the new panel
   - Each has the layout script, app style, window borders and a preview picture rendered from the same drawing as the setup screen.
   - They can be picked in System Settings too. Light/dark and effects are left as the user chose them.
 - **Previews:** they show the chosen effects (see-through bars, a frosted sidebar for Glassy) and the window-button side.
+
+**Packing check fixed (0.4.5).** A real package (73 items, 15.5 GB) came back marked as having errors.
+
+- **Cause:** the old check packed each item, then read the original files a *second* time and required the same entry count. Anything that changed in between failed the item, and one failed item marked the whole package as bad. Examples: an app syncing, Android making thumbnails, a download finishing.
+- **Fix:** each item is read once. Entries are counted from names beforehand, and the archive must read back completely with at least that many entries, allowing a few files deleted while packing. Truncated or unreadable archives still fail. Packing is also faster, because big items are no longer read twice.
+- **Repair:** failed items are recorded in `failed.txt`, and `scan.sh` reports their count.
+  - The app shows "some items need packing again" with **Fix it**, which re-packs only those items, in the right part of a split package.
+  - For packages made by older versions, the missing items are found by checking which planned items have no archive on the drive.
+  - The upgrade checks offer the same fix.

@@ -913,7 +913,8 @@ public class MainActivity extends Activity {
                 on.append(on.length() > 0 ? " and the " : "On the ").append(whereOf(x[1]));
             }
             body.addView(checkRow(pkgOk, "Your package from " + when(switchPkg[1]) + " (" + items + " items, " + human(kbs) + ")",
-                    pkgOk ? on + (pp.size() > 1 ? ": keep both in during the upgrade" : "") : "Part of this package did not finish cleanly. Update it or make a new one."));
+                    pkgOk ? on + (pp.size() > 1 ? ": keep both in during the upgrade" : "") : "Some items didn't pack correctly. Fixing it packs only those items again."));
+            if (!pkgOk) body.addView(button("Fix the package (packs only what's missing)", true, () -> repairPackage(switchPkg)), lpm(WRAP, WRAP, 0, 4, 0, 8));
             body.addView(link("Check the package for changes", () -> openPackage(switchPkg, when(switchPkg[1]), whereOf(switchPkg[1]))));
         }
         body.addView(checkRow(fedoraOk, "Fedora downloaded and verified (" + human(total / 1024) + ")",
@@ -1483,6 +1484,13 @@ public class MainActivity extends Activity {
             }
             ui.post(() -> {
                 if (ok && !update) packages.add(new String[]{"PKG", out, String.valueOf(total), String.valueOf(expectedKb), "complete"});
+                if (ok && update) for (String[] p : packages) if (p[1].equals(out)) p[4] = "complete";
+                if (!ok) for (String[] p : packages) if (p[1].equals(out)) p[4] = "errors";
+                if (!ok && !update) { // keep it listed, so "Fix it" can pack just the items that didn't make it
+                    boolean known = false;
+                    for (String[] p : packages) known |= p[1].equals(out);
+                    if (!known) packages.add(new String[]{"PKG", out, String.valueOf(total), String.valueOf(expectedKb), "errors"});
+                }
                 if (ok && next != null) next.run();   // the next part of a split package
                 else done(ok, out, all.toString(), update);
             });
@@ -2215,7 +2223,7 @@ public class MainActivity extends Activity {
                 LinearLayout r = hbox();
                 r.setPadding(0, dp(8), 0, 0);
                 r.addView(icon(I_BOX, 24, t.accentText));
-                String status = "complete".equals(p[4]) ? "verified" : "errors".equals(p[4]) ? "finished with errors" : "status unknown";
+                String status = "complete".equals(p[4]) ? "verified" : "errors".equals(p[4]) ? "some items need packing again" : "packing didn't finish";
                 LinearLayout tx = vbox();
                 tx.setPadding(dp(14), 0, dp(8), 0);
                 tx.addView(tv(when(p[1]) + "  ·  " + parse(p[2]) + " items, " + human(parse(p[3])), 16, fText, t.text));
@@ -2224,6 +2232,10 @@ public class MainActivity extends Activity {
                 r.addView(tx, lp(0, WRAP, 1f));
                 final String w = when(p[1]), where = whereOf(p[1]);
                 LinearLayout acts = vbox();
+                if (!"complete".equals(p[4])) {
+                    TextView fix = link("Fix it", () -> repairPackage(p));
+                    acts.addView(fix);
+                }
                 acts.addView(link("Check for changes", () -> openPackage(p, w, where)));
                 TextView del = link("Delete", () -> confirmDelete(p));
                 del.setTextColor(t.warn);
@@ -2256,6 +2268,73 @@ public class MainActivity extends Activity {
                     "Your package is saved. Continue to the upgrade, or make a new package with a different selection.",
                     body, null, "Continue to upgrade", this::switchStart, "New package", this::keep);
         }
+    }
+
+    /** Items of a package that need re-packing: recorded failures, plus planned items with no archive on the drive. */
+    static final String MISSING_SH = "cd \"$1\" || exit 0; [ -f failed.txt ] && sed 's/^/MISSING|/' failed.txt;"
+            + " while IFS='|' read -r t a b c; do case \"$t\" in"
+            + " APP) [ -d \"apps/$a\" ] || echo \"MISSING|$t|$a|$b|$c\" ;;"
+            + " DIR) s=$(printf '%s' \"$a\" | tr -c 'A-Za-z0-9._-' '_'); ls \"files/$s\".tar.* >/dev/null 2>&1 || echo \"MISSING|$t|$a|$b|$c\" ;;"
+            + " TOP) ls files/_loose_files.tar.* >/dev/null 2>&1 || echo \"MISSING|$t|$a|$b|$c\" ;;"
+            + " SET) [ -d settings ] || echo \"MISSING|$t|$a|$b|$c\" ;;"
+            + " esac; done < plan.txt";
+
+    void repairPackage(String[] p) {
+        curStep = 0;
+        LinearLayout body = vbox();
+        body.setGravity(Gravity.CENTER_HORIZONTAL);
+        ProgressBar pb = new ProgressBar(this);
+        pb.setIndeterminateTintList(ColorStateList.valueOf(t.accent));
+        body.addView(pb, lpm(WRAP, WRAP, 0, 24, 0, 16));
+        body.addView(text("Checking which items need packing again (read-only)...", 16, false));
+        frame("Fix your package", null, body, null, null, null, "Back", this::home);
+        new Thread(() -> {
+            Map<String, StringBuilder> plans = new java.util.LinkedHashMap<>();
+            Map<String, long[]> sizes = new HashMap<>();
+            List<String> names = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            for (String[] part : partsOf(p)) {
+                List<String> out = new ArrayList<>();
+                try {
+                    runRoot("sh -c " + q(MISSING_SH) + " sh " + q(part[1]), out::add);
+                } catch (Exception ignored) {
+                }
+                for (String l : out) {
+                    if (!l.startsWith("MISSING|")) continue;
+                    String line = l.substring(8);
+                    String[] f = line.split("\\|", -1);
+                    if (f.length < 2 || !seen.add(f[0] + "|" + f[1])) continue;
+                    Change c = makeChange(f[0], f[1], line);
+                    plans.computeIfAbsent(part[1], k -> new StringBuilder()).append(line).append('\n');
+                    long[] sz = sizes.computeIfAbsent(part[1], k -> new long[2]);
+                    sz[0]++;
+                    sz[1] += c.kb;
+                    names.add(c.label);
+                }
+            }
+            ui.post(() -> {
+                if (names.isEmpty()) { // nothing is missing: the earlier problem was fixed or a copy was kept
+                    new Thread(() -> {
+                        for (String[] part : partsOf(p)) {
+                            try { runRoot("echo complete > " + q(part[1] + "/status.txt") + "; rm -f " + q(part[1] + "/failed.txt"), l -> { }); } catch (Exception ignored) { }
+                            part[4] = "complete";
+                        }
+                        ui.post(() -> { Toast.makeText(this, "Everything is in the package. It's marked as complete now.", Toast.LENGTH_LONG).show(); home(); });
+                    }).start();
+                    return;
+                }
+                LinearLayout b = vbox();
+                LinearLayout c = warnCard(names.size() + (names.size() == 1 ? " item needs" : " items need") + " packing again");
+                for (String n : names.subList(0, Math.min(12, names.size()))) bullet(c, n, t.warnText);
+                if (names.size() > 12) bullet(c, "and " + (names.size() - 12) + " more", t.warnText);
+                b.addView(c);
+                b.addView(gap(12));
+                b.addView(muted("Usually a file changed while it was being packed (an app syncing, a download finishing). "
+                        + "Only these items are packed again; everything else stays as it is."));
+                List<String> dests = new ArrayList<>(plans.keySet());
+                frame("Fix your package", null, b, null, "Pack them again", () -> updatePart(dests, 0, plans, sizes), "Back", this::home);
+            });
+        }).start();
     }
 
     void confirmDelete(String[] p) {
@@ -3075,7 +3154,12 @@ public class MainActivity extends Activity {
             frame("Your stuff is packed", "Next: download Fedora and run the upgrade.", body, null,
                     "Continue to upgrade", this::switchStart, "Close", this::finish);
         } else {
-            frame(ok ? "Package updated" : "Packing finished with errors", null, body, null, "Done", this::home, null, null);
+            String[] entry = null;
+            for (String[] p : packages) if (p[1].equals(out)) entry = p;
+            final String[] fe = entry;
+            if (!ok && fe != null) frame("Some items didn't pack", "Nothing on Android was changed. Fix it packs only those items again.", body, null,
+                    "Fix it", () -> repairPackage(fe), "Later", this::home);
+            else frame(ok ? "Package updated" : "Packing finished with errors", null, body, null, "Done", this::home, null, null);
         }
     }
 }

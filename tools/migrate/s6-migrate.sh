@@ -86,7 +86,8 @@ for base in "$RP"/mnt/media_rw/* "$MEDIA"; do
   for pk in "$base"/S6Migrate/*; do
     [ -f "$pk/plan.txt" ] || continue
     st=unknown; [ -f "$pk/status.txt" ] && st=$(head -1 "$pk/status.txt"); [ "$st" = unknown ] && [ -f "$pk/SHA256SUMS" ] && st=complete
-    echo "PKG|$pk|$(grep -c . "$pk/plan.txt")|$(du -sk "$pk" 2>/dev/null | cut -f1)|$st"
+    nf=0; [ -f "$pk/failed.txt" ] && nf=$(grep -c . "$pk/failed.txt")
+    echo "PKG|$pk|$(grep -c . "$pk/plan.txt")|$(du -sk "$pk" 2>/dev/null | cut -f1)|$st|$nf"
   done
 done
 echo "INTFREE|$(df -k "$RP/data" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)"
@@ -240,17 +241,27 @@ cat > "$W/pack.sh" <<'PACK'
 RP="$1"; MEDIA="$RP/data/media/0"; PLAN="$2"; OUT="$3"; PART="$4"
 fail() { echo "ERROR: $*"; exit 1; }
 mkdir -p "$OUT/apps" "$OUT/files" || fail "cannot create $OUT"
-# pack_tar NAME DIR-ARGS... : tar the given -C/path pairs into NAME.tar.NNN parts
+# pack_tar NAME -C BASE PATH | -C BASE -T LIST : tar into NAME.tar.NNN parts and check them.
+# The data is read once. Before packing, the entries are counted from names only (fast); afterwards the parts
+# must read back as a whole archive with at least that many entries, allowing a few files that apps or Android
+# delete while packing (caches, thumbnails). Files added meanwhile are fine. A truncated or unreadable archive fails.
 pack_tar() {
   name="$1"; shift
-  tar -cf - "$@" 2>>"$OUT/pack-warnings.log" | split -b "$PART" -a 3 - "$name.tar." || return 1
-  # verify: the parts must read back as a complete archive with the same entry count
-  want=$(tar -cf - "$@" 2>/dev/null | tar -tf - | wc -l)
-  got=$(cat "$name".tar.* | tar -tf - 2>/dev/null | wc -l)
-  [ "$want" = "$got" ] || { echo "VERIFY-FAIL $name ($got of $want entries)"; return 1; }
-  label=${name##*/}; echo "  ok: ${label#.new-} ($got entries)"
+  base="$2"
+  if [ "$3" = "-T" ]; then want=$(grep -c . "$4"); else want=$(cd "$base" && find "$3" 2>/dev/null | wc -l); fi
+  { tar -cf - "$@" 2>>"$OUT/pack-warnings.log"; echo $? > "$name.rc"; } | split -b "$PART" -a 3 - "$name.tar." || { rm -f "$name.rc"; return 1; }
+  rc=$(cat "$name.rc" 2>/dev/null); rm -f "$name.rc"
+  got=$(cat "$name".tar.* 2>/dev/null | tar -tf - 2>/dev/null | wc -l)
+  slack=$((want / 50)); [ $slack -lt 5 ] && slack=5
+  label=${name##*/}; label=${label#.new-}
+  if [ "$got" -eq 0 ] || [ "$got" -lt $((want - slack)) ]; then
+    echo "VERIFY-FAIL $label ($got of about $want entries)"; return 1
+  fi
+  [ "${rc:-0}" = 0 ] || echo "  note: a few files changed or couldn't be read while packing $label (see pack-warnings.log)"
+  echo "  ok: $label ($got entries)"
 }
-n=0; bad=0
+failed() { printf '%s|%s|%s|%s\n' "$t" "$a" "$b" "$c" >> "$OUT/.failed.new"; }
+n=0; bad=0; rm -f "$OUT/.failed.new"
 # Each item is packed into a ".new-" staging copy and only replaces an existing copy once it
 # verifies, so updating a package never loses the previous copy of an item.
 while IFS='|' read -r t a b c; do
@@ -270,7 +281,7 @@ while IFS='|' read -r t a b c; do
     [ -d "$MEDIA/Android/data/$pkg" ]    && { pack_tar "$dir/extdata" -C "$MEDIA/Android/data" "$pkg" || ok=0; }
     [ -d "$MEDIA/Android/obb/$pkg" ]     && { pack_tar "$dir/obb" -C "$MEDIA/Android/obb" "$pkg" || ok=0; }
     if [ $ok = 1 ]; then rm -rf "$final"; mv "$dir" "$final"
-    else bad=1; rm -rf "$dir"; [ -d "$final" ] && echo "  kept the previous copy of $pkg"; fi
+    else bad=1; failed; rm -rf "$dir"; [ -d "$final" ] && echo "  kept the previous copy of $pkg"; fi
     ;;
   DIR)
     echo "[$n] folder $a"
@@ -283,7 +294,7 @@ while IFS='|' read -r t a b c; do
       mv "$new.stamp" "$OUT/files/$safe.stamp"
       printf '%s|%s\n' "$safe" "$a" >> "$OUT/files/index.txt"
     else
-      bad=1; rm -f "$new".tar.* "$new.stamp"
+      bad=1; failed; rm -f "$new".tar.* "$new.stamp"
       ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy of $a"
     fi
     ;;
@@ -342,7 +353,7 @@ while IFS='|' read -r t a b c; do
     elif [ ! -s "$list" ]; then
       echo "  no loose files any more"; rm -f "$new.stamp" "$list"
     else
-      bad=1; rm -f "$new".tar.* "$new.stamp" "$list"
+      bad=1; failed; rm -f "$new".tar.* "$new.stamp" "$list"
       ls "$OUT/files/$safe".tar.* >/dev/null 2>&1 && echo "  kept the previous copy"
     fi
     ;;
@@ -388,7 +399,18 @@ echo "Updating checksums..."
 )
 # Internal storage files must belong to media_rw (1023) to stay readable over MTP/adb; no-op on FAT/exFAT cards.
 chown -R 1023:1023 "${OUT%/*}" 2>/dev/null
-if [ $bad = 0 ]; then echo complete > "$OUT/status.txt"; echo "PACK-OK"; else echo errors > "$OUT/status.txt"; echo "PACK-HAD-ERRORS"; fi
+# Items that didn't pack: this run's failures, plus earlier ones this run didn't retry (failed.txt).
+{
+  [ -f "$OUT/failed.txt" ] && while IFS='|' read -r t a rest; do
+    k=$t; [ "$k" = LINUX ] && k=APP
+    grep -q "^$k|$a|" "$PLAN" 2>/dev/null || { [ "$k" = APP ] && grep -q "^LINUX|$a|" "$PLAN" 2>/dev/null; } || echo "$t|$a|$rest"
+  done < "$OUT/failed.txt"
+  [ -f "$OUT/.failed.new" ] && cat "$OUT/.failed.new"
+} > "$OUT/failed.tmp"
+rm -f "$OUT/.failed.new"
+if [ -s "$OUT/failed.tmp" ]; then mv "$OUT/failed.tmp" "$OUT/failed.txt"; else rm -f "$OUT/failed.tmp" "$OUT/failed.txt"; fi
+if [ ! -f "$OUT/failed.txt" ]; then echo complete > "$OUT/status.txt"; echo "PACK-OK"
+else echo errors > "$OUT/status.txt"; echo "PACK-HAD-ERRORS ($(grep -c . "$OUT/failed.txt") item(s) to re-pack: see failed.txt)"; fi
 PACK
 
 echo

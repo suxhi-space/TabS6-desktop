@@ -46,7 +46,8 @@ for base in "$RP"/mnt/media_rw/* "$MEDIA"; do
   for pk in "$base"/S6Migrate/*; do
     [ -f "$pk/plan.txt" ] || continue
     st=unknown; [ -f "$pk/status.txt" ] && st=$(head -1 "$pk/status.txt"); [ "$st" = unknown ] && [ -f "$pk/SHA256SUMS" ] && st=complete
-    echo "PKG|$pk|$(grep -c . "$pk/plan.txt")|$(du -sk "$pk" 2>/dev/null | cut -f1)|$st"
+    nf=0; [ -f "$pk/failed.txt" ] && nf=$(grep -c . "$pk/failed.txt")
+    echo "PKG|$pk|$(grep -c . "$pk/plan.txt")|$(du -sk "$pk" 2>/dev/null | cut -f1)|$st|$nf"
   done
 done
 echo "INTFREE|$(df -k "$RP/data" 2>/dev/null | tail -1 | tr -s ' ' | cut -d' ' -f4)"

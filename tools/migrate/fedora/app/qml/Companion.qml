@@ -59,8 +59,9 @@ ApplicationWindow {
             var migrate = setup.migrate !== "no", android = setup.android !== "no"
             if (migrate) for (var i = 0; i < found.length; i++)
                 t.push({ title: "Your wallpaper and settings from Android" + (found.length > 1 ? " (part " + (i + 1) + ")" : ""), argv: ["/usr/local/bin/s6-restore", "--settings-only", "--skip-verify", "--yes", found[i]] })
-            var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light"
-            t.push({ title: "Your layout and size (" + layoutName(lay) + ", " + size + ")", argv: sh("s6-look theme " + theme + "; s6-look layout " + lay + "; s6-look size " + size) })
+            var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "soft"
+            t.push({ title: "Your layout, size and effects (" + layoutName(lay) + ", " + size + ", " + eff + ")",
+                     argv: sh("s6-look theme " + theme + "; s6-look effects " + eff + "; s6-look layout " + lay + "; s6-look size " + size) })
             if (android) {
                 t.push({ title: "Download Android for apps (about 1 GB)" + (setup.gapps === "1" ? ", with Google Play" : ""), argv: h(["waydroid-init", setup.gapps === "1" ? "1" : "0"]) })
                 t.push({ title: "Start Android", argv: ["/usr/local/bin/s6-android", "start"] })
@@ -292,7 +293,7 @@ ApplicationWindow {
             function apply(args) { out = "Applying..."; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work."; load() }) }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Look"
-                frame.subtitle = "Change the layout, size and light or dark look. Changes apply right away."
+                frame.subtitle = "Layout, size, effects and light or dark. The file manager follows the layout. Changes apply right away."
                 frame.primary = ""; frame.secondary = ""; frame.note = lk.out
                 load()
             }
@@ -306,6 +307,15 @@ ApplicationWindow {
                 Choice { width: parent.cw; title: "Standard"; sub: "The tablet's original size"; on: parent.v === "standard"; onPicked: lk.apply(["size", "standard"]) }
                 Choice { width: parent.cw; title: "Larger"; sub: "Recommended for touch"; on: parent.v === "larger"; onPicked: lk.apply(["size", "larger"]) }
                 Choice { width: parent.cw; title: "Largest"; sub: "Easiest to tap and read"; on: parent.v === "largest"; onPicked: lk.apply(["size", "largest"]) }
+            }
+            Label2 { text: "Effects"; strong: true; color: Theme.sub; font.pixelSize: 15 }
+            Grid {
+                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
+                property real cw: frame.roomy ? (width - 28) / 3 : width
+                property string v: lk.cur.EFFECTS || win.setup.effects || "soft"
+                Choice { width: parent.cw; title: "Off"; sub: "Solid and simple; saves battery"; on: parent.v === "off"; onPicked: lk.apply(["effects", "off"]) }
+                Choice { width: parent.cw; title: "Soft"; sub: "Frosted panels and menus"; on: parent.v === "soft"; onPicked: lk.apply(["effects", "soft"]) }
+                Choice { width: parent.cw; title: "Glassy"; sub: "See-through panels, menus and background windows"; on: parent.v === "glassy"; onPicked: lk.apply(["effects", "glassy"]) }
             }
             Label2 { text: "Appearance"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {

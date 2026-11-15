@@ -432,3 +432,15 @@ A welcome and tools app, always in the menu, with "Open when I log in" as an opt
 - The restore modes and helper actions were tested against throwaway folders.
 
 Not yet run on the tablet: SDDM automatic login into the setup account, pkexec and polkit, Plasma layout scripts, `kscreen-doctor` scaling, and `s6-update system`.
+
+**Effects and Dolphin (0.4.2).** `s6-look effects off|soft|glassy` uses KWin's own effects; no extra software is needed.
+- **Off:** no blur or translucency, opaque panels, quicker animations.
+- **Soft** (default): blur and contrast behind panels, menus and popups; panels see-through until a window is maximised; windows scale in.
+- **Glassy:** stronger frosted blur, always see-through panels, translucent menus, dialogs and inactive windows.
+
+Changing the layout also restyles Dolphin through `s6-look dolphin`:
+- Touch: large icons, one tap opens.
+- Taskbar layouts: details list.
+- Top bar and dock: icon grid with previews, and genie-style minimise.
+
+Fully frosted app backgrounds would need a third-party window style (Kvantum or similar), which isn't included.

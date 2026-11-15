@@ -38,6 +38,7 @@ ApplicationWindow {
     property bool android: true            // set up Android app support (Waydroid) after login
     property string layout: "touch"
     property string size: "larger"
+    property string effects: "soft"
     property bool tune: true
     property bool codecs: true
     property bool online: false
@@ -327,7 +328,7 @@ ApplicationWindow {
             function next() { win.page = 5 }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Look and feel"
-                frame.subtitle = "Pick a layout and size. You can change both any time in S6 Companion."
+                frame.subtitle = "Pick a layout, size and effects. The file manager matches the layout. Change any of it later in S6 Companion."
                 frame.primary = win.migrate ? "Move my stuff in" : "Set it up"; frame.secondary = "Back"; frame.note = "Nothing on your drives is changed or erased."
             }
             LayoutPicker { width: parent.width; value: win.layout; onPicked: (id) => win.layout = id }
@@ -338,6 +339,14 @@ ApplicationWindow {
                 Choice { width: parent.cw; title: "Standard"; sub: "The tablet's original size"; on: win.size === "standard"; onPicked: win.size = "standard" }
                 Choice { width: parent.cw; title: "Larger"; sub: "Recommended for touch"; on: win.size === "larger"; onPicked: win.size = "larger" }
                 Choice { width: parent.cw; title: "Largest"; sub: "Easiest to tap and read"; on: win.size === "largest"; onPicked: win.size = "largest" }
+            }
+            Label2 { text: "Effects"; strong: true; color: Theme.sub; font.pixelSize: 15 }
+            Grid {
+                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
+                property real cw: frame.roomy ? (width - 28) / 3 : width
+                Choice { width: parent.cw; title: "Off"; sub: "Solid and simple; saves battery"; on: win.effects === "off"; onPicked: win.effects = "off" }
+                Choice { width: parent.cw; title: "Soft"; sub: "Frosted panels and menus (recommended)"; on: win.effects === "soft"; onPicked: win.effects = "soft" }
+                Choice { width: parent.cw; title: "Glassy"; sub: "See-through panels, menus and background windows"; on: win.effects === "glassy"; onPicked: win.effects = "glassy" }
             }
             Label2 { text: "Appearance"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
@@ -373,7 +382,7 @@ ApplicationWindow {
                 var t = []
                 t.push({ title: "Create your account (" + win.userName + ")", argv: win.h(["create-user", win.userName, win.fullName]), input: win.password + "\n" })
                 t.push({ title: "Apply your tablet's settings", argv: win.h(["settings", win.timeZone, win.loc, win.deviceName, win.userName, win.dark ? "dark" : "light"]) })
-                t.push({ title: "Remember your layout and choices", argv: win.h(["save-prefs", win.userName, "layout=" + win.layout, "size=" + win.size, "migrate=" + (win.migrate ? "yes" : "no"), "android=" + (win.android ? "yes" : "no"), "tune=" + (win.tune ? "yes" : "no")]) })
+                t.push({ title: "Remember your layout and choices", argv: win.h(["save-prefs", win.userName, "layout=" + win.layout, "size=" + win.size, "effects=" + win.effects, "migrate=" + (win.migrate ? "yes" : "no"), "android=" + (win.android ? "yes" : "no"), "tune=" + (win.tune ? "yes" : "no")]) })
                 if (win.tune) {
                     var tunes = ["memory", "logs", "shutdown", "downloads", "background", "protect"]
                     for (var u = 0; u < tunes.length; u++) t.push({ title: "Tune-up: " + ["smoother memory use", "smaller system log", "faster shutdown", "faster update downloads", "fewer background jobs", "protect the tablet's own parts from updates"][u], argv: win.h(["tune", tunes[u], "on"]) })

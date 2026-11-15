@@ -292,7 +292,7 @@ save-prefs)
   valid_user "$u" || die "bad user"
   for kvp in "$@"; do
     k=${kvp%%=*}; v=${kvp#*=}
-    case "$k" in layout|size|codecs|tune|migrate|android) [[ "$v" =~ ^[a-z0-9-]{1,20}$ ]] && kv "$k" "$v" ;; esac
+    case "$k" in layout|size|codecs|tune|migrate|android|effects) [[ "$v" =~ ^[a-z0-9-]{1,20}$ ]] && kv "$k" "$v" ;; esac
   done
   echo "saved"
   ;;

@@ -5,6 +5,8 @@
 #   s6-look layout touch|centered|traditional|topdock|plasma
 #   s6-look size standard|larger|largest     screen scale from the tablet's original (+0, +25%, +50%) and touch mode
 #   s6-look theme light|dark
+#   s6-look effects off|soft|glassy          blur, translucency and window animations (KWin's own effects)
+#   s6-look dolphin touch|centered|traditional|topdock|plasma   the file manager to match a layout
 #   s6-look status                           LAYOUT|.. SIZE|.. THEME|..
 #
 # Layouts (named by what they look like):
@@ -14,12 +16,30 @@
 #   topdock      a slim bar at the top with the menu and clock, and a dock at the bottom
 #   plasma       KDE Plasma's own default
 set -u
+SELF=$(readlink -f "$0")
 CONF="$HOME/.config/s6migrate/look.conf"
 mkdir -p "${CONF%/*}"
 q() { command -v qdbus6 >/dev/null && echo qdbus6 || echo qdbus; }
 setconf() { touch "$CONF"; grep -v "^$1=" "$CONF" > "$CONF.tmp"; echo "$1=$2" >> "$CONF.tmp"; mv "$CONF.tmp" "$CONF"; }
 getconf() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -n 1; }
 plasma_js() { "$(q)" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$1"; }
+kw() { kwriteconfig6 "$@"; }
+kwin_reload() { "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1; }
+panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
+  local ids id
+  ids=$(plasma_js 'print(panelIds.join(" "))' 2>/dev/null)
+  for id in $ids; do kw --file plasmashellrc --group PlasmaViews --group "Panel $id" --key panelOpacity "$1"; done
+  [ -n "$ids" ] && { systemctl --user restart plasma-plasmashell.service 2>/dev/null || (plasmashell --replace >/dev/null 2>&1 &); }
+}
+dolphin_style() { # view mode 0 icons, 1 details; icon sizes; single tap to open
+  local mode=$1 icons=$2 single=$3 previews=$4 vp="$HOME/.local/share/dolphin/view_properties/global"
+  mkdir -p "$vp"
+  printf '[Dolphin]\nVersion=4\nViewMode=%s\nPreviewsShown=%s\n' "$mode" "$previews" > "$vp/.directory"
+  kw --file dolphinrc --group General --key GlobalViewProps true
+  kw --file dolphinrc --group IconsMode --key IconSize "$icons"
+  kw --file dolphinrc --group DetailsMode --key IconSize "$([ "$icons" -ge 80 ] && echo 48 || echo 32)"
+  kw --file kdeglobals --group KDE --key SingleClick "$single"
+}
 
 js_common='
 function clear() { var ps = panels(); for (var i = 0; i < ps.length; i++) ps[i].remove(); }
@@ -52,6 +72,12 @@ layout)
     *) echo "unknown layout: $name"; exit 2 ;;
   esac
   plasma_js "$js_common $js" && setconf layout "$name" && echo "layout: $name"
+  bash "$SELF" dolphin "$name"
+  eff=$(getconf effects); [ -n "$eff" ] && bash "$SELF" effects "$eff" >/dev/null   # new panels get the chosen look too
+  # The genie-style minimise suits the dock layout; the others shrink windows into the bar.
+  if [ "$name" = topdock ]; then kw --file kwinrc --group Plugins --key magiclampEnabled true; kw --file kwinrc --group Plugins --key squashEnabled false
+  else kw --file kwinrc --group Plugins --key magiclampEnabled false; kw --file kwinrc --group Plugins --key squashEnabled true; fi
+  kwin_reload
   ;;
 size)
   name=${2:-larger}
@@ -76,8 +102,53 @@ theme)
   esac
   setconf theme "$2"; echo "theme: $2"
   ;;
+effects)
+  case "${2:-soft}" in
+    off)      # battery saver: no blur or translucency, quicker animations
+      kw --file kwinrc --group Plugins --key blurEnabled false
+      kw --file kwinrc --group Plugins --key contrastEnabled false
+      kw --file kwinrc --group Plugins --key translucencyEnabled false
+      kw --file kdeglobals --group KDE --key AnimationDurationFactor 0.5
+      panel_opacity 1 ;;
+    soft)     # Plasma's blur behind panels, menus and popups; panels see-through until a window is maximised
+      kw --file kwinrc --group Plugins --key blurEnabled true
+      kw --file kwinrc --group Plugins --key contrastEnabled true
+      kw --file kwinrc --group Plugins --key translucencyEnabled false
+      kw --file kwinrc --group Effect-blur --key BlurStrength 6
+      kw --file kwinrc --group Effect-blur --key NoiseStrength 0
+      kw --file kdeglobals --group KDE --key AnimationDurationFactor 0.75
+      kw --file kwinrc --group Plugins --key scaleEnabled true; kw --file kwinrc --group Plugins --key fadeEnabled false
+      panel_opacity 0 ;;
+    glassy)   # stronger frosted blur, panels always see-through, translucent menus, dialogs and inactive windows
+      kw --file kwinrc --group Plugins --key blurEnabled true
+      kw --file kwinrc --group Plugins --key contrastEnabled true
+      kw --file kwinrc --group Plugins --key translucencyEnabled true
+      kw --file kwinrc --group Effect-blur --key BlurStrength 11
+      kw --file kwinrc --group Effect-blur --key NoiseStrength 3
+      for k in Menus:88 DropdownMenus:88 PopupMenus:88 ComboboxPopups:90 Dialogs:92 Inactive:93 MoveResize:85 TornOffMenus:88; do
+        kw --file kwinrc --group Effect-translucency --key "${k%%:*}" "${k##*:}"
+      done
+      kw --file kwinrc --group Effect-translucency --key ActiveWindows 100
+      kw --file kdeglobals --group KDE --key AnimationDurationFactor 0.75
+      kw --file kwinrc --group Plugins --key scaleEnabled true; kw --file kwinrc --group Plugins --key fadeEnabled false
+      panel_opacity 2 ;;
+    *) echo "off, soft or glassy"; exit 2 ;;
+  esac
+  kwin_reload; setconf effects "$2"; echo "effects: $2"
+  ;;
+dolphin)
+  case "${2:-plasma}" in
+    touch)       dolphin_style 0 96 true true ;;    # big icons, one tap opens
+    centered)    dolphin_style 1 64 false true ;;   # details list, like most taskbar desktops
+    traditional) dolphin_style 1 48 false false ;;  # compact details list
+    topdock)     dolphin_style 0 80 false true ;;   # icon grid with previews
+    plasma)      dolphin_style 0 64 false true ;;   # Dolphin's own default
+    *) echo "unknown style"; exit 2 ;;
+  esac
+  echo "file manager: ${2:-plasma} style (applies the next time Dolphin opens)"
+  ;;
 status)
-  echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"
+  echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

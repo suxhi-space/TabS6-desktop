@@ -3,6 +3,7 @@
 # S6 Migrate maintenance before the login screen. Runs only when a job is waiting in /var/lib/s6migrate/maint:
 #   repair   finish an update a freeze or forced restart cut off (from s6-selfcheck or S6Migrate-FIX.zip)
 #   update   bring Fedora up to date (S6 Setup's first update, or "Update at restart" in S6 Companion)
+#   linuxapps  Linux versions of your Android apps (S6 Setup; lines "USER|PACKAGE-PART"), after the update
 #   extras   Better Blur DX and Darkly
 #   codecs   media codecs from RPM Fusion (their drivers can need matching graphics libraries)
 # Desktop packages are never changed under a running desktop: that froze the tablet once and cut a library short.
@@ -11,19 +12,22 @@
 # tablet boots its own kernel); neither are the parts t860-fedora customises. Progress is shown on the screen.
 ST=${S6M_STATE:-/var/lib/s6migrate}; M=$ST/maint; L=$ST/maint.log; TTY=${S6M_TTY:-/dev/tty1}   # S6M_*: test hooks
 # Any job waiting? (One check per job: listing them all at once failed whenever one was missing, so nothing ran.)
-any=0; for j in repair update extras codecs; do [ -f "$M/$j" ] && any=1; done
+any=0; for j in repair update linuxapps extras codecs; do [ -f "$M/$j" ] && any=1; done
 [ $any = 1 ] || exit 0
 chvt 1 2>/dev/null
 exec > >(tee -a "$L" > "$TTY") 2>&1
 say() { echo; echo "== $(date '+%F %T') $*"; }
 X='--setopt=excludepkgs=kernel*,sddm,iio-sensor-proxy'
 NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
-jobs=""; for j in repair update extras codecs; do [ -f "$M/$j" ] && jobs="$jobs$j "; done
+jobs=""; for j in repair update linuxapps extras codecs; do [ -f "$M/$j" ] && jobs="$jobs$j "; done
 say "S6 Migrate is finishing work before the login screen: $jobs"
 say "Keep the tablet plugged in. On slow Wi-Fi this can take a while; it never installs anything half-downloaded."
 
+# A repair waits up to 5 minutes for Wi-Fi; updates and extras only 1, so a tablet that is offline isn't held up
+# at every start (they wait for a start with Wi-Fi).
+tries=12; [ -f "$M/repair" ] && tries=60
 online=0
-for i in $(seq 1 60); do
+for i in $(seq 1 $tries); do
   curl -fsI --max-time 8 http://fedoraproject.org >/dev/null 2>&1 && { online=1; break; }
   [ $i = 1 ] && say "Waiting for Wi-Fi..."
   sleep 5
@@ -82,6 +86,19 @@ if [ -f "$M/update" ] && [ $fail = 0 ]; then
   if rounds "Downloading updates" --refresh upgrade; then
     if dnfw -y -C "$X" upgrade; then rm -f "$M/update"; date '+%F %T' > "$ST/last-update"; else fail=1; fi
   else fail=1; fi
+fi
+if [ -f "$M/linuxapps" ] && [ $fail = 0 ]; then
+  say "Installing the Linux versions of your apps (Flathub apps download their shared runtimes the first time)..."
+  lfail=0
+  while IFS='|' read -r u p; do
+    [ -n "$u" ] && [ -d "$p" ] || continue
+    hd=$(getent passwd "$u" | cut -d: -f6); [ -n "$hd" ] || continue
+    dnfw_hb() { local m=0; while sleep 60; do m=$((m+1)); echo "   ...still working ($m min)"; done; }
+    dnfw_hb & hb=$!
+    runuser -u "$u" -- env HOME="$hd" XDG_DATA_HOME="$hd/.local/share" /usr/local/bin/s6-restore --linux-apps-only --skip-verify --yes "$p" || lfail=1
+    kill "$hb" 2>/dev/null; wait "$hb" 2>/dev/null
+  done < "$M/linuxapps"
+  [ $lfail = 0 ] && rm -f "$M/linuxapps" || say "Some Linux apps didn't install; this is tried again at the next start."
 fi
 if [ -f "$M/extras" ] && [ $fail = 0 ]; then
   say "Adding Better Blur DX and Darkly..."

@@ -28,6 +28,7 @@
 #   prepare-look USER LAYOUT SIZE light|dark EFFECTS   the new account's desktop, before its first login
 #   power restart|recovery|download|off|sleep   restart (also into TWRP or Samsung's Download mode), power off, sleep
 #   power-status                     PLUGGED|yes/no  (powering off while plugged in starts the tablet again)
+#   schedule-linux-apps USER PART    queue the Linux versions of your apps for the restart (before the first login)
 #   schedule repair|update|extras|codecs   queue maintenance for the next restart (s6-maint runs it before the login screen)
 #   unschedule repair|update|extras  take a queued job back
 set -u
@@ -425,6 +426,14 @@ PY
     sleep) systemctl suspend ;;
     *) die "restart, recovery, download, off or sleep" ;;
   esac
+  ;;
+
+schedule-linux-apps)
+  u=${1:-}; p=${2:-}
+  valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
+  valid_part "$p" || die "not a package: $p"
+  mkdir -p "$ST/maint"; grep -qxF "$u|$p" "$ST/maint/linuxapps" 2>/dev/null || echo "$u|$p" >> "$ST/maint/linuxapps"
+  echo "Linux versions of your apps: installed during the restart, before your first login"
   ;;
 
 schedule|unschedule)

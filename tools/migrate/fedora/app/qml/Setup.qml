@@ -409,7 +409,8 @@ ApplicationWindow {
                 for (var i = 0; i < (win.migrate ? win.parts.length : 0); i++)
                     t.push({ title: "Your files and settings" + (win.parts.length > 1 ? " (part " + (i + 1) + " of " + win.parts.length + ")" : ""), argv: win.h(["restore-files", win.userName, win.parts[i]]), files: true, part: "move" })
                 for (var j = 0; j < (win.migrate ? win.parts.length : 0); j++)
-                    t.push({ title: "Your Linux apps" + (win.parts.length > 1 ? " (part " + (j + 1) + ")" : ""), argv: win.h(["linux-apps", win.userName, win.parts[j]]), needsNet: true, part: "move" })
+                    // Installed during the restart after setup (after Fedora's update), never under a running desktop.
+                    t.push({ title: "Your Linux apps" + (win.parts.length > 1 ? " (part " + (j + 1) + ")" : "") + ": installed during the restart", argv: win.h(["schedule-linux-apps", win.userName, win.parts[j]]), needsNet: true, part: "move" })
                 if (win.migrate && win.parts.length === 0) t.push({ title: "Your files: no package found (bring it over later in S6 Companion)", skip: true, part: "move" })
                 if (win.android) t.push({ title: win.migrate && win.info.apps > 0 ? "Android apps: they finish installing after you log in" : "Android app support: set up after you log in", skip: true, after: true, part: "move" })
                 for (var k = 0; k < t.length; k++) { t[k].state = "wait"; t[k].detail = ""; t[k].progress = -1 }

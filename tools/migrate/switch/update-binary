@@ -323,6 +323,7 @@ if [ $ROOT_OK = 1 ]; then
     printf '[Desktop Entry]\nHidden=true\n' > "$H/.config/autostart/$a"
   done
   printf '[Wallet]\nEnabled=false\nFirst Use=false\n' > "$H/.config/kwalletrc"
+  printf '[General]\nLastSeenVersion=99.0.0\nShowUpdatePage=false\n' > "$H/.config/plasma-welcomerc"   # KDE's welcome app: S6 Setup is the welcome
   printf '[Daemon]\nAutolock=false\nLockOnResume=false\n' > "$H/.config/kscreenlockerrc"
   chown -R "$SUID:$SUID" "$H"; chmod 700 "$H"
   rm -f "$ROOT/etc/xdg/autostart/s6migrate-firstrun.desktop"   # the old text assistant (kept only as a fallback tool)

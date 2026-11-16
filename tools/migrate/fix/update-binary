@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 13: why won't Fedora start?"
+ui "S6 Migrate fix 14: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -113,6 +113,14 @@ if [ ! -f "$S/setup-done" ]; then
   mkdir -p "$ROOT/etc/sddm.conf.d"
   printf '# S6 Migrate: the first start logs into the temporary setup account, which runs S6 Setup.\n# S6 Setup replaces this file with your own account when it finishes.\n[General]\nInputMethod=qtvirtualkeyboard\n[Autologin]\nUser=s6setup\nSession=plasma.desktop\n' > "$C"
   chmod 644 "$C"; ui "  automatic login: setup account, Plasma session"
+  # Undo the fallback (S6 Setup couldn't start, so it logged into "fedora" with the old text assistant): next start
+  # is S6 Setup again. KDE's own welcome app stays out of the setup screen.
+  rm -f "$ROOT/home/fedora/.config/autostart/s6migrate-firstrun.desktop"
+  if [ -d "$S/setup-home/.config" ]; then
+    printf '[General]\nLastSeenVersion=99.0.0\nShowUpdatePage=false\n' > "$S/setup-home/.config/plasma-welcomerc"
+    su_id=$(grep '^s6setup:' "$ROOT/etc/passwd" | cut -d: -f3); [ -n "$su_id" ] && chown "$su_id:$su_id" "$S/setup-home/.config/plasma-welcomerc"
+    ui "  the next start opens S6 Setup again (in the setup account)"
+  fi
 fi
 # 3. Stale first-start blockers; logs kept on disk from now on; readable folders.
 rm -f "$ROOT/.autorelabel" "$ROOT"/var/run/faillock/* "$ROOT"/var/lib/faillock/* 2>/dev/null

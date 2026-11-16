@@ -45,6 +45,7 @@ jobs:
           python3 tools/migrate/switch/build-payload.py switch /tmp/ub-switch
           sh -n /tmp/ub-rehearsal && sh -n /tmp/ub-switch
           bash tools/migrate/fedora/tests/test-maint.sh
+          bash tools/migrate/fedora/tests/test-install-list.sh
           sh -n tools/migrate/fix/update-binary && python3 -m py_compile tools/migrate/fix/s6pamtest.py && python3 tools/migrate/fix/build-zip.py /tmp/S6Migrate-FIX.zip
 
       - uses: actions/setup-java@v4

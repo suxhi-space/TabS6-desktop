@@ -32,6 +32,16 @@ if [ $online = 0 ]; then say "No internet: this waits for the next start."; exit
 d=$(curl -sI --max-time 15 http://fedoraproject.org 2>/dev/null | sed -n 's/^[Dd]ate: //p' | tr -d '\r')
 [ -n "$d" ] && date -s "$d" >/dev/null 2>&1 && say "Clock checked: $(date)"
 
+# dnf only shows progress bars on a real terminal; here its output goes through tee into the log, so it is silent
+# until something finishes (an 80 MB package list looked frozen). A heartbeat line every minute shows it's alive.
+dnfw() {
+  local m=0 hb rc
+  ( while sleep 60; do m=$((m+1)); echo "   ...still working ($m min)"; done ) &
+  hb=$!
+  dnf "$@"; rc=$?
+  kill "$hb" 2>/dev/null; wait "$hb" 2>/dev/null
+  return $rc
+}
 rounds() { # rounds WHAT [--refresh] COMMAND ARGS...: a download-only dnf command, repeated until it succeeds (30 rounds at most)
   # dnf5 takes --downloadonly only after the command word ("dnf5 distro-sync --downloadonly"), not before it.
   local what=$1 ref="" cmd out; shift
@@ -40,7 +50,7 @@ rounds() { # rounds WHAT [--refresh] COMMAND ARGS...: a download-only dnf comman
   for r in $(seq 1 30); do
     say "$what (round $r)..."
     out=$(mktemp)
-    if dnf -y $NET "$X" $ref "$cmd" --downloadonly "$@" 2>&1 | tee "$out"; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$out"; return 0; fi
+    if dnfw -y $NET "$X" $ref "$cmd" --downloadonly "$@" 2>&1 | tee "$out"; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$out"; return 0; fi
     # A mistake in the command itself won't fix itself by waiting: stop instead of retrying 30 times.
     if grep -q -E 'Unknown argument|No match for argument|Problem: ' "$out"; then rm -f "$out"; say "dnf refused the command (see above); not retrying."; return 1; fi
     rm -f "$out"
@@ -52,25 +62,25 @@ rounds() { # rounds WHAT [--refresh] COMMAND ARGS...: a download-only dnf comman
 fail=0
 if [ -f "$M/repair" ]; then
   say "Repair 1/4: removing old copies of half-updated packages..."
-  dnf -y remove --duplicates "$X" || true
+  dnfw -y remove --duplicates "$X" || true
   say "Repair 2/4: bringing every package to the same, current version..."
-  if rounds "Downloading" --refresh distro-sync; then dnf -y -C "$X" distro-sync || fail=1; else fail=1; fi
+  if rounds "Downloading" --refresh distro-sync; then dnfw -y -C "$X" distro-sync || fail=1; else fail=1; fi
   say "Repair 3/4: putting back desktop packages missing from the package list..."
   DESK="kwin kwin-libs kwin-common plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma plasma-desktop plasma-workspace-wayland"
-  if rounds "Downloading desktop packages" install $DESK; then dnf -y -C "$X" install $DESK || true; fi
+  if rounds "Downloading desktop packages" install $DESK; then dnfw -y -C "$X" install $DESK || true; fi
   say "Repair 4/4: checking every installed file (slow), reinstalling packages with damaged files..."
   rpm -Va --nomtime --nouser --nogroup --nomode --nordev --nolinkto --nocaps 2>/dev/null \
     | grep -E '^(..5|.S)' | grep -v ' c /' | awk '{print $NF}' > /tmp/s6-damaged || true
   pk=$(xargs -r rpm -qf --qf '%{NAME}\n' < /tmp/s6-damaged 2>/dev/null | grep -v -E '^(kernel|file |error)' | sort -u | tr '\n' ' ')
   say "Damaged files: $(wc -l < /tmp/s6-damaged); packages to reinstall: ${pk:-none}"
-  if [ -n "$pk" ] && rounds "Downloading packages to reinstall" reinstall $pk; then dnf -y -C "$X" reinstall $pk || fail=1; fi
+  if [ -n "$pk" ] && rounds "Downloading packages to reinstall" reinstall $pk; then dnfw -y -C "$X" reinstall $pk || fail=1; fi
   if ldd -r /usr/bin/kwin_wayland 2>&1 | grep -q -E 'not found|too short|undefined symbol'; then fail=1; say "The desktop still has a problem."; fi
   [ $fail = 0 ] && rm -f "$M/repair"
 fi
 if [ -f "$M/update" ] && [ $fail = 0 ]; then
   say "Updating Fedora..."
   if rounds "Downloading updates" --refresh upgrade; then
-    if dnf -y -C "$X" upgrade; then rm -f "$M/update"; date '+%F %T' > "$ST/last-update"; else fail=1; fi
+    if dnfw -y -C "$X" upgrade; then rm -f "$M/update"; date '+%F %T' > "$ST/last-update"; else fail=1; fi
   else fail=1; fi
 fi
 if [ -f "$M/extras" ] && [ $fail = 0 ]; then
@@ -79,7 +89,7 @@ if [ -f "$M/extras" ] && [ $fail = 0 ]; then
   dnf -y copr enable deltacopy/darkly >/dev/null 2>&1
   got=""
   for p in kwin-effects-better-blur-dx darkly; do
-    if rounds "Downloading $p" --refresh install "$p" && dnf -y -C "$X" install "$p"; then got="$got $p"; fi
+    if rounds "Downloading $p" --refresh install "$p" && dnfw -y -C "$X" install "$p"; then got="$got $p"; fi
   done
   [ -n "$got" ] && say "Added:$got" || say "Not available for this Plasma right now: the standard blur and Breeze are used."
   rm -f "$M/extras"

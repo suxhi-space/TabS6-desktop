@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 15: why won't Fedora start?"
+ui "S6 Migrate fix 16: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -53,6 +53,12 @@ fi
 if [ -f "$S/selfcheck.log" ]; then
   ui "Self-check at the last starts:"; tail -n 4 "$S/selfcheck.log" | cut -c1-110 | while IFS= read -r l; do ui "  $l"; done
   note "----- self-check log -----"; tail -n 40 "$S/selfcheck.log" >> "$REP"
+fi
+FR=$(ls -t "$S"/freeze-reports/*.txt 2>/dev/null | head -n 1)
+if [ -n "$FR" ]; then
+  ui "Last freeze or forced restart ($(basename "$FR" .txt)), warnings before it stopped:"
+  sed -n '/^----- warnings/,/^----- last/p' "$FR" | grep -v '^-----' | tail -n 8 | cut -c12-120 | while IFS= read -r l; do ui "  $l"; done
+  note "----- newest freeze report: $FR -----"; cat "$FR" >> "$REP"
 fi
 ui "Waiting jobs: $(ls "$S/maint" 2>/dev/null | tr '\n' ' ')"
 LOGF="$S/maint.log"; [ -f "$LOGF" ] || LOGF="$S/repair.log"
@@ -294,6 +300,10 @@ nm=$(grep -c -E 'package (kwin|kwin-libs|plasma-workspace|libplasma|sddm-wayland
 if [ "$nall" -lt 200 ]; then
   ui "  Fedora's package list can't be read from TWRP here (the start-up self-check checks it instead)"
   nd=0; nv=0; nm=0
+  if [ -f "$S/maint/repair" ] && ! grep -q -E 'damaged|half-installed' "$S/selfcheck.log" 2>/dev/null; then
+    rm -f "$S/maint/repair" "$S/maint/attempts"
+    ui "  cancelled a repair that wasn't needed (queued by an earlier fix ZIP's mistaken check)"
+  fi
 fi
 [ "$nm" -gt 0 ] && ui "  desktop packages missing from Fedora's package list: $nm (the cut-off update)"
 grep -q -E 'file too short|undefined symbol' /tmp/s6fix-j.txt 2>/dev/null && ui "  the desktop's own files don't match (cut short, or half updated)"

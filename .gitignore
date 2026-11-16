@@ -13,3 +13,4 @@ ext/
 __pycache__/
 *.pyc
 S6Migrate-FIX.zip
+S6Migrate-REINSTALL*.zip

@@ -44,11 +44,14 @@ die() {
   if [ -n "${STAGE_ERASED:-}" ] && ! grep -q "userdata is being erased" "$LOG" 2>/dev/null && [ "$STAGE_ERASED" = 1 ]; then
     STAGE_ERASED=""; ui "The installer stopped before writing anything."
   fi
+  if [ -z "${STAGE_ERASED:-}" ] && [ -n "${RESTORE_BOOT:-}" ] && [ -f "$RESTORE_BOOT" ]; then
+    dd if="$RESTORE_BOOT" of="$BOOTDEV" bs=1048576 2>/dev/null && sync && ui "Fedora's start-up image was put back: the tablet starts Fedora as before."
+  fi
   if [ -n "${STAGE_ERASED:-}" ]; then
     ui "Android was already replaced. Do NOT reboot yet: see S6Migrate/switch-log.txt on your drive and ask for help."
   else
     clear_bcb
-    ui "Nothing was erased. Tap Reboot > System to go back to Android."
+    ui "Nothing was erased. Tap Reboot > System to go back to $([ -n "${FEDORA_ON:-}" ] && echo Fedora || echo Android)."
   fi
   [ -n "${DRIVE:-}" ] && cp "$LOG" "$DRIVE/S6Migrate/switch-log.txt" 2>/dev/null
   exit 1
@@ -166,6 +169,29 @@ fi
 BB="$INST/busybox"; [ -x "$BB" ] || BB=""
 run_inst() { $BB sh "$INST/recovery-install.sh" "$@"; }
 B() { if [ -n "$BB" ]; then "$BB" "$@"; else "$@"; fi; }   # a tool from the installer's busybox
+# Reinstall: if Fedora is already on this tablet, the boot partition holds its UEFI image, not the stock Android
+# boot image the installer checks and patches. Use the original from an Android boot backup on the drive (made by an
+# earlier rehearsal or switch); Fedora's image is kept and put back if anything stops before erasing.
+if [ -n "${S6S_DEVDIR:-}" ]; then BOOTDEV=$S6S_DEVDIR/boot; else BOOTDEV=$(readlink -f /dev/block/by-name/boot); fi
+RESTORE_BOOT=""
+if [ "${S6S_TEST:-0}" != 1 ] || [ -n "${S6S_DEVDIR:-}" ]; then
+  B dd if="$BOOTDEV" of="$W/current-boot.img" bs=1048576 2>/dev/null
+  if [ -s "$W/current-boot.img" ] && "$INST/bootverify" "$W/current-boot.img" uefi >/dev/null 2>&1; then
+    FEDORA_ON=1
+    ui "   Fedora is already on this tablet: this reinstalls it fresh (your package and drives are not touched)"
+    STOCK=""
+    for b in $(ls -d "$DRIVE"/S6Migrate/android-backup-* 2>/dev/null | sort); do
+      [ -f "$b/boot.img" ] && "$INST/bootverify" "$b/boot.img" stock >/dev/null 2>&1 && { STOCK="$b/boot.img"; break; }
+    done
+    [ -n "$STOCK" ] || die "Fedora is already installed, and no original Android boot image was found in S6Migrate/android-backup-* on the drive (the installer needs it). Nothing was changed"
+    RESTORE_BOOT="$W/current-boot.img"; REINSTALLING=1
+    B dd if="$STOCK" of="$BOOTDEV" bs=1048576 >> "$LOG" 2>&1 && sync
+    B cmp "$STOCK" "$BOOTDEV" >/dev/null 2>&1 || B cmp -n "$(wc -c < "$STOCK")" "$STOCK" "$BOOTDEV" >/dev/null 2>&1 \
+      || die "could not prepare the original boot image for the installer"
+    ui "   using your original Android boot image from $(basename "${STOCK%/boot.img}") for the installer's checks"
+    ui "   (Fedora's start-up image is kept and put back if anything stops before erasing)"
+  fi
+fi
 run_inst prepare >> "$LOG" 2>&1 || die "the installer's checks did not pass (see switch-log.txt on your drive)"
 grep -q PREPARE_PASS "$LOG" || die "the installer's checks did not finish"
 BK="$DRIVE/S6Migrate/android-backup-$(date +%Y%m%d-%H%M%S)"
@@ -209,9 +235,13 @@ if [ "${S6S_TEST:-0}" != 1 ] || [ -n "${S6S_DEVDIR:-}" ]; then
 fi
 
 if [ $REHEARSAL = 1 ]; then
+  if [ -n "$RESTORE_BOOT" ]; then
+    B dd if="$RESTORE_BOOT" of="$BOOTDEV" bs=1048576 2>/dev/null && sync && ui "   Fedora's start-up image put back (rehearsal)"
+    RESTORE_BOOT=""
+  fi
   ui " "
   ui "REHEARSAL PASSED. Nothing was erased."
-  ui "Everything the switch needs works in this TWRP. Restarting into Android in 15 seconds..."
+  ui "Everything the switch needs works in this TWRP. Restarting into $([ -n "${REINSTALLING:-}" ] && echo Fedora || echo Android) in 15 seconds..."
   echo "S6MIGRATE-REHEARSAL-PASSED $(date)" >> "$LOG"
   cp "$LOG" "$DRIVE/S6Migrate/switch-log.txt" 2>/dev/null
   clear_bcb
@@ -220,7 +250,8 @@ if [ $REHEARSAL = 1 ]; then
 fi
 
 # ---------------------------------------------------------------- 4. write Fedora (erases Android)
-ui "4/6 Installing Fedora. Android is replaced now (10-20 minutes)..."
+if [ -n "${REINSTALLING:-}" ]; then ui "4/6 Installing Fedora fresh. The Fedora that was on the tablet is replaced now (10-20 minutes)..."
+else ui "4/6 Installing Fedora. Android is replaced now (10-20 minutes)..."; fi
 STAGE_ERASED=1
 # shellcheck disable=SC2086
 ( for p in $ROOTFS_PARTS; do cat "$F/$p" || exit 1; done ) | run_inst write-root >> "$LOG" 2>&1 \

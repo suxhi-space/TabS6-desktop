@@ -20,13 +20,16 @@ def asset(name):
     raise SystemExit(f"missing asset: {name}")
 
 
-def build(mode):
+def build(mode, tz="America/Chicago", lang="en-US", name="Test Tab S6"):
     script = asset("switch/update-binary").decode()
     if "# @S6_EMBED@" not in script:
         raise SystemExit("no embed marker")
     tag = "S6_EOF_%x" % time.time_ns()
-    out = [f"S6_EMBEDDED=1\nS6_MODE={mode}\nS6_TZ='America/Chicago'\nS6_LANG='en-US'\nS6_NAME='Test Tab S6'\n"
-           f"S6_TIME='202611161200.00'\nS6_EPOCH=1794830400\nmkdir -p \"$W/zip/s6migrate\"\n"]
+    import re, datetime
+    assert re.fullmatch(r"[A-Za-z0-9_/+-]{1,64}", tz) and re.fullmatch(r"[a-z]{2,3}(-[A-Z]{2})?", lang) and re.fullmatch(r"[\w .'-]{1,40}", name)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    out = [f"S6_EMBEDDED=1\nS6_MODE={mode}\nS6_TZ='{tz}'\nS6_LANG='{lang}'\nS6_NAME='{name}'\n"
+           f"S6_TIME='{now:%Y%m%d%H%M.%S}'\nS6_EPOCH={int(now.timestamp())}\nmkdir -p \"$W/zip/s6migrate\"\n"]
     lst = []
     for i, line in enumerate(asset("fedora/install.list").decode().splitlines()):
         if not line.strip() or line.startswith("#"):
@@ -48,4 +51,5 @@ def build(mode):
 
 
 if __name__ == "__main__":
-    Path(sys.argv[2]).write_text(build(sys.argv[1]))
+    # build-payload.py rehearsal|switch OUTFILE [TIMEZONE LANGUAGE "DEVICE NAME"]   (the app passes the user's choices)
+    Path(sys.argv[2]).write_text(build(sys.argv[1], *sys.argv[3:6]))

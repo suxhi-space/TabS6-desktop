@@ -341,6 +341,11 @@ ApplicationWindow {
             }
             onOutChanged: frame.note = out
             LayoutPicker { width: parent.width; effects: lk.cur.EFFECTS || win.setup.effects || "soft"; value: lk.cur.LAYOUT || win.setup.layout || "touch"; onPicked: (id) => lk.apply(["layout", id]) }
+            Item {
+                width: parent.width; height: 40
+                Label2 { anchors.verticalCenter: parent.verticalCenter; text: "Taskbar gone after turning on auto-hide?"; color: Theme.sub; font.pixelSize: 14 }
+                Btn { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: "Show the taskbar again"; onClicked: lk.apply(["show-panels"]) }
+            }
             Label2 { text: "Size"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
                 width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
@@ -672,7 +677,7 @@ ApplicationWindow {
                 frame.eyebrow = ""; frame.title = "Your stuff from Android"
                 frame.subtitle = "Your package stays on the drive until you delete it. Bring things over again any time; nothing is overwritten."
                 frame.primary = ""; frame.secondary = ""; frame.note = ""
-                look()
+                look(); storage()
             }
             Card {
                 width: parent.width
@@ -692,6 +697,32 @@ ApplicationWindow {
                     Btn { text: "Files and folders"; enabled: sp.found.length > 0 && !sp.busy; onClicked: sp.bring("--files-only") }
                     Btn { text: "Android apps"; enabled: sp.found.length > 0 && !sp.busy; onClicked: sp.bring("--apps-only") }
                     Btn { text: "Settings and wallpaper"; enabled: sp.found.length > 0 && !sp.busy; onClicked: sp.bring("--settings-only") }
+                }
+            }
+            // Free up space: the copy of the package the switch put on the tablet, once everything is in
+            property var copies: []
+            function storage() { var c = []; win.run("storage", win.h(["storage"]), function (l) { var x = l.split("|"); if (x[0] === "COPY") c.push({ path: x[1], kb: parseInt(x[2]) || 0, orig: x[3] === "yes" }) }, function () { sp.copies = c }) }
+            Card {
+                width: parent.width; visible: sp.copies.length > 0
+                Label2 { text: "Free up space"; display: true; font.pixelSize: 19; width: parent.width }
+                Label2 {
+                    width: parent.width; color: Theme.sub
+                    text: "The switch copied your package onto the tablet so moving in was fast. Once your files, apps and settings are in, this copy isn't needed"
+                          + (sp.copies.length && sp.copies[0].orig ? ": the original is still on your microSD card or USB drive." : ". Your microSD card or USB drive isn't connected, so this copy may be the only one: keep it until your Android apps are in.")
+                }
+                Repeater {
+                    model: sp.copies
+                    delegate: Item {
+                        required property var modelData
+                        width: parent.width; height: 54
+                        Label2 { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; width: parent.width - fb.width - 16
+                                 text: "Package copy · " + (modelData.kb > 1048576 ? (modelData.kb / 1048576).toFixed(1) + " GB" : Math.round(modelData.kb / 1024) + " MB"); elide: Text.ElideRight }
+                        Btn {
+                            id: fb; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            text: "Delete copy"; enabled: !sp.busy
+                            onClicked: { sp.busy = true; sp.out = ""; win.run("free", win.h(["free-copy", modelData.path]), function (l) { sp.out += l + "\n" }, function () { sp.busy = false; sp.storage(); sp.look() }) }
+                        }
+                    }
                 }
             }
             Card {

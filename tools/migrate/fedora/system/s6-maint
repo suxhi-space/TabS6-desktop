@@ -120,7 +120,9 @@ if [ -f "$M/extras" ] && [ $fail = 0 ]; then
   dnf -y copr enable deltacopy/darkly >/dev/null 2>&1
   got=""
   for p in kwin-effects-better-blur-dx darkly; do
-    if rounds "Downloading $p" --refresh install "$p" && dnfw -y -C "$X" install "$p"; then got="$got $p"; fi
+    # Not cache-only (-C) here: a COPR repository's signing key is fetched while installing, and -C forbids that
+    # ("Cannot download files, cacheonly option is activated"). The packages themselves are already downloaded.
+    if rounds "Downloading $p" --refresh install "$p" && dnfw -y $NET "$X" install "$p"; then got="$got $p"; fi
   done
   [ -n "$got" ] && say "Added:$got" || say "Not available for this Plasma right now: the standard blur and Breeze are used."
   rm -f "$M/extras"

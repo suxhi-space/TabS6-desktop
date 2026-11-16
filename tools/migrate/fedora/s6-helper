@@ -29,6 +29,8 @@
 #                                                     (the colour: your Android accent, applied to KDE)
 #   power restart|recovery|download|off|sleep   restart (also into TWRP or Samsung's Download mode), power off, sleep
 #   power-status                     PLUGGED|yes/no  (powering off while plugged in starts the tablet again)
+#   storage                          COPY|PATH|KB|ORIGINAL (yes/no: the original on the card/drive is still there)
+#   free-copy PATH                   delete a copy of your package that the switch put on the tablet (never the original)
 #   schedule-linux-apps USER PART    queue the Linux versions of your apps for the restart (before the first login)
 #   schedule repair|update|extras|codecs   queue maintenance for the next restart (s6-maint runs it before the login screen)
 #   unschedule repair|update|extras  take a queued job back
@@ -291,7 +293,11 @@ waydroid-init)
   g=${1:-0}
   if [ -f /var/lib/waydroid/images/system.img ]; then echo "Android for apps is already downloaded."; exit 0; fi
   systemctl enable --now waydroid-container.service >/dev/null 2>&1
-  if [ "$g" = 1 ]; then waydroid init -s GAPPS -f; else waydroid init -f; fi
+  # Fedora's Waydroid ships without download addresses ("You must provide 'System OTA' and 'Vendor OTA' URLs"),
+  # so give Waydroid's own. waydroid init reports that error but still exits 0: check the images afterwards.
+  ota="-c https://ota.waydro.id/system -v https://ota.waydro.id/vendor"
+  if [ "$g" = 1 ]; then waydroid init $ota -s GAPPS -f; else waydroid init $ota -f; fi
+  [ -f /var/lib/waydroid/images/system.img ] || { echo "Android for apps didn't download (Wi-Fi?). Try again from S6 Companion."; exit 1; }
   ;;
 
 fix)
@@ -391,6 +397,24 @@ prepare-look)
   hd=$(getent passwd "$u" | cut -d: -f6)
   runuser -u "$u" -- env HOME="$hd" XDG_CONFIG_HOME="$hd/.config" XDG_DATA_HOME="$hd/.local/share" \
     /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-soft}" "${6:-}"
+  ;;
+
+storage)
+  # Copies of your package the switch made on the tablet (the original stays on the card or drive).
+  orig=no
+  while IFS= read -r p; do [ -n "$p" ] && [ -f "$p/plan.txt" ] && orig=yes; done < "$ST/package-location" 2>/dev/null
+  for d in "$ST"/package-*-part*; do
+    [ -d "$d" ] || continue
+    echo "COPY|$d|$(du -sk "$d" 2>/dev/null | cut -f1)|$orig"
+  done
+  ;;
+
+free-copy)
+  d=$(readlink -f -- "${1:-}" 2>/dev/null)
+  case "$d" in "$ST"/package-*-part[0-9]*) ;; *) die "only a copy in $ST can be removed" ;; esac
+  [ -d "$d" ] && [ -f "$d/plan.txt" ] || die "not a package copy: $d"
+  rm -rf -- "$d" && sed -i "\|$(basename "$d")|d" "$ST/package.info" 2>/dev/null
+  echo "Removed $d"
   ;;
 
 power-status)

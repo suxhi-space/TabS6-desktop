@@ -14,6 +14,8 @@
 # When installed (s6-helper look-extras), Better Blur DX (xarblu) replaces Plasma's blur and Darkly (Bali10050)
 # replaces the Breeze app style, for frosted, rounded windows. Without them, Plasma's own effects are used.
 #   s6-look status                           LAYOUT|.. SIZE|.. THEME|..
+#   s6-look show-panels                      bring back panels set to auto-hide (on a touch screen they can't be
+#                                            brought back by pointing at the edge)
 #
 # Layouts (named by what they look like):
 #   touch        one tall floating bottom bar with big icons: made for fingers (default)
@@ -332,6 +334,9 @@ heal)
 extras)
   echo "BBDX|$(has_bbdx && echo installed || echo missing)|$(bbdx_loaded && echo loaded || echo not-loaded)"
   echo "DARKLY|$(has_darkly && echo installed || echo missing)"
+  ;;
+show-panels)
+  plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."
   ;;
 status)
   echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"

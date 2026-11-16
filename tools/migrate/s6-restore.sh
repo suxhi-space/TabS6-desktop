@@ -388,7 +388,7 @@ if [ $DO_APPS = 1 ] && [ "$NAPPS" -gt 0 ]; then
   if ! command -v waydroid >/dev/null; then
     say "Waydroid is not installed. Install it with:  sudo dnf install waydroid  then run:  s6-restore --apps-only"
   elif [ ! -d "$WD" ]; then
-    say "Waydroid is not set up yet. Run:  sudo waydroid init  (add -s GAPPS for Google Play),"
+    say "Waydroid is not set up yet. Run:  s6-doctor --fix  (it downloads Android for apps),"
     say "start Waydroid once from the app menu, then run:  s6-restore --apps-only"
   elif ! waydroid status 2>/dev/null | grep -q 'Session:.*RUNNING'; then
     say "Waydroid is set up but not running. Open Waydroid from the app menu, wait for it to start,"

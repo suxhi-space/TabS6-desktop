@@ -87,7 +87,11 @@ else
   warn "Waydroid's Android system is not downloaded yet."
   if [ $FIX = 1 ]; then
     info "Downloading it (about 1 GB, needs Wi-Fi)..."
-    $SUDO waydroid init && ok "Android system downloaded"
+    # Fedora's Waydroid has no download addresses of its own; waydroid init exits 0 even when it fails.
+    g="-s GAPPS"; grep -q '"gapps": *"0"' /var/lib/s6migrate/setup.json 2>/dev/null && g=""   # S6 Setup's Google Play choice
+    $SUDO waydroid init -c https://ota.waydro.id/system -v https://ota.waydro.id/vendor $g
+    if [ -f "$WDLIB/images/system.img" ]; then ok "Android system downloaded"
+    else warn "The Android system didn't download. Check Wi-Fi and run:  s6-doctor --fix"; fi
   fi
 fi
 

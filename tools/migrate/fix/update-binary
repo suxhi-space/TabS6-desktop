@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 14: why won't Fedora start?"
+ui "S6 Migrate fix 15: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -275,7 +275,9 @@ ui "Packages:"
 PB=""
 if [ -z "${S6F_ROOT:-}" ]; then for d in dev proc sys; do mount -o bind "/$d" "$ROOT/$d" 2>/dev/null && PB="$PB $d"; done; fi
 RPMQ=${S6F_RPMQ:-chroot "$ROOT" /usr/bin/rpm}
-$RPMQ -qa --qf '%{NAME}\n' 2>/dev/null | sort | { prev=""; while IFS= read -r n; do [ "$n" = "$prev" ] && echo "$n"; prev=$n; done; } | sort -u | grep -v -E '^(gpg-pubkey|kernel(-.*)?)$' > /tmp/s6fix-dups
+$RPMQ -qa --qf '%{NAME}\n' 2>/dev/null > /tmp/s6fix-all
+nall=$(grep -c . /tmp/s6fix-all)
+sort /tmp/s6fix-all | { prev=""; while IFS= read -r n; do [ "$n" = "$prev" ] && echo "$n"; prev=$n; done; } | sort -u | grep -v -E '^(gpg-pubkey|kernel(-.*)?)$' > /tmp/s6fix-dups
 $RPMQ -q --qf '%{NAME} %{VERSION}-%{RELEASE}\n' kwin kwin-libs plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma kdecoration kwin-effects-better-blur-dx darkly 2>/dev/null > /tmp/s6fix-ver
 for d in $PB; do umount "$ROOT/$d" 2>/dev/null || umount -l "$ROOT/$d" 2>/dev/null; done
 nd=$(grep -c . /tmp/s6fix-dups)
@@ -287,6 +289,12 @@ nv=$(grep -v 'not installed' /tmp/s6fix-ver | grep -E '^(kwin|kwin-libs|plasma-w
 ui "  desktop versions: $(grep -E '^(kwin|plasma-workspace-libs|libplasma) ' /tmp/s6fix-ver | tr '\n' ' ' | cut -c1-90)"
 note "----- last dnf log -----"; tail -n 40 "$ROOT/var/log/dnf5.log" >> "$REP" 2>/dev/null
 nm=$(grep -c -E 'package (kwin|kwin-libs|plasma-workspace|libplasma|sddm-wayland-plasma) is not installed' /tmp/s6fix-ver)
+# From TWRP the package database can't always be read: an empty list means "unknown", not "missing" (a fresh
+# install was once sent into a needless repair that way). Then only the log and the start-up self-check decide.
+if [ "$nall" -lt 200 ]; then
+  ui "  Fedora's package list can't be read from TWRP here (the start-up self-check checks it instead)"
+  nd=0; nv=0; nm=0
+fi
 [ "$nm" -gt 0 ] && ui "  desktop packages missing from Fedora's package list: $nm (the cut-off update)"
 grep -q -E 'file too short|undefined symbol' /tmp/s6fix-j.txt 2>/dev/null && ui "  the desktop's own files don't match (cut short, or half updated)"
 if [ "$nd" -gt 0 ] || [ "$nv" -gt 1 ] || [ "$nm" -gt 0 ] || grep -q -E 'file too short|undefined symbol' /tmp/s6fix-j.txt 2>/dev/null; then

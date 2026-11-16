@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 10: why won't Fedora start?"
+ui "S6 Migrate fix 11: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -50,6 +50,11 @@ if [ -f "$S/boot-report.txt" ]; then
 else
   ui "No boot check yet (it is added now and runs on the next start)."
 fi
+if [ -f "$S/selfcheck.log" ]; then
+  ui "Self-check at the last starts:"; tail -n 4 "$S/selfcheck.log" | cut -c1-110 | while IFS= read -r l; do ui "  $l"; done
+  note "----- self-check log -----"; tail -n 40 "$S/selfcheck.log" >> "$REP"
+fi
+ui "Waiting jobs: $(ls "$S/maint" 2>/dev/null | tr '\n' ' ')"
 LOGF="$S/maint.log"; [ -f "$LOGF" ] || LOGF="$S/repair.log"
 if [ -f "$LOGF" ]; then
   ui "Last repair:"; grep -E '^== ' "$LOGF" | tail -n 4 | cut -c1-100 | while IFS= read -r l; do ui "  $l"; done
@@ -233,7 +238,7 @@ EOMT
 chmod 755 "$ROOT/usr/local/libexec/s6migrate/s6-selfcheck" "$ROOT/usr/local/libexec/s6migrate/s6-maint"
 printf '%s\n' '[Unit]' 'Description=S6 Migrate self-check (login rules, damaged desktop files)' 'After=local-fs.target' \
   'Before=display-manager.service sddm.service s6-maint.service' '' '[Service]' 'Type=oneshot' \
-  'ExecStart=/usr/local/libexec/s6migrate/s6-selfcheck' 'TimeoutStartSec=5min' '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-selfcheck.service"
+  'ExecStart=/usr/local/libexec/s6migrate/s6-selfcheck' 'TimeoutStartSec=3min' '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-selfcheck.service"
 printf '%s\n' '[Unit]' 'Description=S6 Migrate maintenance before the login screen (repair, updates, extras)' \
   'After=s6-selfcheck.service NetworkManager.service tabs6-wifi.service' 'Before=display-manager.service sddm.service' \
   '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/libexec/s6migrate/s6-maint' 'TimeoutStartSec=infinity' \

@@ -6,7 +6,7 @@ Before=display-manager.service sddm.service s6-maint.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/libexec/s6migrate/s6-selfcheck
-TimeoutStartSec=5min
+TimeoutStartSec=3min
 
 [Install]
 WantedBy=multi-user.target

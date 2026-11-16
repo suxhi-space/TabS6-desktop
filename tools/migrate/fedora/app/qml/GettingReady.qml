@@ -146,6 +146,24 @@ Window {
         }
     }
 
+    // "Finish later": only while downloading (never while installing); the rest continues at the next start
+    property bool later: false
+    Item {
+        id: laterBtn
+        visible: !win.later && maint.finishedText === "" && !maint.installingNow
+        anchors.right: toggle.left; anchors.rightMargin: 12; anchors.verticalCenter: toggle.verticalCenter
+        width: ll.implicitWidth + 40; height: 40
+        Rectangle { anchors.fill: parent; radius: 20; color: Qt.rgba(1, 1, 1, lm.pressed ? 0.16 : 0.08) }
+        Label2 { id: ll; anchors.centerIn: parent; text: "Finish later"; font.pixelSize: 14; strong: true; color: "#DCE4EE"; wrapMode: Text.NoWrap }
+        MouseArea { id: lm; anchors.fill: parent; anchors.margins: -10; onClicked: { win.later = true; maint.finishLater() } }
+    }
+    Label2 {
+        visible: win.later && maint.finishedText === ""
+        anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: toggle.top; anchors.bottomMargin: 14
+        text: "Stopping the download. Nothing is half-installed; the rest continues at the next start."
+        font.pixelSize: 13; color: "#C2CBD8"
+    }
+
     // bottom centre: show or hide the output
     Item {
         id: toggle

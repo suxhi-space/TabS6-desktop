@@ -16,6 +16,7 @@ ST=${S6M_STATE:-/var/lib/s6migrate}; M=$ST/maint; L=$ST/maint.log; TTY=${S6M_TTY
 any=0; for j in repair update linuxapps extras codecs cosmicfiles; do [ -f "$M/$j" ] && any=1; done
 [ $any = 1 ] || exit 0
 chvt 1 2>/dev/null
+mkdir -p "$(dirname "$SKIP")" 2>/dev/null; rm -f "$SKIP"
 off=$(stat -c %s "$L" 2>/dev/null || echo 0)
 exec > >(tee -a "$L" > "$TTY") 2>&1
 # "Getting your tablet ready": a progress screen drawn straight on the display (no desktop runs yet) that follows
@@ -61,20 +62,33 @@ dnfw() {
   kill "$hb" 2>/dev/null; wait "$hb" 2>/dev/null
   return $rc
 }
-rounds() { # rounds WHAT [--refresh] COMMAND ARGS...: a download-only dnf command, repeated until it succeeds (30 rounds at most)
+SKIP=${S6M_SKIP:-/run/s6migrate/maint-skip}   # "Skip for now" on the update screen creates it
+skipped() { [ -f "$SKIP" ]; }
+nap() { local i; for i in $(seq 1 "$1"); do skipped && return 1; sleep 1; done; return 0; }
+online_now() { getent hosts mirrors.fedoraproject.org >/dev/null 2>&1 || getent hosts fedoraproject.org >/dev/null 2>&1; }
+MAXR=30   # rounds for a repair or Fedora update; optional extras give up sooner (set per job below)
+rounds() { # rounds WHAT [--refresh] COMMAND ARGS...: a download-only dnf command, repeated until it succeeds
   # dnf5 takes --downloadonly only after the command word ("dnf5 distro-sync --downloadonly"), not before it.
-  local what=$1 ref="" cmd out; shift
+  local what=$1 ref="" cmd out r=0 w; shift
   [ "$1" = --refresh ] && { ref=--refresh; shift; }
   cmd=$1; shift
-  for r in $(seq 1 30); do
+  while [ $r -lt "$MAXR" ]; do
+    skipped && return 1
+    # No internet (the Wi-Fi shows "!"): wait for it to come back instead of running dnf into an error each time.
+    if ! online_now; then
+      say "No internet right now (Wi-Fi connected but not working?). Waiting for it to come back..."
+      w=0; until online_now; do nap 10 || return 1; w=$((w+10)); [ $w -ge 300 ] && break; done
+      online_now || { r=$((r+1)); continue; }
+    fi
+    r=$((r+1))
     say "$what (round $r)..."
     out=$(mktemp)
     if dnfw -y $NET "$X" $ref "$cmd" --downloadonly "$@" 2>&1 | tee "$out"; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$out"; return 0; fi
-    # A mistake in the command itself won't fix itself by waiting: stop instead of retrying 30 times.
+    # A mistake in the command itself won't fix itself by waiting: stop instead of retrying.
     if grep -q -E 'Unknown argument|No match for argument|Problem: ' "$out"; then rm -f "$out"; say "dnf refused the command (see above); not retrying."; return 1; fi
     rm -f "$out"
     say "Round $r stopped (Wi-Fi?). Keeping what's downloaded; next round in 30 seconds."
-    sleep 30
+    nap 30 || return 1
   done
   return 1
 }
@@ -103,6 +117,7 @@ if [ -f "$M/update" ] && [ $fail = 0 ]; then
   else fail=1; fi
 fi
 if [ -f "$M/linuxapps" ] && [ $fail = 0 ]; then
+  MAXR=6   # optional: give up sooner, it is tried again at the next start
   say "Installing the Linux versions of your apps (Flathub apps download their shared runtimes the first time)..."
   lfail=0
   while IFS='|' read -r u p; do
@@ -116,6 +131,7 @@ if [ -f "$M/linuxapps" ] && [ $fail = 0 ]; then
   [ $lfail = 0 ] && rm -f "$M/linuxapps" || say "Some Linux apps didn't install; this is tried again at the next start."
 fi
 if [ -f "$M/extras" ] && [ $fail = 0 ]; then
+  MAXR=6   # optional: give up sooner, it is tried again at the next start
   say "Adding Better Blur DX, Darkly, Papirus icons and the Inter font..."
   dnf -y copr enable infinality/kwin-effects-better-blur-dx >/dev/null 2>&1
   dnf -y copr enable deltacopy/darkly >/dev/null 2>&1
@@ -132,12 +148,19 @@ if [ -f "$M/extras" ] && [ $fail = 0 ]; then
   rm -f "$M/extras"
 fi
 if [ -f "$M/codecs" ] && [ $fail = 0 ]; then
+  MAXR=6   # optional: give up sooner, it is tried again at the next start
   say "Adding media codecs (RPM Fusion)..."
   if /usr/local/libexec/s6migrate/s6-helper tune codecs on; then rm -f "$M/codecs"; else fail=1; fi
 fi
 if [ -f "$M/cosmicfiles" ] && [ $fail = 0 ]; then
+  MAXR=6   # optional: give up sooner, it is tried again at the next start
   say "Adding COSMIC Files (the file manager from the COSMIC desktop)..."
   if rounds "Downloading COSMIC Files" install cosmic-files && dnfw -y -C "$X" install cosmic-files; then rm -f "$M/cosmicfiles"; else fail=1; fi
+fi
+if skipped; then
+  rm -f "$SKIP"
+  say "Skipped for now: the rest is done at the next start. Starting the login screen."
+  sleep 2; ui_stop; exit 0
 fi
 n=$(cat "$M/attempts" 2>/dev/null || echo 0)
 if [ $fail = 1 ]; then

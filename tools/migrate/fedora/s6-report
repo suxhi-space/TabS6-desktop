@@ -1,0 +1,40 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-report - everything needed to look into Wi-Fi, sound and booting, in one file to send:
+#   ~/S6-report-DATE.txt  (it asks for your password once, for the Wi-Fi driver messages)
+# It contains your Wi-Fi network names and local addresses, no passwords or personal files.
+out="$HOME/S6-report-$(date +%Y%m%d-%H%M).txt"
+sec() { printf '\n===== %s =====\n' "$1"; }
+run() { printf '$ %s\n' "$*"; timeout 25 "$@" 2>&1; }
+{
+  echo "S6 report $(date '+%F %T')  S6 Migrate $(sed -n 's/^VERSION = "\(.*\)"/\1/p' /usr/local/share/s6migrate/app/s6ui.py 2>/dev/null)"
+  sec "Boot"
+  run cat /proc/cmdline
+  run ls /boot /boot/efi /boot/loader/entries
+  run rpm -q plymouth grubby kernel-core
+  run sh -c 'command -v bootctl grubby plymouth-set-default-theme'
+  run sh -c 'cat /etc/kernel/cmdline 2>/dev/null; ls /etc/kernel 2>/dev/null'
+  sec "Wi-Fi link"
+  run iw dev wlan0 link
+  run nmcli -f IN-USE,SSID,CHAN,RATE,SIGNAL,SECURITY dev wifi
+  run nmcli -f GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS,IP6.ADDRESS,IP6.DNS dev show wlan0
+  run nmcli -t -f CONNECTIVITY general
+  run sh -c 'cat /etc/NetworkManager/conf.d/*.conf'
+  sec "Name lookups (DNS)"
+  run resolvectl status
+  run sh -c 'getent hosts fedoraproject.org || echo "lookup FAILED"'
+  sec "Reaching the internet"
+  run ping -c3 -W3 1.1.1.1
+  run ping -c3 -W3 fedoraproject.org
+  run ping -6 -c2 -W3 2606:4700:4700::1111
+  sec "Wi-Fi driver messages (needs your password)"
+  sudo -p "Password for the Wi-Fi driver messages: " dmesg 2>&1 | grep -i -E 'ath10k|wlan0|cfg80211|wcn' | tail -40
+  sec "Sound"
+  run aplay -l
+  run wpctl status
+  run sh -c 'sudo -n dmesg 2>/dev/null | grep -i -E "snd|audio|wcd|wsa|slim|apr|q6" | tail -25'
+  sec "USB and microSD"
+  run sh -c 'ls /sys/class/udc 2>/dev/null; cat /sys/class/typec/*/data_role 2>/dev/null; ls /dev/mmcblk* 2>/dev/null'
+} > "$out" 2>&1
+echo "Saved: $out"
+echo "Send that file (it's in your home folder; open it in Dolphin to share)."

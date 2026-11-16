@@ -49,6 +49,7 @@ class Follower(QObject):
         self.title, self.detail = "Getting your tablet ready", "Starting..."
         self.frac, self.overall, self.final, self.minutes = 0.0, 0.0, "", 0
         self.installing = False
+        self.installing_now = False
         self.t0 = time.monotonic()   # not the wall clock: s6-maint corrects the clock from the internet
         self._buf = b""
         self.timer = QTimer(self)
@@ -67,6 +68,24 @@ class Follower(QObject):
     @Property(str, notify=changed)
     def finishedText(self):
         return self.final
+
+    @Property(bool, notify=changed)
+    def installingNow(self):
+        return self.installing_now
+
+    @Slot()
+    def finishLater(self):
+        """Stop downloading for now (never while installing): s6-maint sees the file between rounds, and the
+        download-only dnf in progress is stopped (what it fetched stays for next time)."""
+        if self.installing_now or MOCK:
+            return
+        try:
+            os.makedirs("/run/s6migrate", exist_ok=True)
+            open("/run/s6migrate/maint-skip", "w").close()
+            import subprocess
+            subprocess.run(["pkill", "-f", "dnf.*--downloadonly"], timeout=5)
+        except Exception:
+            pass
 
     @Property(str, notify=changed)
     def stepLabel(self):
@@ -137,6 +156,7 @@ class Follower(QObject):
             self.detail = re.sub(r"\.\.\.$", "", msg)
             if msg.startswith("Downloading") or "(round" in msg:
                 self.installing = False          # a new download round starts
+                self.installing_now = False
             if msg.startswith("Waiting for Wi-Fi"):
                 self.detail = "Waiting for Wi-Fi"
             elif re.match(r"Round \d+ stopped", msg):
@@ -144,6 +164,7 @@ class Follower(QObject):
         else:
             if t.startswith("Running transaction"):
                 self.installing = True           # dnf moved from downloading to installing
+                self.installing_now = True
             c = COUNTER.match(t)
             if c:
                 n, total, rest = int(c.group(1)), max(1, int(c.group(2))), c.group(3)

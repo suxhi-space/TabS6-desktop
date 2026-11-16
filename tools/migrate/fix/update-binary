@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 5: why can't anyone log in?"
+ui "S6 Migrate fix 6: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -50,10 +50,14 @@ if [ -f "$S/boot-report.txt" ]; then
 else
   ui "No boot check yet (it is added now and runs on the next start)."
 fi
+if [ -f "$S/repair.log" ]; then
+  ui "Last repair:"; grep -E '^== ' "$S/repair.log" | tail -n 4 | cut -c1-100 | while IFS= read -r l; do ui "  $l"; done
+  note "----- repair log (last 80 lines) -----"; tail -n 80 "$S/repair.log" >> "$REP"
+fi
 J=$(ls "$ROOT"/var/log/journal/*/system.journal 2>/dev/null | head -n 1)
 if [ -n "$J" ]; then
   ui "Fedora's log, latest login lines:"
-  PAT='pam_[a-z_]*\(sddm|nologin|utologin|faillock|sddm-helper|user-sessions|session entry|Authentication|A start job|Dependency failed'
+  PAT='pam_[a-z_]*\(sddm|nologin|utologin|faillock|sddm-helper|user-sessions|session entry|Authentication|A start job|Dependency failed|undefined symbol|error while loading|core dump|dumped core|kwin_wayland|sddm-greeter|Failed to start|Greeter'
   for jf in $(ls -tr "$ROOT"/var/log/journal/*/*.journal 2>/dev/null | tail -n 3); do
     tr '\000-\037\177-\377' '\n' < "$jf" 2>/dev/null | grep -E "$PAT"
   done | tail -n 40 > /tmp/s6fix-j.txt
@@ -217,7 +221,72 @@ check_pam() { # check_pam NAME (recursive through include/substack)
 for n in sddm sddm-autologin sddm-greeter; do [ -e "$PD/$n" ] || [ -L "$PD/$n" ] && check_pam "$n"; done
 [ $fixedpam = 0 ] && ui "  login rules: all files and parts present"
 note "pam files: $(ls -l "$PD" 2>&1 | grep -E 'sddm|system-auth|password-auth|postlogin' | tr -s ' ' | cut -d' ' -f1,9- | tr '\n' ';')"
-# 5. Login test: Fedora's own login checks, run inside Fedora from here (as SDDM would), naming the refusing rule.
+# 5. Packages: an update cut off by a freeze leaves old and new copies, or a desktop of mixed versions; then the
+#    login screen can't start. Repair needs the internet, so it is scheduled for the next start, before the login screen.
+ui " "
+ui "Packages:"
+PB=""
+if [ -z "${S6F_ROOT:-}" ]; then for d in dev proc sys; do mount -o bind "/$d" "$ROOT/$d" 2>/dev/null && PB="$PB $d"; done; fi
+RPMQ=${S6F_RPMQ:-chroot "$ROOT" /usr/bin/rpm}
+$RPMQ -qa --qf '%{NAME}\n' 2>/dev/null | sort | { prev=""; while IFS= read -r n; do [ "$n" = "$prev" ] && echo "$n"; prev=$n; done; } | sort -u > /tmp/s6fix-dups
+$RPMQ -q --qf '%{NAME} %{VERSION}-%{RELEASE}\n' kwin kwin-libs plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma kdecoration kwin-effects-better-blur-dx darkly 2>/dev/null > /tmp/s6fix-ver
+for d in $PB; do umount "$ROOT/$d" 2>/dev/null || umount -l "$ROOT/$d" 2>/dev/null; done
+nd=$(grep -c . /tmp/s6fix-dups)
+ui "  half-installed packages (two copies): $nd"
+head -n 6 /tmp/s6fix-dups | while IFS= read -r l; do ui "    $l"; done
+note "----- duplicate packages -----"; cat /tmp/s6fix-dups >> "$REP"
+note "----- desktop versions -----"; cat /tmp/s6fix-ver >> "$REP"
+nv=$(grep -v 'not installed' /tmp/s6fix-ver | grep -E '^(kwin|kwin-libs|plasma-workspace|plasma-workspace-libs|libplasma|sddm-wayland-plasma) ' | cut -d' ' -f2 | cut -d- -f1 | sort -u | grep -c .)
+ui "  desktop versions: $(grep -E '^(kwin|plasma-workspace-libs|libplasma) ' /tmp/s6fix-ver | tr '\n' ' ' | cut -c1-90)"
+note "----- last dnf log -----"; tail -n 40 "$ROOT/var/log/dnf5.log" >> "$REP" 2>/dev/null
+if [ "$nd" -gt 0 ] || [ "$nv" -gt 1 ]; then
+  mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/multi-user.target.wants"
+  cat > "$ROOT/usr/local/libexec/s6migrate/s6-repair" <<'EOR'
+#!/usr/bin/bash
+# S6 Migrate: finish an update that a freeze cut off. Runs once at start-up, before the login screen, and shows
+# its progress on the screen. Kernel packages are never touched (this tablet boots its own kernel).
+L=/var/lib/s6migrate/repair.log
+chvt 1 2>/dev/null
+exec > >(tee -a "$L" > /dev/tty1) 2>&1
+say() { echo; echo "== $(date '+%F %T') $*"; }
+say "S6 Migrate is repairing Fedora after an interrupted update. Keep the tablet plugged in. This can take 10-40 minutes."
+online=0
+for i in $(seq 1 60); do
+  curl -fsI --max-time 8 https://mirrors.fedoraproject.org >/dev/null 2>&1 && { online=1; break; }
+  [ $i = 1 ] && say "Waiting for Wi-Fi..."
+  sleep 5
+done
+if [ $online = 0 ]; then say "No internet: repair skipped this time (it tries again on the next start)."; exit 0; fi
+say "Removing the old copies of half-updated packages..."
+dnf -y remove --duplicates --setopt=excludepkgs='kernel*' || say "(no old copies removed)"
+say "Bringing every package to the same, current version (kernel left alone)..."
+if dnf -y --refresh distro-sync --setopt=excludepkgs='kernel*'; then
+  rm -f /var/lib/s6migrate/repair-wanted
+  say "Repair finished. Starting the login screen."
+else
+  say "The repair did not finish (it tries again on the next start). Details: /var/lib/s6migrate/repair.log"
+fi
+chvt 7 2>/dev/null
+exit 0
+EOR
+  chmod 755 "$ROOT/usr/local/libexec/s6migrate/s6-repair"
+  printf '%s\n' '[Unit]' 'Description=S6 Migrate: finish an interrupted update' 'Wants=network-online.target' \
+    'After=network-online.target NetworkManager.service' 'Before=display-manager.service sddm.service' \
+    'ConditionPathExists=/var/lib/s6migrate/repair-wanted' '' '[Service]' 'Type=oneshot' \
+    'ExecStart=/usr/local/libexec/s6migrate/s6-repair' 'TimeoutStartSec=90min' '' '[Install]' 'WantedBy=multi-user.target' \
+    > "$ROOT/etc/systemd/system/s6-repair.service"
+  ln -sf /etc/systemd/system/s6-repair.service "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service"
+  date > "$S/repair-wanted"
+  if [ "$(grep -c . "$ROOT/usr/local/libexec/s6migrate/s6-repair")" -gt 20 ]; then
+    ui "  REPAIR SCHEDULED: on the next start Fedora finishes the update over Wi-Fi (kernel untouched),"
+    ui "  showing its progress on screen, then opens the login screen."
+  else
+    ui "  COULD NOT write the repair script"
+  fi
+else
+  ui "  packages look consistent"
+fi
+# 6. Login test: Fedora's own login checks, run inside Fedora from here (as SDDM would), naming the refusing rule.
 note "----- login rule files (resolved) -----"
 for n in system-auth password-auth postlogin; do note "--- $n"; cat "$(pam_target "$n")" >> "$REP" 2>&1; done
 note "--- access.conf"; grep -v '^#' "$ROOT/etc/security/access.conf" 2>/dev/null | grep . >> "$REP"
@@ -242,7 +311,7 @@ if grep -q '^RESULT' /tmp/s6fix-pam.txt; then
 else
   ui "  the test could not run:"; tail -n 4 /tmp/s6fix-pam.txt | cut -c1-90 | while IFS= read -r l; do ui "  $l"; done
 fi
-# 6. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
+# 7. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
 mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/sddm.service.wants"
 cat > "$ROOT/usr/local/libexec/s6migrate/s6-bootcheck" <<'EOF'
 #!/usr/bin/bash

@@ -404,6 +404,14 @@ S6 Setup's progress page now has two parts, "Setting up your tablet" and "Moving
 
 **Still planned:** the Android app could download these extras together with Fedora, so a tablet with no Wi-Fi at first start is complete too. The build system would produce a list of exact Fedora 44 aarch64 package URLs and checksums, the app would download them to the drive, and the switch would hand them to `s6-maint` as a local repository.
 
+## Updating S6 Migrate on a tablet that already runs Fedora
+
+There are two ways:
+- **From TWRP (no internet needed):** install S6Migrate-FIX.zip. Besides its checks and repairs, it carries every S6 Migrate file for Fedora and installs them over the tablet's copies: S6 Companion, S6 Setup, the tools and the services. It skips setup-time files (the setup account, automatic login) and keeps your Wi-Fi power saving choice.
+- **From S6 Companion → Updates → Update S6 Migrate:** downloads the same files from GitHub (`s6-update self`) and switches on any new services. It reads `suxhi-space/TabS6-desktop` at `main`. To read another branch, write `owner/repo@branch` into `/var/lib/s6migrate/self-source`. This only works once the repository is public.
+
+**Wi-Fi power saving** is a tune-up in S6 Companion: off by default (fast, steady Wi-Fi), on to save a little battery. Updates keep whatever you chose.
+
 ## Region before installing (app 0.4.7)
 
 Like other installers (PikaOS's asks before it installs), the app's last page before the switch has a **Your region** card:

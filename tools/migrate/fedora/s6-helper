@@ -21,7 +21,7 @@
 #   waydroid-init GAPPS(0|1)         download Android for apps (Waydroid)
 #   fix wifi|bluetooth|sensors|sound-system|waydroid
 #   save-prefs USER KEY=VALUE...     layout, size, codecs, tune, migrate (read by S6 Companion at the first login)
-#   tune NAME on|off                 tune-ups: memory logs shutdown downloads background protect codecs indexing
+#   tune NAME on|off                 tune-ups: memory logs shutdown downloads background protect codecs wifisave
 #   tune-status                      TUNE|name|on/off for each
 #   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
 #   look-extras                      Better Blur DX and Darkly: added at the next restart, before the login screen
@@ -319,6 +319,7 @@ tune-status)
   st protect "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf"
   st background "$ST/tune-background"
   rpm -q rpmfusion-free-release >/dev/null 2>&1 && echo "TUNE|codecs|on" || echo "TUNE|codecs|off"
+  grep -q 'wifi.powersave *= *2' "$ETC/NetworkManager/conf.d/60-s6migrate-wifi.conf" 2>/dev/null && echo "TUNE|wifisave|off" || echo "TUNE|wifisave|on"
   ;;
 
 tune)
@@ -356,6 +357,11 @@ tune)
         rm -f "$ST/tune-background"
       fi
       echo "fewer background jobs: $onoff" ;;
+    wifisave)   # Wi-Fi power saving: off (the default here) keeps the Tab S6's Wi-Fi fast; on saves a little battery
+      put "$ETC/NetworkManager/conf.d/60-s6migrate-wifi.conf" "# S6 Migrate: Wi-Fi power saving (S6 Companion > Tune-ups)\n[connection]\nwifi.powersave = $([ "$onoff" = on ] && echo 3 || echo 2)\n"
+      nmcli general reload conf >/dev/null 2>&1
+      for dev in $(iw dev 2>/dev/null | sed -n 's/^\s*Interface //p'); do iw dev "$dev" set power_save "$onoff" 2>/dev/null; done
+      echo "Wi-Fi power saving: $onoff" ;;
     codecs)   # RPM Fusion: full video and audio codecs (H.264, HEVC, AAC...) like PikaOS and Nobara ship
       [ "$onoff" = on ] || { echo "Codecs stay installed (remove RPM Fusion with Discover if you want)."; exit 0; }
       v=$(rpm -E %fedora)

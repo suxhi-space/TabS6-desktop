@@ -15,6 +15,12 @@ set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 REPO=${S6U_REPO:-starlight4you/t860-fedora}
 SELF_REPO=${S6U_SELF_REPO:-suxhi-space/TabS6-desktop}
+SELF_REF=${S6U_SELF_REF:-main}
+# Where "Update S6 Migrate" reads from can be changed in /var/lib/s6migrate/self-source ("owner/repo@branch").
+if [ -z "${S6U_SELF_REPO:-}" ] && [ -s /var/lib/s6migrate/self-source ]; then
+  src=$(head -n 1 /var/lib/s6migrate/self-source)
+  case "$src" in */*@*) SELF_REPO=${src%@*}; SELF_REF=${src#*@} ;; */*) SELF_REPO=$src ;; esac
+fi
 CACHE=${S6U_CACHE:-/var/cache/s6migrate/update}
 ST=/var/lib/s6migrate
 ESP_DEV=${S6U_ESP:-/dev/sda27}
@@ -135,7 +141,7 @@ rollback)
 
 self)
   [ "$(id -u)" = 0 ] || die "run as root"
-  base="https://raw.githubusercontent.com/$SELF_REPO/main"
+  base="https://raw.githubusercontent.com/$SELF_REPO/$SELF_REF"
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   curl -fsSL -A "$UA" "$base/tools/migrate/fedora/install.list" -o "$T/install.list" || die "S6 Migrate's repository isn't reachable (it may still be private)"
   newv=$(curl -fsSL -A "$UA" "$base/tools/migrate/fedora/app/s6ui.py" | sed -n 's/^VERSION = "\(.*\)"/\1/p')
@@ -146,15 +152,22 @@ self)
   while IFS='|' read -r a dest mode owner; do
     case "$a" in ''|'#'*) continue ;; esac
     case "$dest" in /var/lib/s6migrate/setup-home/*|/etc/sddm.conf.d/*) continue ;; esac   # setup-only files
+    [ "$dest" = /etc/NetworkManager/conf.d/60-s6migrate-wifi.conf ] && [ -e "$dest" ] && continue   # your Tune-ups choice
     ok=0
     for p in "tools/migrate/$a" "tools/migrate/lib/$a" "android/app/src/main/fontassets/$a"; do
       if curl -fsSL -A "$UA" "$base/$p" -o "$T/f"; then ok=1; break; fi
     done
     [ $ok = 1 ] || { say "   could not fetch $a"; continue; }
-    case "$a" in *.ttf) base64 "$T/f" > "$T/g"; mv "$T/g" "$T/f" ;; esac
+    case "$a" in *.ttf|*.png) base64 "$T/f" > "$T/g"; mv "$T/g" "$T/f" ;; esac   # kept as .b64, like the switch does
     install -D -m "${mode:-644}" "$T/f" "$dest" && n=$((n+1))
   done < "$T/install.list"
-  say "S6 Migrate updated from ${curv:-?} to $newv ($n files). Reopen S6 Companion."
+  # Services added in newer versions (self-check, maintenance before the login screen) are switched on too.
+  mkdir -p /var/lib/s6migrate/maint /etc/systemd/system/multi-user.target.wants
+  for u in s6-selfcheck s6-maint; do
+    [ -f "/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "/etc/systemd/system/multi-user.target.wants/$u.service"
+  done
+  systemctl daemon-reload 2>/dev/null
+  say "S6 Migrate updated from ${curv:-?} to $newv ($n files, from $SELF_REPO@$SELF_REF). Reopen S6 Companion."
   ;;
 
 *) sed -n '2,13p' "$0"; exit 2 ;;

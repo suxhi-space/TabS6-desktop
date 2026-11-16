@@ -373,7 +373,8 @@ ApplicationWindow {
                 { id: "shutdown", t: "Faster shutdown", d: "Waits 15 seconds, not 90, for a stuck program when turning off." },
                 { id: "downloads", t: "Faster update downloads", d: "Downloads up to 10 packages at once." },
                 { id: "protect", t: "Protect the tablet's own parts", d: "Fedora updates never replace the login screen and sensor service that t860-fedora customised for this tablet." },
-                { id: "codecs", t: "Media codecs", d: "Every common video and music format, from RPM Fusion. Needs Wi-Fi; stays installed when switched off." }]
+                { id: "codecs", t: "Media codecs", d: "Every common video and music format, from RPM Fusion. Needs Wi-Fi; stays installed when switched off." },
+                { id: "wifisave", t: "Wi-Fi power saving", d: "Off (recommended): fast, steady Wi-Fi; this tablet's Wi-Fi gets very slow and drops downloads with it on. On: a little more battery." }]
             function load() { var x = {}; win.run("tst", win.h(["tune-status"]), function (l) { var f = l.split("|"); if (f[0] === "TUNE") x[f[1]] = f[2] === "on" }, function () { if (backend.mock) x = { memory: true, background: true, logs: true, shutdown: true, downloads: true, protect: true, codecs: false }; st = x }) }
             function set(id, on) {
                 busy = true; out = ""

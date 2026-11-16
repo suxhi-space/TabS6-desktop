@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 9: why won't Fedora start?"
+ui "S6 Migrate fix 10: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -241,14 +241,20 @@ printf '%s\n' '[Unit]' 'Description=S6 Migrate maintenance before the login scre
 for u in s6-selfcheck s6-maint; do ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"; done
 rm -f "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service" "$ROOT/etc/systemd/system/s6-repair.service" "$S/repair-wanted"
 [ -f "$S/repair.log" ] && [ ! -f "$S/maint.log" ] && cp "$S/repair.log" "$S/maint.log"
-printf '%s\n' '# S6 Migrate: Wi-Fi power saving off (it makes the Tab S6 Wi-Fi slow and drops downloads).' '[connection]' 'wifi.powersave = 2' > "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf"
+[ -f "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf" ] ||   # keep a choice made in S6 Companion > Tune-ups
+  printf '%s\n' '# S6 Migrate: Wi-Fi power saving off (it makes the Tab S6 Wi-Fi slow and drops downloads).' '[connection]' 'wifi.powersave = 2' > "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf"
 cc=$(sed -n 's/^LANG=[a-z]*_\([A-Z][A-Z]\).*/\1/p' "$ROOT/etc/locale.conf" 2>/dev/null)
 [ -n "$cc" ] && mkdir -p "$ROOT/etc/modprobe.d" && printf 'options cfg80211 ieee80211_regdom=%s\n' "$cc" > "$ROOT/etc/modprobe.d/s6migrate-wifi-country.conf"
 if [ "$(grep -c . "$ROOT/usr/local/libexec/s6migrate/s6-maint")" -gt 50 ]; then
-  ui "  self-check and maintenance installed; Wi-Fi power saving off${cc:+, Wi-Fi country $cc}"
+  ui "  self-check and maintenance installed; $(grep -q '= *3' "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf" && echo 'Wi-Fi power saving stays on (your choice)' || echo 'Wi-Fi power saving off')${cc:+, Wi-Fi country $cc}"
 else
   ui "  COULD NOT write the maintenance service"
 fi
+# 4c. Bring S6 Migrate itself (S6 Companion, S6 Setup, tools, services) up to this ZIP's version: the way to update a
+#     tablet that can no longer run the Android app. Setup-time files (the setup account, automatic login) are skipped.
+n_s6=0
+# @S6FILES@
+ui "  S6 Migrate updated to $S6_FIX_VERSION ($n_s6 files: S6 Companion, S6 Setup, tools)"
 # 5. Packages: an update cut off by a freeze leaves old and new copies, or a desktop of mixed versions; then the
 #    login screen can't start. Repair needs the internet, so it is scheduled for the next start, before the login screen.
 ui " "

@@ -15,7 +15,21 @@ ST=${S6M_STATE:-/var/lib/s6migrate}; M=$ST/maint; L=$ST/maint.log; TTY=${S6M_TTY
 any=0; for j in repair update linuxapps extras codecs; do [ -f "$M/$j" ] && any=1; done
 [ $any = 1 ] || exit 0
 chvt 1 2>/dev/null
+off=$(stat -c %s "$L" 2>/dev/null || echo 0)
 exec > >(tee -a "$L" > "$TTY") 2>&1
+# "Getting your tablet ready": a progress screen drawn straight on the display (no desktop runs yet) that follows
+# this log, with "Show details" for the live output. If it can't start (eglfs, then the plain framebuffer), the
+# text above stays on the console as before.
+UI=/usr/local/share/s6migrate/app/ready.py
+if [ -z "${S6M_NOUI:-}" ] && [ -f "$UI" ] && [ -x /usr/bin/python3 ]; then
+  plymouth quit 2>/dev/null
+  ( for qpa in eglfs linuxfb; do
+      t0=$(date +%s)
+      QT_QPA_PLATFORM=$qpa QT_QPA_EGLFS_ALWAYS_SET_MODE=1 /usr/bin/python3 "$UI" "$L" "$off" >>"$ST/ready.log" 2>&1 && break
+      [ $(( $(date +%s) - t0 )) -lt 15 ] || break     # it ran a while: not a start-up failure, don't start another
+    done ) </dev/null &
+fi
+ui_stop() { pkill -f "s6migrate/app/ready.py" 2>/dev/null; sleep 1; chvt 1 2>/dev/null; }
 say() { echo; echo "== $(date '+%F %T') $*"; }
 X='--setopt=excludepkgs=kernel*,sddm,iio-sensor-proxy'
 NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
@@ -32,7 +46,7 @@ for i in $(seq 1 $tries); do
   [ $i = 1 ] && say "Waiting for Wi-Fi..."
   sleep 5
 done
-if [ $online = 0 ]; then say "No internet: this waits for the next start."; exit 0; fi
+if [ $online = 0 ]; then say "No internet: this waits for the next start."; sleep 4; ui_stop; exit 0; fi
 d=$(curl -sI --max-time 15 http://fedoraproject.org 2>/dev/null | sed -n 's/^[Dd]ate: //p' | tr -d '\r')
 [ -n "$d" ] && date -s "$d" >/dev/null 2>&1 && say "Clock checked: $(date)"
 
@@ -123,4 +137,6 @@ else
   rm -f "$M/attempts"
   say "All done. Starting the login screen."
 fi
+sleep 4    # the screen shows "ready" for a moment, then closes itself
+ui_stop
 exit 0

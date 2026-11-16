@@ -19,6 +19,7 @@ fedora/system/zz-s6migrate.conf|/etc/sddm.conf.d/zz-s6migrate.conf|644|
 fedora/system/s6-setup.desktop|/var/lib/s6migrate/setup-home/.config/autostart/s6-setup.desktop|644|s6setup
 fedora/app/s6ui.py|/usr/local/share/s6migrate/app/s6ui.py|644|
 fedora/app/setup.py|/usr/local/share/s6migrate/app/setup.py|644|
+fedora/app/ready.py|/usr/local/share/s6migrate/app/ready.py|644|
 fedora/app/companion.py|/usr/local/share/s6migrate/app/companion.py|644|
 fedora/app/qml/Btn.qml|/usr/local/share/s6migrate/app/qml/Btn.qml|644|
 fedora/app/qml/Card.qml|/usr/local/share/s6migrate/app/qml/Card.qml|644|
@@ -34,6 +35,7 @@ fedora/app/qml/Segmented.qml|/usr/local/share/s6migrate/app/qml/Segmented.qml|64
 fedora/app/qml/LayoutPicker.qml|/usr/local/share/s6migrate/app/qml/LayoutPicker.qml|644|
 fedora/app/qml/LayoutPreview.qml|/usr/local/share/s6migrate/app/qml/LayoutPreview.qml|644|
 fedora/app/qml/Setup.qml|/usr/local/share/s6migrate/app/qml/Setup.qml|644|
+fedora/app/qml/GettingReady.qml|/usr/local/share/s6migrate/app/qml/GettingReady.qml|644|
 fedora/app/qml/TaskRow.qml|/usr/local/share/s6migrate/app/qml/TaskRow.qml|644|
 fedora/app/qml/Theme.qml|/usr/local/share/s6migrate/app/qml/Theme.qml|644|
 fedora/app/qml/Toggle.qml|/usr/local/share/s6migrate/app/qml/Toggle.qml|644|

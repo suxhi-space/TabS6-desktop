@@ -402,6 +402,7 @@ sync; umount /tmp/r; reboot
 - checks Fedora's login rules (PAM): restores missing `system-auth`, `password-auth` or `postlogin` files, and marks rule lines naming uninstalled modules as skippable (originals kept in `/var/lib/s6migrate/pam.before-fix`)
 - rewrites the automatic-login file and removes stale blockers (`/etc/nologin`, `.autorelabel`)
 - keeps logs on disk
+- runs Fedora's own login checks (PAM) inside Fedora from TWRP, the way SDDM does, for the setup and fedora accounts; when one fails it tests each rule alone and names the one that refuses (`s6pamtest.py`)
 - adds a boot check that, 90 seconds after the login screen starts, writes a report and retries automatic login once if logins are still blocked
 
 Everything it shows is saved as `fix-report.txt` next to the ZIP.

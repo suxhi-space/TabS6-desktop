@@ -24,7 +24,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 2: why can't anyone log in?"
+ui "S6 Migrate fix 3: why can't anyone log in?"
 if [ -z "${S6F_ROOT:-}" ]; then
   DEV=$(readlink -f /dev/block/by-name/userdata)
   mkdir -p "$ROOT"
@@ -168,7 +168,32 @@ check_pam() { # check_pam NAME (recursive through include/substack)
 for n in sddm sddm-autologin sddm-greeter; do [ -e "$PD/$n" ] || [ -L "$PD/$n" ] && check_pam "$n"; done
 [ $fixedpam = 0 ] && ui "  login rules: all files and parts present"
 note "pam files: $(ls -l "$PD" 2>&1 | grep -E 'sddm|system-auth|password-auth|postlogin' | tr -s ' ' | cut -d' ' -f1,9- | tr '\n' ';')"
-# 5. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
+# 5. Login test: Fedora's own login checks, run inside Fedora from here (as SDDM would), naming the refusing rule.
+note "----- login rule files (resolved) -----"
+for n in system-auth password-auth postlogin; do note "--- $n"; cat "$(pam_target "$n")" >> "$REP" 2>&1; done
+note "--- access.conf"; grep -v '^#' "$ROOT/etc/security/access.conf" 2>/dev/null | grep . >> "$REP"
+ui " "
+ui "Login test (Fedora's own checks, run from here):"
+cat > "$ROOT/tmp/s6pamtest.py" <<'EOPY'
+# @PAMTEST@
+EOPY
+BOUND=""
+if [ -z "${S6F_ROOT:-}" ]; then
+  for d in dev proc sys; do mount -o bind "/$d" "$ROOT/$d" 2>/dev/null && BOUND="$BOUND $d"; done
+fi
+if [ -n "${S6F_PAMRUN:-}" ]; then $S6F_PAMRUN "$ROOT/tmp/s6pamtest.py" > /tmp/s6fix-pam.txt 2>&1
+else chroot "$ROOT" /usr/bin/python3 /tmp/s6pamtest.py > /tmp/s6fix-pam.txt 2>&1; fi
+for d in $BOUND; do umount "$ROOT/$d" 2>/dev/null || umount -l "$ROOT/$d" 2>/dev/null; done
+rm -f "$ROOT/tmp/s6pamtest.py" "$ROOT/etc/pam.d/s6fix-probe"
+note "----- login test -----"; cat /tmp/s6fix-pam.txt >> "$REP"
+if grep -q '^RESULT' /tmp/s6fix-pam.txt; then
+  grep '^RESULT' /tmp/s6fix-pam.txt | cut -d' ' -f2- | cut -c1-80 | while IFS= read -r l; do ui "  $l"; done
+  grep '^PROBE' /tmp/s6fix-pam.txt | grep -v ' ok Success$' | cut -d' ' -f2- | cut -c1-80 | while IFS= read -r l; do ui "  REFUSED BY: $l"; done
+  grep '^LOG' /tmp/s6fix-pam.txt | tail -n 6 | cut -c5-100 | while IFS= read -r l; do ui "  log: $l"; done
+else
+  ui "  the test could not run:"; tail -n 4 /tmp/s6fix-pam.txt | cut -c1-90 | while IFS= read -r l; do ui "  $l"; done
+fi
+# 6. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
 mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/sddm.service.wants"
 cat > "$ROOT/usr/local/libexec/s6migrate/s6-bootcheck" <<'EOF'
 #!/usr/bin/bash

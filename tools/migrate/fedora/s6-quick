@@ -1,0 +1,86 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-quick - the commands behind S6 Quick Settings (the Android-style panel in the taskbar), in your own session.
+#   s6-quick status                 key=value lines: wifi ssid bt btdev airplane dark night keyboard saver
+#                                   brightness volume muted battery charging
+#   s6-quick toggle wifi|bt|airplane|dark|night|keyboard|saver|mute
+#   s6-quick brightness 0-100       s6-quick volume 0-100
+#   s6-quick open settings|wifi|bt|display|sound|battery|lock|power|screenshot
+q() { command -v qdbus6 >/dev/null && echo qdbus6 || echo qdbus; }
+kr() { kreadconfig6 "$@" 2>/dev/null; }
+kw() { kwriteconfig6 "$@"; }
+onoff() { "$@" >/dev/null 2>&1 && echo on || echo off; }
+
+bat_dir() { for d in /sys/class/power_supply/*; do [ "$(cat "$d/type" 2>/dev/null)" = Battery ] && { echo "$d"; return; }; done; }
+# Screen brightness: Plasma 6.2+ (org.kde.ScreenBrightness), else the older PowerDevil interface
+br_get() {
+  local cur max
+  if cur=$(busctl --user get-property org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display Brightness 2>/dev/null); then
+    max=$(busctl --user get-property org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display MaxBrightness 2>/dev/null)
+    cur=${cur#* }; max=${max#* }
+  else
+    cur=$("$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl brightness 2>/dev/null)
+    max=$("$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl brightnessMax 2>/dev/null)
+  fi
+  [ -n "$max" ] && [ "$max" -gt 0 ] 2>/dev/null && echo $(( cur * 100 / max )) || echo 50
+}
+br_set() {
+  local v=$1 max
+  if max=$(busctl --user get-property org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display MaxBrightness 2>/dev/null); then
+    max=${max#* }; busctl --user call org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display SetBrightness iu $(( v * max / 100 )) 0
+  else
+    max=$("$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl brightnessMax)
+    "$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl setBrightness $(( v * max / 100 ))
+  fi >/dev/null 2>&1
+}
+vk() { busctl --user get-property org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard enabled 2>/dev/null | grep -q true; }
+
+case "${1:-status}" in
+status)
+  echo "wifi=$([ "$(nmcli radio wifi 2>/dev/null)" = enabled ] && echo on || echo off)"
+  echo "ssid=$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | sed -n 's/:802-11-wireless$//p' | head -1)"
+  echo "bt=$(onoff sh -c 'bluetoothctl show 2>/dev/null | grep -q "Powered: yes"')"
+  echo "btdev=$(bluetoothctl devices Connected 2>/dev/null | head -1 | cut -d' ' -f3-)"
+  n=$(rfkill list 2>/dev/null | grep -c 'Soft blocked'); b=$(rfkill list 2>/dev/null | grep -c 'Soft blocked: yes')
+  echo "airplane=$([ "$n" -gt 0 ] && [ "$n" = "$b" ] && echo on || echo off)"
+  echo "dark=$(kr --file kdeglobals --group General --key ColorScheme | grep -qi dark && echo on || echo off)"
+  echo "night=$([ "$(kr --file kwinrc --group NightColor --key Active)" = true ] && echo on || echo off)"
+  echo "keyboard=$(vk && echo on || echo off)"
+  echo "saver=$([ "$(powerprofilesctl get 2>/dev/null)" = power-saver ] && echo on || echo off)"
+  echo "brightness=$(br_get)"
+  v=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
+  echo "volume=$(awk '{printf "%d", $2 * 100}' <<< "${v:-Volume: 0.5}")"
+  echo "muted=$(grep -q MUTED <<< "$v" && echo on || echo off)"
+  d=$(bat_dir)
+  echo "battery=$(cat "$d/capacity" 2>/dev/null || echo -1)"
+  echo "charging=$(grep -q -E 'Charging|Full' "$d/status" 2>/dev/null && echo on || echo off)"
+  ;;
+toggle)
+  case "${2:-}" in
+    wifi) [ "$(nmcli radio wifi)" = enabled ] && nmcli radio wifi off || nmcli radio wifi on ;;
+    bt) if bluetoothctl show | grep -q "Powered: yes"; then bluetoothctl power off; else rfkill unblock bluetooth; bluetoothctl power on; fi >/dev/null ;;
+    airplane) if [ "$(rfkill list | grep -c 'Soft blocked: no')" -gt 0 ]; then rfkill block all; else rfkill unblock all; fi ;;
+    dark) if kr --file kdeglobals --group General --key ColorScheme | grep -qi dark; then s6-look theme light; else s6-look theme dark; fi >/dev/null ;;
+    night) if [ "$(kr --file kwinrc --group NightColor --key Active)" = true ]; then kw --file kwinrc --group NightColor --key Active false
+           else kw --file kwinrc --group NightColor --key Active true; fi; "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 ;;
+    keyboard) if vk; then t=false; else t=true; fi
+              busctl --user set-property org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard enabled b $t ;;
+    saver) [ "$(powerprofilesctl get)" = power-saver ] && powerprofilesctl set balanced || powerprofilesctl set power-saver ;;
+    mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    *) echo "unknown toggle"; exit 2 ;;
+  esac
+  ;;
+brightness) v=${2:-50}; [ "$v" -ge 1 ] 2>/dev/null || v=1; [ "$v" -le 100 ] || v=100; br_set "$v" ;;
+volume) v=${2:-50}; [ "$v" -ge 0 ] 2>/dev/null || v=0; [ "$v" -le 100 ] || v=100
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(awk -v v="$v" 'BEGIN { printf "%.2f", v / 100 }')"; wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 ;;
+open)
+  case "${2:-settings}" in
+    settings) systemsettings ;; wifi) systemsettings kcm_networkmanagement ;; bt) systemsettings kcm_bluetooth ;;
+    display) systemsettings kcm_kscreen ;; sound) systemsettings kcm_pulseaudio ;; battery) systemsettings kcm_powerdevilprofilesconfig ;;
+    lock) loginctl lock-session ;;
+    power) "$(q)" org.kde.LogoutPrompt /LogoutPrompt promptAll ;;
+    screenshot) sleep 0.4; spectacle -r ;;
+  esac >/dev/null 2>&1 &
+  ;;
+*) sed -n '3,8p' "$0"; exit 2 ;;
+esac

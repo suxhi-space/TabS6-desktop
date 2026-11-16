@@ -18,10 +18,12 @@
 #                                            brought back by pointing at the edge)
 #
 # Layouts (named by what they look like):
-#   touch        one tall floating bottom bar with big icons: made for fingers (default)
+#   touch        one floating bottom bar, icons the size of Android's: made for fingers (default)
 #   centered     a bottom taskbar with the app icons in the middle
 #   traditional  a full-width bottom taskbar with the menu on the left and window names
-#   topdock      a slim bar at the top with the menu and clock, and a dock at the bottom
+#   topdock      a thin bar at the top with the menu and clock, and a dock at the bottom
+# Panels never hide by themselves: on this touch screen a hidden panel may not come back (no pointer to push
+# against the edge), which leaves no way to open apps.
 #   plasma       KDE Plasma's own default
 set -u
 SELF=$(readlink -f "$0")
@@ -102,24 +104,39 @@ function tasks(p, plain) {
   t.writeConfig("launchers", ["applications:org.kde.dolphin.desktop", "applications:firefox.desktop", "applications:org.kde.discover.desktop", "applications:s6-companion.desktop"]);
   return t;
 }
-function tray(p) { p.addWidget("org.kde.plasma.systemtray"); p.addWidget("org.kde.plasma.digitalclock"); }
+// The status icons (Wi-Fi, sound, battery, Bluetooth, brightness) live in S6 Quick Settings, an Android-style panel
+// that opens when they are tapped; the tray keeps app icons and notifications. Without the widget, the tray as usual.
+var QS = "org.s6migrate.quicksettings";
+var HIDE = ["org.kde.plasma.networkmanagement", "org.kde.plasma.volume", "org.kde.plasma.battery", "org.kde.plasma.bluetooth",
+            "org.kde.plasma.brightness", "org.kde.plasma.keyboardindicator", "org.kde.plasma.manage-inputmethod"];
+function tray(p) {
+  var st = p.addWidget("org.kde.plasma.systemtray");
+  var qs = null;
+  if (knownWidgetTypes.indexOf(QS) >= 0) qs = p.addWidget(QS);
+  if (qs) try {
+    var c = desktopById(st.readConfig("SystrayContainmentId"));
+    c.currentConfigGroup = ["General"];
+    c.writeConfig("hiddenItems", HIDE);
+  } catch (e) { }
+  p.addWidget("org.kde.plasma.digitalclock");
+}
 '
 
 case "${1:-status}" in
 layout)
   name=${2:-touch}
   case "$name" in
-    touch) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 64; setp(p, "floating", true);
+    touch) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 52; setp(p, "floating", true);
       p.addWidget("org.kde.plasma.kickoff"); tasks(p, false); p.addWidget("org.kde.plasma.marginsseparator"); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
-    centered) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 56; setp(p, "floating", false);
+    centered) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 48; setp(p, "floating", false);
       p.addWidget("org.kde.plasma.panelspacer"); p.addWidget("org.kde.plasma.kickoff"); tasks(p, false);
       p.addWidget("org.kde.plasma.panelspacer"); tray(p);' ;;
-    traditional) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 48; setp(p, "floating", false);
+    traditional) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 44; setp(p, "floating", false);
       p.addWidget("org.kde.plasma.kickoff"); tasks(p, true); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
-    topdock) js='clear(); var top = new Panel; top.location = "top"; top.height = 36; setp(top, "floating", false);
+    topdock) js='clear(); var top = new Panel; top.location = "top"; top.height = 26; setp(top, "floating", false);
       top.addWidget("org.kde.plasma.kickoff"); top.addWidget("org.kde.plasma.appmenu"); top.addWidget("org.kde.plasma.panelspacer"); tray(top);
-      var d = new Panel; d.location = "bottom"; d.height = 68; setp(d, "floating", true); setp(d, "lengthMode", "fit");
-      setp(d, "alignment", "center"); setp(d, "hiding", "dodgewindows"); tasks(d, false);' ;;
+      var d = new Panel; d.location = "bottom"; d.height = 56; setp(d, "floating", true); setp(d, "lengthMode", "fit");
+      setp(d, "alignment", "center"); tasks(d, false);' ;;
     plasma) js='clear(); loadTemplate("org.kde.plasma.desktop.defaultPanel");' ;;
     *) echo "unknown layout: $name"; exit 2 ;;
   esac
@@ -305,8 +322,8 @@ heal)
     # Check that the first desktop came up with the prepared layout (Plasma builds it from the Global Theme);
     # if not, apply the layout now.
     lay=$(getconf layout)
-    case "$lay" in touch) want="bottom:64" ;; centered) want="bottom:56" ;; traditional) want="bottom:48" ;;
-                   topdock) want="bottom:68,top:36" ;; *) want="" ;; esac
+    case "$lay" in touch) want="bottom:52" ;; centered) want="bottom:48" ;; traditional) want="bottom:44" ;;
+                   topdock) want="bottom:56,top:26" ;; *) want="" ;; esac
     have=$(plasma_js 'print(panels().map(function (p) { return p.location + ":" + p.height }).sort().join(","))' 2>/dev/null)
     [ -n "$want" ] && [ -n "$have" ] && [ "$have" != "$want" ] && bash "$SELF" layout "$lay" >/dev/null 2>&1
     case "$(getconf effects)" in glassy) panel_opacity 2 ;; off) panel_opacity 1 ;; *) panel_opacity 0 ;; esac

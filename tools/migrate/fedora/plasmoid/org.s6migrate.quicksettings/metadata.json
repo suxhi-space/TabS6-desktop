@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Id": "org.s6migrate.quicksettings",
+        "Name": "S6 Quick Settings",
+        "Description": "Wi-Fi, Bluetooth, brightness, sound, dark mode and more in one panel, like Android's quick settings",
+        "Icon": "preferences-system",
+        "Category": "System Information",
+        "Authors": [ { "Name": "S6 Migrate" } ],
+        "License": "GPL-2.0-only",
+        "Version": "1.0",
+        "Website": "https://github.com/suxhi-space/TabS6-desktop"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

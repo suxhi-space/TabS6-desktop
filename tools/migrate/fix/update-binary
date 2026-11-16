@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 12: why won't Fedora start?"
+ui "S6 Migrate fix 13: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT

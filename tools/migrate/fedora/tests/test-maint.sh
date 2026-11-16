@@ -8,7 +8,9 @@ mkdir -p "$T/bin" "$T/state/maint"; date > "$T/state/maint/repair"
 cat > "$T/bin/dnf" <<EOF
 #!/bin/bash
 echo "dnf \$*" >> "$T/dnf.calls"
-case "\$*" in *--downloadonly*distro-sync*) n=\$(cat "$T/round" 2>/dev/null || echo 0); echo \$((n+1)) > "$T/round"; [ \$n -ge 1 ] || exit 1 ;; esac
+# Like dnf5: --downloadonly is an option of the command, so it must come after the command word.
+pre=""; for a in "\$@"; do case "\$a" in distro-sync|install|reinstall|upgrade|remove) break ;; --downloadonly) echo "Unknown argument \"--downloadonly\" for command \"dnf5\""; exit 2 ;; esac; done
+case "\$*" in *distro-sync*--downloadonly*) n=\$(cat "$T/round" 2>/dev/null || echo 0); echo \$((n+1)) > "$T/round"; [ \$n -ge 1 ] || exit 1 ;; esac
 exit 0
 EOF
 for c in chvt rpm sleep; do printf '#!/bin/sh\nexit 0\n' > "$T/bin/$c"; done

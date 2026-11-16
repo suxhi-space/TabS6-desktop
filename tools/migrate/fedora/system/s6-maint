@@ -32,11 +32,18 @@ if [ $online = 0 ]; then say "No internet: this waits for the next start."; exit
 d=$(curl -sI --max-time 15 http://fedoraproject.org 2>/dev/null | sed -n 's/^[Dd]ate: //p' | tr -d '\r')
 [ -n "$d" ] && date -s "$d" >/dev/null 2>&1 && say "Clock checked: $(date)"
 
-rounds() { # rounds WHAT DNF-ARGS...: a download-only dnf command, repeated until it succeeds (30 rounds at most)
-  local what=$1; shift
+rounds() { # rounds WHAT [--refresh] COMMAND ARGS...: a download-only dnf command, repeated until it succeeds (30 rounds at most)
+  # dnf5 takes --downloadonly only after the command word ("dnf5 distro-sync --downloadonly"), not before it.
+  local what=$1 ref="" cmd out; shift
+  [ "$1" = --refresh ] && { ref=--refresh; shift; }
+  cmd=$1; shift
   for r in $(seq 1 30); do
     say "$what (round $r)..."
-    dnf -y $NET "$X" --downloadonly "$@" && return 0
+    out=$(mktemp)
+    if dnf -y $NET "$X" $ref "$cmd" --downloadonly "$@" 2>&1 | tee "$out"; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$out"; return 0; fi
+    # A mistake in the command itself won't fix itself by waiting: stop instead of retrying 30 times.
+    if grep -q -E 'Unknown argument|No match for argument|Problem: ' "$out"; then rm -f "$out"; say "dnf refused the command (see above); not retrying."; return 1; fi
+    rm -f "$out"
     say "Round $r stopped (Wi-Fi?). Keeping what's downloaded; next round in 30 seconds."
     sleep 30
   done

@@ -564,10 +564,28 @@ ApplicationWindow {
             property string out: ""
             property string running: ""
             function go(name, argv) { running = name; out = ""; win.run("fix", argv, function (l) { fx.out += l + "\n" }, function (c) { fx.out += (c === 0 ? "Done." : "That didn't work (code " + c + ").") + "\n"; running = "" }) }
+            property var reports: []
+            property string report: ""
+            property bool showReport: false
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Fixes"
                 frame.subtitle = "Something not right? Each fix restarts just the part that's stuck. Nothing is deleted."
                 frame.primary = ""; frame.secondary = ""; frame.note = ""
+                var r = []
+                win.run("freezes", win.sh("ls -1t /var/lib/s6migrate/freeze-reports/*.txt 2>/dev/null | head -n 5"), function (l) { if (l) r.push(l) },
+                        function () { fx.reports = r; if (r.length) fx.report = backend.read(r[0]) })
+            }
+            // When the tablet froze or was force-restarted, the start-up self-check kept the end of that session's log.
+            Card {
+                width: parent.width; warn: true; visible: fx.reports.length > 0
+                Label2 { text: "The tablet didn't shut down cleanly " + (fx.reports.length > 1 ? fx.reports.length + " times recently" : "last time"); strong: true; color: Theme.warn; width: parent.width }
+                Label2 { text: "It froze, was force-restarted or lost power. The end of that session's log was saved, so the cause can be found: share it when asking for help (it has no passwords)."; color: Theme.warnText; font.pixelSize: 14; width: parent.width }
+                Flow {
+                    width: parent.width; spacing: 10
+                    Btn { text: fx.showReport ? "Hide the report" : "Show the report"; onClicked: fx.showReport = !fx.showReport }
+                    Btn { text: "Open the folder"; onClicked: Qt.openUrlExternally("file:///var/lib/s6migrate/freeze-reports") }
+                }
+                Label2 { visible: fx.showReport; text: fx.report; font.family: "monospace"; font.pixelSize: 12; color: Theme.warnText; width: parent.width; wrapMode: Text.WrapAnywhere }
             }
             Grid {
                 width: parent.width; columns: frame.roomy ? 2 : 1; columnSpacing: 14; rowSpacing: 14

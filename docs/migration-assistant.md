@@ -356,7 +356,11 @@ Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore 
 
 ## Never change the desktop while it runs (0.4.7)
 
-On the first real switch, S6 Companion installed Better Blur DX while the desktop was running. That pulled in a whole Plasma update (6.7.5 to 6.8.3) under the running session. The tablet froze, the forced restart cut `libkwin.so.6` short, and the login screen could no longer start. Two Fedora-side services now prevent and repair this. The switch installs both, and S6Migrate-FIX.zip installs them on tablets switched earlier.
+On the first real switch, the tablet froze while S6 Companion was installing Better Blur DX, which pulled in a whole Plasma update (6.7.5 to 6.8.3) under the running session. The forced restart that followed cut `libkwin.so.6` short and left the package database half-updated, so the login screen could no longer start.
+
+The freeze itself has no known cause. The install is a suspect, but the tablet had also hung once before, at its first start, with nothing installing. Possible causes include the port's graphics or display stack and memory pressure. Restart-time installs make any freeze harmless to the system, whatever its cause.
+
+To find the cause, `s6-selfcheck` checks at every start whether the previous session shut down cleanly. If it didn't, it saves that session's final warnings and log lines to `/var/lib/s6migrate/freeze-reports/` (the 5 newest are kept). S6 Companion's Fixes page then shows "The tablet didn't shut down cleanly", with the report. Two Fedora-side services now prevent and repair this. The switch installs both, and S6Migrate-FIX.zip installs them on tablets switched earlier.
 
 **`s6-selfcheck`** runs at every start, before the login screen, in a few seconds and without internet:
 - empty login-rule files are regenerated with `authselect`

@@ -49,7 +49,7 @@ class Follower(QObject):
         self.title, self.detail = "Getting your tablet ready", "Starting..."
         self.frac, self.overall, self.final, self.minutes = 0.0, 0.0, "", 0
         self.installing = False
-        self.t0 = time.time()
+        self.t0 = time.monotonic()   # not the wall clock: s6-maint corrects the clock from the internet
         self._buf = b""
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
@@ -78,7 +78,7 @@ class Follower(QObject):
 
     @Property(str, notify=changed)
     def elapsed(self):
-        m = int((time.time() - self.t0) // 60)
+        m = int((time.monotonic() - self.t0) // 60)
         return "" if m < 1 else (f"{m} min so far" if m < 60 else f"{m // 60} h {m % 60} min so far")
 
     @Slot(result=str)
@@ -149,7 +149,7 @@ class Follower(QObject):
             else:
                 w = re.search(r"still working \((\d+) min\)", t)
                 if w:   # dnf's own minutes, so the time shown is right even if this screen started late
-                    self.t0 = min(self.t0, time.time() - 60 * int(w.group(1)))
+                    self.t0 = min(self.t0, time.monotonic() - 60 * int(w.group(1)))
         n = len(self.jobs) or 1
         i = self.jobs.index(self.job) if self.job in self.jobs else 0
         self.overall = max(self.overall, min(0.99, (i + self.frac) / n))
@@ -180,6 +180,16 @@ def main():
         log = sys.argv[1] if len(sys.argv) > 1 else "/var/lib/s6migrate/maint.log"
         offset = int(sys.argv[2]) if len(sys.argv) > 2 else 0
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+    # Before the login screen nothing scales the display (Plasma does that later): on the Tab S6's 2560 x 1600
+    # screen everything came out half size. Scale so the short side is about 800 points, like the desktop.
+    if "QT_SCALE_FACTOR" not in os.environ and not MOCK:
+        for m in sorted(Path("/sys/class/drm").glob("card*-*/modes")):
+            try:
+                w, h = (int(x) for x in m.read_text().split()[0].split("x"))
+            except (OSError, ValueError, IndexError):
+                continue
+            os.environ["QT_SCALE_FACTOR"] = str(max(1, round(min(w, h) / 800)))
+            break
     app = QGuiApplication(sys.argv)
     app.setApplicationName("S6 Migrate")
     fams = s6ui.load_fonts()

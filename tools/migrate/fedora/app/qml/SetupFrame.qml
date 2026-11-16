@@ -37,6 +37,16 @@ Item {
     readonly property int pad: 48
     readonly property real room: flick.height - 16      // height a page can use without scrolling
 
+    // ---- moving between pages: the new page slides in from the side it comes from and fades up; the header too
+    property int _last: 0
+    onCurrentChanged: { slideFrom.from = (current >= _last ? 1 : -1) * 48; _last = current; pageIn.restart() }
+    ParallelAnimation {
+        id: pageIn
+        NumberAnimation { id: slideFrom; target: slide; property: "x"; to: 0; duration: 380; easing.type: Easing.OutCubic }
+        NumberAnimation { target: body; property: "opacity"; from: 0; to: 1; duration: 320; easing.type: Easing.OutCubic }
+        NumberAnimation { target: head; property: "opacity"; from: 0.2; to: 1; duration: 320; easing.type: Easing.OutCubic }
+    }
+
     // ---- backdrop: a soft gradient with three blurred colour fields (like a macOS wallpaper)
     Rectangle {
         anchors.fill: parent
@@ -168,7 +178,10 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: flick.contentHeight > flick.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
-            Column { id: body; x: (flick.width - width) / 2; width: f.contentWidth; spacing: 16 }
+            Column {
+                id: body; x: (flick.width - width) / 2; width: f.contentWidth; spacing: 16
+                transform: Translate { id: slide }
+            }
         }
 
         // terminal view of what is running

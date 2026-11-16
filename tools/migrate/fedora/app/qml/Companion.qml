@@ -332,7 +332,7 @@ ApplicationWindow {
                 if (backend.mock) x = { BBDX: ["installed", "loaded"], DARKLY: ["installed"] }; extras = x }) }
             property string out: ""
             function load() { var c = {}; win.run("lookst", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "status"], function (l) { var f = l.split("|"); c[f[0]] = f[1] }, function () { cur = c }) }
-            function apply(args) { out = "Applying..."; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work."; load() }) }
+            function apply(args) { out = "Applying..."; var last = ""; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l; last = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work" + (last ? ": " + last : "."); load() }) }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Look"
                 frame.subtitle = "Layout, size, effects and light or dark. Window buttons and the file manager follow the layout. The layouts are also in System Settings as Global Themes."

@@ -33,6 +33,9 @@ run() { printf '$ %s\n' "$*"; timeout 25 "$@" 2>&1; }
   run aplay -l
   run wpctl status
   run sh -c 'sudo -n dmesg 2>/dev/null | grep -i -E "snd|audio|wcd|wsa|slim|apr|q6" | tail -25'
+  sec "Desktop tools"
+  run sh -c 'for c in qdbus6 qdbus-qt6 qdbus busctl kscreen-doctor plasma-apply-colorscheme kwriteconfig6 maliit-keyboard; do printf "%s: %s\n" "$c" "$(command -v $c || echo missing)"; done'
+  run sh -c 'tail -20 "$HOME/.config/s6migrate/look.conf" 2>/dev/null'
   sec "USB and microSD"
   run sh -c 'ls /sys/class/udc 2>/dev/null; cat /sys/class/typec/*/data_role 2>/dev/null; ls /dev/mmcblk* 2>/dev/null'
 } > "$out" 2>&1

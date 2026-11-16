@@ -31,7 +31,7 @@ SHARE = Path(os.environ.get("S6_SHARE", "/usr/local/share/s6migrate"))
 HELPER = os.environ.get("S6_HELPER", "/usr/local/libexec/s6migrate/s6-helper")
 STATE = Path(os.environ.get("S6_STATE", "/var/lib/s6migrate"))
 MOCK = os.environ.get("S6_MOCK") == "1"
-VERSION = "0.4.11"
+VERSION = "0.4.12"
 
 
 def load_fonts():

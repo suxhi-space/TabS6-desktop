@@ -79,9 +79,9 @@ def screenshot():
         if not user or subprocess.run(["pgrep", "-u", uid, "-x", "plasmashell"], capture_output=True).returncode != 0:
             continue
         env = ["env", "DBUS_SESSION_BUS_ADDRESS=unix:path=" + bus, "XDG_RUNTIME_DIR=/run/user/" + uid]
-        qd = "qdbus6" if subprocess.run(["sh", "-c", "command -v qdbus6"], capture_output=True).returncode == 0 else "qdbus"
-        r = subprocess.run(["runuser", "-u", user, "--"] + env + [qd, "org.kde.kglobalaccel", "/component/org_kde_spectacle_desktop",
-                            "org.kde.kglobalaccel.Component.invokeShortcut", "FullScreenScreenShot"], capture_output=True)
+        r = subprocess.run(["runuser", "-u", user, "--"] + env + ["busctl", "--user", "call", "org.kde.kglobalaccel",
+                            "/component/org_kde_spectacle_desktop", "org.kde.kglobalaccel.Component", "invokeShortcut", "s",
+                            "FullScreenScreenShot"], capture_output=True)
         if r.returncode != 0:   # older Spectacle: run it directly, in the background (notification with Annotate)
             subprocess.Popen(["runuser", "-u", user, "--"] + env + ["WAYLAND_DISPLAY=wayland-0", "spectacle", "-f", "-b"])
         done = True

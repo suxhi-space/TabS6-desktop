@@ -21,7 +21,7 @@ running() { waydroid status 2>/dev/null | grep -q 'Session:.*RUNNING'; }
 
 android_windows() { # number of open Android app windows (KWin); -1 if it cannot tell
   local q info
-  q=$(command -v qdbus6 || command -v qdbus || true)
+  q=$(command -v qdbus6 || command -v qdbus-qt6 || command -v qdbus || true)
   [ -n "$q" ] || { echo -1; return; }
   info=$("$q" org.kde.KWin /KWin org.kde.KWin.supportInformation 2>/dev/null) || { echo -1; return; }
   printf '%s\n' "$info" | grep -i -c -E '^ *(resourceClass|desktopFile|appId|resourceName): *waydroid' || true

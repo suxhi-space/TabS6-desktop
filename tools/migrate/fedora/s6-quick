@@ -6,7 +6,8 @@
 #   s6-quick toggle wifi|bt|airplane|dark|night|keyboard|saver|mute
 #   s6-quick brightness 0-100       s6-quick volume 0-100
 #   s6-quick open settings|wifi|bt|display|sound|battery|lock|power|screenshot
-q() { command -v qdbus6 >/dev/null && echo qdbus6 || echo qdbus; }
+PD=(org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl org.kde.Solid.PowerManagement.Actions.BrightnessControl)
+num() { busctl --user call "$@" 2>/dev/null | awk '{print $2}'; }   # busctl (systemd): qdbus6 isn't on Fedora under that name
 kr() { kreadconfig6 "$@" 2>/dev/null; }
 kw() { kwriteconfig6 "$@"; }
 onoff() { "$@" >/dev/null 2>&1 && echo on || echo off; }
@@ -19,8 +20,8 @@ br_get() {
     max=$(busctl --user get-property org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display MaxBrightness 2>/dev/null)
     cur=${cur#* }; max=${max#* }
   else
-    cur=$("$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl brightness 2>/dev/null)
-    max=$("$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl brightnessMax 2>/dev/null)
+    cur=$(num "${PD[@]}" brightness)
+    max=$(num "${PD[@]}" brightnessMax)
   fi
   [ -n "$max" ] && [ "$max" -gt 0 ] 2>/dev/null && echo $(( cur * 100 / max )) || echo 50
 }
@@ -29,8 +30,8 @@ br_set() {
   if max=$(busctl --user get-property org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display MaxBrightness 2>/dev/null); then
     max=${max#* }; busctl --user call org.kde.ScreenBrightness /org/kde/ScreenBrightness/display0 org.kde.ScreenBrightness.Display SetBrightness iu $(( v * max / 100 )) 0
   else
-    max=$("$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl brightnessMax)
-    "$(q)" org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl setBrightness $(( v * max / 100 ))
+    max=$(num "${PD[@]}" brightnessMax)
+    busctl --user call "${PD[@]}" setBrightness i $(( v * max / 100 ))
   fi >/dev/null 2>&1
 }
 vk() { busctl --user get-property org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard enabled 2>/dev/null | grep -q true; }
@@ -62,7 +63,7 @@ toggle)
     airplane) if [ "$(rfkill list | grep -c 'Soft blocked: no')" -gt 0 ]; then rfkill block all; else rfkill unblock all; fi ;;
     dark) if kr --file kdeglobals --group General --key ColorScheme | grep -qi dark; then s6-look theme light; else s6-look theme dark; fi >/dev/null ;;
     night) if [ "$(kr --file kwinrc --group NightColor --key Active)" = true ]; then kw --file kwinrc --group NightColor --key Active false
-           else kw --file kwinrc --group NightColor --key Active true; fi; "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 ;;
+           else kw --file kwinrc --group NightColor --key Active true; fi; busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 ;;
     keyboard) if vk; then t=false; else t=true; fi
               busctl --user set-property org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard enabled b $t ;;
     saver) [ "$(powerprofilesctl get)" = power-saver ] && powerprofilesctl set balanced || powerprofilesctl set power-saver ;;
@@ -78,7 +79,7 @@ open)
     settings) systemsettings ;; wifi) systemsettings kcm_networkmanagement ;; bt) systemsettings kcm_bluetooth ;;
     display) systemsettings kcm_kscreen ;; sound) systemsettings kcm_pulseaudio ;; battery) systemsettings kcm_powerdevilprofilesconfig ;;
     lock) loginctl lock-session ;;
-    power) "$(q)" org.kde.LogoutPrompt /LogoutPrompt promptAll ;;
+    power) busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptAll ;;
     screenshot) sleep 0.4; spectacle -r ;;
   esac >/dev/null 2>&1 &
   ;;

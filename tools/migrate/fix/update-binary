@@ -260,11 +260,11 @@ for i in $(seq 1 60); do
   sleep 5
 done
 if [ $online = 0 ]; then say "No internet: repair skipped this time (it tries again on the next start)."; exit 0; fi
-X='--setopt=excludepkgs=kernel*'
+X='--setopt=excludepkgs=kernel*'; P='--setopt=max_parallel_downloads=10'
 say "Step 1 of 4: removing old copies of half-updated packages..."
 dnf -y remove --duplicates "$X" || say "(no old copies removed)"
 say "Step 2 of 4: bringing every package to the same, current version (kernel left alone)..."
-dnf -y --refresh distro-sync "$X" || say "(distro-sync reported a problem; continuing)"
+dnf -y --refresh distro-sync "$X" "$P" || say "(distro-sync reported a problem; continuing)"
 say "Step 3 of 4: putting back desktop packages missing from the package list..."
 dnf -y install "$X" kwin kwin-libs kwin-common plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma \
   plasma-desktop plasma-workspace-wayland || say "(some desktop packages could not be installed)"
@@ -288,7 +288,7 @@ EOR
   printf '%s\n' '[Unit]' 'Description=S6 Migrate: finish an interrupted update' 'Wants=network-online.target' \
     'After=network-online.target NetworkManager.service' 'Before=display-manager.service sddm.service' \
     'ConditionPathExists=/var/lib/s6migrate/repair-wanted' '' '[Service]' 'Type=oneshot' \
-    'ExecStart=/usr/local/libexec/s6migrate/s6-repair' 'TimeoutStartSec=90min' '' '[Install]' 'WantedBy=multi-user.target' \
+    'ExecStart=/usr/local/libexec/s6migrate/s6-repair' 'TimeoutStartSec=infinity' '' '[Install]' 'WantedBy=multi-user.target' \
     > "$ROOT/etc/systemd/system/s6-repair.service"
   ln -sf /etc/systemd/system/s6-repair.service "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service"
   date > "$S/repair-wanted"

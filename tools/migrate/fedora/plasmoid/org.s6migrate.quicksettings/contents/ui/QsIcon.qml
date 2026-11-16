@@ -6,8 +6,9 @@ Canvas {
     property string name: "wifi"
     property color color: "white"
     property bool on: true
+    property real level: -1            // battery: 0..1 fills the icon
     width: 22; height: 22
-    onNameChanged: requestPaint(); onColorChanged: requestPaint(); onOnChanged: requestPaint()
+    onNameChanged: requestPaint(); onColorChanged: requestPaint(); onOnChanged: requestPaint(); onLevelChanged: requestPaint()
     onPaint: {
         var c = getContext("2d"); var s = width / 24; c.reset()
         c.strokeStyle = String(color); c.fillStyle = String(color); c.lineCap = "round"; c.lineJoin = "round"; c.lineWidth = 2 * s
@@ -35,7 +36,8 @@ Canvas {
         case "gear": A(12, 12, 3.2, 0, 7); for (var k = 0; k < 8; k++) { var d = k * Math.PI / 4; L([12 + 6*Math.cos(d), 12 + 6*Math.sin(d), 12 + 9*Math.cos(d), 12 + 9*Math.sin(d)]) } A(12, 12, 6.5, 0, 7); break
         case "power": A(12, 13, 8, -Math.PI*0.32, Math.PI*1.32); L([12, 3, 12, 11]); break
         case "lock": R(5, 10.5, 14, 10.5, 2.5); A(12, 10.5, 4.5, Math.PI, 0); break
-        case "battery": R(2, 7, 18, 10, 2.5); L([22, 10.5, 22, 13.5]); break
+        case "battery": R(2, 7, 18, 10, 2.5); L([22, 10.5, 22, 13.5])
+            if (level >= 0) { c.beginPath(); c.roundedRect(4.5*s, 9.5*s, Math.max(1.5, 13 * Math.min(1, level))*s, 5*s, 1*s, 1*s); c.fill() } break
         case "chev": L([9, 6, 15, 12, 9, 18]); break
         }
     }

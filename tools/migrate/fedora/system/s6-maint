@@ -115,7 +115,7 @@ if [ -f "$M/linuxapps" ] && [ $fail = 0 ]; then
   [ $lfail = 0 ] && rm -f "$M/linuxapps" || say "Some Linux apps didn't install; this is tried again at the next start."
 fi
 if [ -f "$M/extras" ] && [ $fail = 0 ]; then
-  say "Adding Better Blur DX and Darkly..."
+  say "Adding Better Blur DX, Darkly, Papirus icons and the Inter font..."
   dnf -y copr enable infinality/kwin-effects-better-blur-dx >/dev/null 2>&1
   dnf -y copr enable deltacopy/darkly >/dev/null 2>&1
   got=""
@@ -124,6 +124,9 @@ if [ -f "$M/extras" ] && [ $fail = 0 ]; then
     # ("Cannot download files, cacheonly option is activated"). The packages themselves are already downloaded.
     if rounds "Downloading $p" --refresh install "$p" && dnfw -y $NET "$X" install "$p"; then got="$got $p"; fi
   done
+  # Cleaner icons and a modern font (Fedora's own repositories)
+  if rounds "Downloading Papirus icons and the Inter font" install papirus-icon-theme rsms-inter-fonts \
+     && dnfw -y -C "$X" install papirus-icon-theme rsms-inter-fonts; then got="$got papirus inter"; fi
   [ -n "$got" ] && say "Added:$got" || say "Not available for this Plasma right now: the standard blur and Breeze are used."
   rm -f "$M/extras"
 fi

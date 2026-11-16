@@ -3,7 +3,7 @@
 # once left out: the app ran fine from the repo, but on the tablet S6 Setup crashed at its start.
 here=$(cd "$(dirname "$0")/.." && pwd); fail=0
 cd "$here"
-for f in app/*.py app/qml/*.qml app/qml/qmldir system/*; do
+for f in app/*.py app/qml/*.qml app/qml/qmldir system/* s6-* plasmoid/*/metadata.json plasmoid/*/contents/ui/*.qml; do
   grep -q "^fedora/$f|" install.list || { echo "MISSING from install.list: $f"; fail=1; }
 done
 # and every QML type named in qmldir has its file installed

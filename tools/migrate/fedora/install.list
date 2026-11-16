@@ -56,3 +56,10 @@ fedora/system/s6-selfcheck.service|/etc/systemd/system/s6-selfcheck.service|644|
 fedora/system/s6-maint.service|/etc/systemd/system/s6-maint.service|644|
 fedora/system/s6-restart-twrp.desktop|/usr/local/share/applications/s6-restart-twrp.desktop|644|
 fedora/system/s6-restart-download.desktop|/usr/local/share/applications/s6-restart-download.desktop|644|
+fedora/s6-quick|/usr/local/bin/s6-quick|755|
+fedora/plasmoid/org.s6migrate.quicksettings/metadata.json|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/metadata.json|644|
+fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/main.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/main.qml|644|
+fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QuickPanel.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QuickPanel.qml|644|
+fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QsTile.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QsTile.qml|644|
+fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QsSlider.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QsSlider.qml|644|
+fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QsIcon.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QsIcon.qml|644|

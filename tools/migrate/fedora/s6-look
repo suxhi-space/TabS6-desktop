@@ -63,9 +63,9 @@ layout_borders() { # layout_borders NAME -> "left|right|size|title|radius"
   case "$1" in
     touch)       echo "|IAX|ButtonLarge|AlignCenter|12" ;;
     centered)    echo "|IAX|ButtonDefault|AlignLeft|10" ;;
-    traditional) echo "M|IAX|ButtonDefault|AlignLeft|4" ;;
+    traditional) echo "M|IAX|ButtonDefault|AlignLeft|8" ;;
     topdock)     echo "XIA||ButtonDefault|AlignCenter|12" ;;
-    *)           echo "MS|HIAX|ButtonDefault|AlignLeft|6" ;;
+    *)           echo "MS|HIAX|ButtonDefault|AlignLeft|8" ;;
   esac
 }
 apply_borders() {
@@ -77,6 +77,20 @@ apply_borders() {
     kw --file "$f" --group Windeco --key TitleAlignment "$ta"
   done
   kw --file darklyrc --group Common --key CornerRadius "$cr"
+}
+# Clean, modern look when the extras are in (Papirus icons, the Inter font; both from Fedora's own repositories):
+# applied on top of the colours, never replacing the layout or the window style.
+polish() { # polish light|dark
+  local th=${1:-$(getconf theme)} ic
+  if [ -d /usr/share/icons/Papirus ]; then [ "$th" = dark ] && ic=Papirus-Dark || ic=Papirus
+  else [ "$th" = dark ] && ic=breeze-dark || ic=breeze; fi
+  if [ -x /usr/libexec/plasma-changeicons ] && pgrep -u "$(id -u)" -x plasmashell >/dev/null; then /usr/libexec/plasma-changeicons "$ic" >/dev/null 2>&1
+  else kw --file kdeglobals --group Icons --key Theme "$ic"; fi
+  if fc-list 2>/dev/null | grep -q -i 'Inter[ ,:]\|/Inter'; then
+    for k in font menuFont toolBarFont; do kw --file kdeglobals --group General --key "$k" "Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"; done
+    kw --file kdeglobals --group General --key smallestReadableFont "Inter,8,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"
+    kw --file kdeglobals --group WM --key activeFont "Inter,10,-1,5,600,0,0,0,0,0,0,0,0,0,0,1"
+  fi
 }
 kwin_reload() { "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
@@ -93,6 +107,15 @@ dolphin_style() { # view mode 0 icons, 1 details; icon sizes; single tap to open
   kw --file dolphinrc --group IconsMode --key IconSize "$icons"
   kw --file dolphinrc --group DetailsMode --key IconSize "$([ "$icons" -ge 80 ] && echo 48 || echo 32)"
   kw --file kdeglobals --group KDE --key SingleClick "$single"
+  # Touch-friendlier everywhere: no menu bar (its items stay in the ☰ menu), a tick on each file to select several
+  # with a tap, larger sidebar and toolbar icons, breadcrumbs you can tap.
+  local big=$([ "$icons" -ge 80 ] && echo 1 || echo 0)
+  kw --file dolphinrc --group MainWindow --key MenuBar Disabled
+  kw --file dolphinrc --group General --key ShowSelectionToggle true
+  kw --file dolphinrc --group General --key EditableUrl false
+  kw --file dolphinrc --group General --key ShowToolTips false
+  kw --file dolphinrc --group PlacesPanel --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
+  kw --file dolphinrc --group MainWindow --group "Toolbar mainToolBar" --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
 }
 
 js_common='
@@ -166,12 +189,16 @@ size)
   setconf size "$name"; echo "size: $name (touch mode $tm)"
   ;;
 theme)
+  # Only the colours (and icons to match): applying Breeze's whole Global Theme here reset the window style and
+  # icons too, undoing Darkly and Papirus. Your accent colour (from Android) is kept.
   case "${2:-light}" in
-    dark) plasma-apply-lookandfeel -a org.kde.breezedark.desktop >/dev/null 2>&1 ;;
-    light) plasma-apply-lookandfeel -a org.kde.breeze.desktop >/dev/null 2>&1 ;;
-    *) echo "light or dark"; exit 2 ;;
+    dark) scheme=BreezeDark ;; light) scheme=BreezeLight ;; *) echo "light or dark"; exit 2 ;;
   esac
-  setconf theme "$2"; echo "theme: $2"
+  acc=$(getconf accent)
+  if [ -n "$acc" ]; then plasma-apply-colorscheme --accent-color "$acc" "$scheme" >/dev/null 2>&1
+  else plasma-apply-colorscheme "$scheme" >/dev/null 2>&1; fi || kw --file kdeglobals --group General --key ColorScheme "$scheme"
+  plasma-apply-desktoptheme default >/dev/null 2>&1    # Plasma's own theme follows the colours
+  setconf theme "$2"; polish "$2"; echo "theme: $2"
   ;;
 effects)
   lvl=${2:-soft}
@@ -221,7 +248,6 @@ effects)
       panel_opacity 0
     fi
     darkly --group Style --key TransparentDolphinView false   # file list stays solid and readable
-    darkly --group Common --key CornerRadius 10
     kw --file kdeglobals --group KDE --key AnimationDurationFactor 0.75
     kw --file kwinrc --group Plugins --key scaleEnabled true; kw --file kwinrc --group Plugins --key fadeEnabled false
   fi
@@ -304,8 +330,9 @@ prepare)
   # Your Android accent colour: KDE apps read it from kdeglobals at once; the colour scheme is tinted at the first login.
   if [ -n "$acc" ]; then
     kw --file kdeglobals --group General --key AccentColor "$((16#${acc:1:2})),$((16#${acc:3:2})),$((16#${acc:5:2}))"
-    setconf accent-pending "$acc"
+    setconf accent-pending "$acc"; setconf accent "$acc"
   fi
+  polish "$th"
   date > "$(dirname "$CONF")/prepared"
   echo "your desktop is prepared: $lay layout, $sz, $th, $eff effects${acc:+, accent $acc}"
   ;;
@@ -329,6 +356,7 @@ heal)
     case "$(getconf effects)" in glassy) panel_opacity 2 ;; off) panel_opacity 1 ;; *) panel_opacity 0 ;; esac
     setconf panels-pending 0
   fi
+  polish   # icons and font, once the extras arrived (they're installed at a restart)
   acc=$(getconf accent-pending)
   if [ -n "$acc" ] && command -v plasma-apply-colorscheme >/dev/null; then
     plasma-apply-colorscheme --accent-color "$acc" >/dev/null 2>&1 && setconf accent-pending ""
@@ -351,6 +379,8 @@ heal)
 extras)
   echo "BBDX|$(has_bbdx && echo installed || echo missing)|$(bbdx_loaded && echo loaded || echo not-loaded)"
   echo "DARKLY|$(has_darkly && echo installed || echo missing)"
+  echo "PAPIRUS|$([ -d /usr/share/icons/Papirus ] && echo installed || echo missing)"
+  echo "INTER|$(fc-list 2>/dev/null | grep -q -i '/Inter' && echo installed || echo missing)"
   ;;
 show-panels)
   plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."

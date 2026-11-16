@@ -15,6 +15,7 @@
 # replaces the Breeze app style, for frosted, rounded windows. Without them, Plasma's own effects are used.
 #   s6-look status                           LAYOUT|.. SIZE|.. THEME|..
 #   s6-look files dolphin|cosmic             the file manager (COSMIC Files is installed at the next restart)
+#   s6-look export                           your look settings in one file (~/S6-look-settings-*.tar.gz) to share
 #   s6-look show-panels                      bring back panels set to auto-hide (on a touch screen they can't be
 #                                            brought back by pointing at the edge)
 #
@@ -513,6 +514,17 @@ files)
     [ "$(files_desktop)" != "$was" ] && [ -n "$(getconf layout)" ] && bash "$SELF" layout "$(getconf layout)" >/dev/null   # pin it
     echo "file manager: $2"
   fi
+  ;;
+export)
+  # Your desktop's look settings in one file to share (panels, theme, window style, Dolphin, shortcuts, keyboard).
+  # Only look-and-feel files: no passwords, browser data or documents.
+  out="$HOME/S6-look-settings-$(date +%Y%m%d-%H%M).tar.gz"
+  ( cd "$HOME" && tar czf "$out" --ignore-failed-read \
+      .config/kdeglobals .config/kwinrc .config/dolphinrc .config/darklyrc .config/breezerc .config/plasmarc \
+      .config/plasmashellrc .config/plasma-org.kde.plasma.desktop-appletsrc .config/kglobalshortcutsrc \
+      .config/kcminputrc .config/s6migrate/look.conf .local/share/kxmlgui5/dolphin 2>/dev/null )
+  dconf dump /org/maliit/ > "$HOME/.cache/s6-maliit.txt" 2>/dev/null && ( cd "$HOME/.cache" && tar rzf "$out" s6-maliit.txt 2>/dev/null )
+  echo "saved: $out"
   ;;
 show-panels)
   plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."

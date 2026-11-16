@@ -535,6 +535,9 @@ def build(mode, qml_name):
     app = QGuiApplication.instance() or QGuiApplication(sys.argv)
     app.setApplicationName("S6 Migrate" if mode == "setup" else "S6 Companion")
     app.setDesktopFileName("s6-companion" if mode == "companion" else "s6-setup")
+    for ic in ("/usr/local/share/icons/hicolor/scalable/apps/s6-companion.svg", str(HERE.parent / "icons" / "s6-companion.svg")):
+        if os.path.exists(ic):
+            app.setWindowIcon(QIcon(ic)); break
     fams = load_fonts()
     app.setFont(QFont("Red Hat Text" if "Red Hat Text" in fams else "Noto Sans", 11))
     engine = QQmlApplicationEngine()

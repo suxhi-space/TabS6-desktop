@@ -69,6 +69,16 @@ mkdir -p "$OUT/etc/system-connections"
 for c in "$ROOT"/etc/NetworkManager/system-connections/*; do
   [ -f "$c" ] && grep -v -i -E '^(psk|password|wep-key[0-9]*|private-key-password|pin)=' "$c" > "$OUT/etc/system-connections/$(basename "$c")"
 done
+# sound: PipeWire / WirePlumber settings (system, image and yours), the sound card's routing profiles (UCM)
+mkdir -p "$OUT/sound"
+for d in "$ROOT"/etc/pipewire "$ROOT"/usr/share/pipewire/pipewire.conf.d "$ROOT"/etc/wireplumber "$ROOT"/usr/share/wireplumber/wireplumber.conf.d "$ROOT"/etc/alsa; do
+  [ -d "$d" ] && cp -r "$d" "$OUT/sound/$(echo "$d" | sed "s#^$ROOT/##; s#/#_#g")" 2>/dev/null
+done
+for h in "$ROOT"/home/*; do
+  for d in .config/pipewire .config/wireplumber; do [ -d "$h/$d" ] && cp -r "$h/$d" "$OUT/sound/$(basename "$h")_$(basename "$d")" 2>/dev/null; done
+done
+ls -laR "$ROOT"/usr/share/alsa/ucm2 2>/dev/null | head -400 > "$OUT/sound/ucm2-listing.txt"
+ls -la "$ROOT"/usr/share/pipewire "$ROOT"/usr/share/pipewire/pipewire.conf.d > "$OUT/sound/pipewire-listing.txt" 2>&1
 mkdir -p "$OUT/boot"
 ls -laR "$ROOT/boot" > "$OUT/boot/listing.txt" 2>&1
 cp_if "$ROOT/boot/loader" "boot/loader"
@@ -84,7 +94,8 @@ ui "  system log: $(ls "$OUT/journal" | wc -l) file(s), about $tot MB"
 saved=""
 for dest in "$CARD/S6Migrate" "$ZIPDIR"; do
   [ -d "$dest" ] || continue
-  rm -rf "$dest/report-$STAMP"; cp -r "$OUT" "$dest/report-$STAMP" 2>/dev/null && saved="$saved $dest/report-$STAMP"
+  rm -rf "$dest/report-$STAMP"; cp -rL "$OUT" "$dest/report-$STAMP" 2>/dev/null
+  [ -d "$dest/report-$STAMP" ] && [ -n "$(ls "$dest/report-$STAMP" 2>/dev/null)" ] && saved="$saved $dest/report-$STAMP"
 done
 rm -rf "$OUT"
 if [ -n "$saved" ]; then

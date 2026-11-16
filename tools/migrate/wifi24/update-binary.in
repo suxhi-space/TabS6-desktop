@@ -1,0 +1,61 @@
+#!/sbin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# S6Migrate-WIFI-2.4.zip: run from TWRP (Install). Sets the saved Wi-Fi networks to use 2.4 GHz.
+# On this tablet the Wi-Fi chip runs generic radio data (board_id 0xff) and its sending side is weak: on 5 GHz with a
+# middling signal it connects but almost nothing gets out (pings and name lookups fail, "!" in the Wi-Fi icon).
+# 2.4 GHz reaches further. Passwords are not touched. Run S6Migrate-WIFI-AUTO.zip to go back to automatic.
+# Test hooks: S6F_TEST=1, S6F_ROOT, S6F_CARD; S6W_BAND (bg = 2.4 GHz, empty = automatic).
+umask 022
+# TWRP's shell keeps here-document text in $TMPDIR (Android: /data/local/tmp). /data is Fedora now, so that folder is
+# gone and every here-document came out EMPTY (fix 4 "restored" empty files). Use /tmp, and check it works.
+export TMPDIR=/tmp
+OUTFD=${2:-1}
+ROOT=${S6F_ROOT:-/tmp/s6fix-root}
+CARD=${S6F_CARD:-/external_sd}
+REP=/tmp/s6wifi-band-log.txt
+: > "$REP"
+ui() { if [ "${S6F_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; fi; echo "$*" >> "$REP"; }
+note() { echo "$*" >> "$REP"; }   # report only (too long for the screen)
+ZIPDIR=$(dirname "${3:-/nonexistent/x}")
+save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
+  [ -d "$ZIPDIR" ] && cp "$REP" "$ZIPDIR/wifi-band-log.txt" 2>/dev/null
+  [ -d "$CARD/S6Migrate" ] && cp "$REP" "$CARD/S6Migrate/wifi-band-log.txt" 2>/dev/null
+}
+stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
+
+
+BAND=${S6W_BAND-@BAND@}
+[ "$BAND" = bg ] && ui "S6 Migrate: Wi-Fi on 2.4 GHz" || ui "S6 Migrate: Wi-Fi band automatic"
+HD=$(cat <<'EOT'
+heredoc-ok
+EOT
+)
+if [ "$HD" != heredoc-ok ]; then mkdir -p /tmp/s6wifi-tmp; export TMPDIR=/tmp/s6wifi-tmp; ui "(text writing switched to /tmp/s6wifi-tmp)"; fi
+if [ -z "${S6F_ROOT:-}" ]; then
+  DEV=$(readlink -f /dev/block/by-name/userdata)
+  mkdir -p "$ROOT"
+  grep -q " $ROOT " /proc/mounts || mount -t ext4 "$DEV" "$ROOT" || stop "could not open Fedora's storage"
+fi
+[ -f "$ROOT/etc/os-release" ] && grep -q -i fedora "$ROOT/etc/os-release" || stop "Fedora was not found on this tablet"
+S=$ROOT/var/lib/s6migrate
+
+
+n=0
+for c in "$ROOT"/etc/NetworkManager/system-connections/*.nmconnection; do
+  [ -f "$c" ] && grep -q '^type=wifi' "$c" || continue
+  # drop any band line in [wifi], then add the chosen one right after the [wifi] header (plain shell: TWRP's sed
+  # and its missing awk can't be relied on)
+  tmp="$c.s6"; : > "$tmp"; sect=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in "["*"]") sect=$line ;; esac
+    if [ "$sect" = "[wifi]" ]; then case "$line" in band=*) continue ;; esac; fi
+    printf '%s\n' "$line" >> "$tmp"
+    if [ "$line" = "[wifi]" ] && [ "$BAND" = bg ]; then printf 'band=bg\n' >> "$tmp"; fi
+  done < "$c"
+  mv "$tmp" "$c"
+  chmod 600 "$c"; n=$((n+1))
+  ui "  $(sed -n 's/^id=//p' "$c" | head -n 1): $([ "$BAND" = bg ] && echo '2.4 GHz' || echo automatic)"
+done
+[ $n -gt 0 ] || ui "  no saved Wi-Fi networks found"
+ui " "; ui "Done ($n network(s)). Reboot to System."
+save; exit 0

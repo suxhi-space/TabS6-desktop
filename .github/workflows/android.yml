@@ -51,6 +51,7 @@ jobs:
           python3 tools/migrate/fedora/tests/test-keys.py
           python3 tools/migrate/update/build-zip.py /tmp/S6Migrate-UPDATE.zip && sh -n tools/migrate/update/update-binary
           python3 tools/migrate/report/build-zip.py /tmp/S6Migrate-REPORT.zip && sh -n tools/migrate/report/update-binary
+          python3 tools/migrate/wifi24/build-zip.py /tmp && sh -n tools/migrate/wifi24/update-binary.in
           sh -n tools/migrate/fix/update-binary && python3 -m py_compile tools/migrate/fix/s6pamtest.py && python3 tools/migrate/fix/build-zip.py /tmp/S6Migrate-FIX.zip
 
       - uses: actions/setup-java@v4

@@ -145,6 +145,48 @@ dolphin_style() { # view mode 0 icons, 1 details; icon sizes; single tap to open
   kw --file dolphinrc --group General --key ShowToolTips false
   kw --file dolphinrc --group PlacesPanel --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
   kw --file dolphinrc --group MainWindow --group "Toolbar mainToolBar" --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
+  dolphin_toolbars "$([ $big = 1 ] && echo 28 || echo 22)"
+}
+# Two toolbars like the Files app / Windows 11 Explorer: getting around on top (back, forward, up, refresh, the path,
+# search, menu), the things you do with files underneath (new, cut, copy, paste, rename, trash, select, sort, view,
+# details). Like Files, only New, Sort and View show their names (priority 0 = icon only). The version number is
+# high so Dolphin uses this layout; Dolphin's own menu (☰) keeps every other action.
+dolphin_toolbars() { # dolphin_toolbars ICONSIZE
+  local d="${XDG_DATA_HOME:-$HOME/.local/share}/kxmlgui5/dolphin"
+  mkdir -p "$d"
+  cat > "$d/dolphinui.rc" <<XML
+<!DOCTYPE gui SYSTEM "kpartgui.dtd">
+<gui name="dolphin" version="9000" translationDomain="dolphin">
+ <ToolBar name="mainToolBar" noMerge="1" iconText="icononly" iconSize="$1" alreadyVisited="1">
+  <text context="@title:menu">Main Toolbar</text>
+  <Action name="go_back"/>
+  <Action name="go_forward"/>
+  <Action name="go_up"/>
+  <Action name="view_redisplay"/>
+  <Action name="url_navigators"/>
+  <Action name="toggle_search"/>
+  <Action name="split_view"/>
+  <Action name="hamburger_menu"/>
+ </ToolBar>
+ <ToolBar name="s6FileActions" newline="true" noMerge="1" iconText="textbesideicon" iconSize="$1" alreadyVisited="1">
+  <text>File Actions</text>
+  <Action name="new_menu"/>
+  <Separator/>
+  <Action name="edit_cut" priority="0"/>
+  <Action name="edit_copy" priority="0"/>
+  <Action name="edit_paste" priority="0"/>
+  <Action name="rename" priority="0"/>
+  <Action name="movetotrash" priority="0"/>
+  <Separator/>
+  <Action name="toggle_selection_mode" priority="0"/>
+  <Action name="sort"/>
+  <Action name="view_mode"/>
+  <Action name="show_information_panel" priority="0"/>
+ </ToolBar>
+</gui>
+XML
+  kw --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key ToolButtonStyle TextBesideIcon
+  kw --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key IconSize "$1"
 }
 
 js_common='

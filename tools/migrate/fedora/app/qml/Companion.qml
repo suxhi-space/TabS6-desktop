@@ -346,6 +346,14 @@ ApplicationWindow {
                 Label2 { anchors.verticalCenter: parent.verticalCenter; text: "Taskbar gone after turning on auto-hide?"; color: Theme.sub; font.pixelSize: 14 }
                 Btn { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: "Show the taskbar again"; onClicked: lk.apply(["show-panels"]) }
             }
+            Toggle {
+                width: parent.width; title: "S6 Keyboard extras"
+                sub: "Emoji, clipboard and hide buttons on the on-screen keyboard. Off: the plain keyboard (takes effect the next time it opens)."
+                checked: !backend.exists(backend.home() + "/.config/s6migrate/stock-keyboard")
+                onCheckedChanged: win.run("kbd", backend.mock ? ["true"] : ["/bin/sh", "-c", checked
+                    ? "rm -f \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"
+                    : "mkdir -p \"$HOME/.config/s6migrate\" && touch \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"], null, null)
+            }
             Segmented {
                 width: parent.width; label: "File manager"; value: lk.cur.FILES || "dolphin"
                 options: [{ id: "dolphin", label: "Dolphin", sub: "KDE's file manager, set up for touch" },

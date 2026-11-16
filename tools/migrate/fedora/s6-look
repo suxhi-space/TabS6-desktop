@@ -82,9 +82,35 @@ apply_borders() {
 }
 # Clean, modern look when the extras are in (Papirus icons, the Inter font; both from Fedora's own repositories):
 # applied on top of the colours, never replacing the layout or the window style.
+# Folder colour, the way Papirus's own papirus-folders does it but in your own folder: a small icon theme
+# "S6 Papirus" on top of Papirus whose folder icons point at Papirus's coloured ones (yellow like Files/Windows by
+# default; S6_FOLDERS in look.conf: yellow, blue, green, orange, red, violet, grey...). Papirus itself isn't touched.
+s6_icons() { # s6_icons BASE(Papirus|Papirus-Dark) -> prints the theme name to use
+  local base=$1 col=$(getconf folders) name src d sz dirs="" out
+  col=${col:-yellow}; src=/usr/share/icons/Papirus
+  [ -d "$src/48x48/places" ] && ls "$src/48x48/places/folder-$col.svg" >/dev/null 2>&1 || { echo "$base"; return; }
+  name="S6-$base"; out="${XDG_DATA_HOME:-$HOME/.local/share}/icons/$name"
+  rm -rf "$out"; mkdir -p "$out"
+  for d in "$src"/*/places; do
+    sz=$(basename "$(dirname "$d")"); ls "$d/folder-$col".svg >/dev/null 2>&1 || continue
+    mkdir -p "$out/$sz/places"
+    for f in "$d"/folder-"$col"*.svg; do
+      n=$(basename "$f"); n="folder${n#folder-$col}"; ln -sf "$f" "$out/$sz/places/$n"
+    done
+    for u in home desktop; do [ -e "$d/folder-$col-$u.svg" ] && ln -sf "$d/folder-$col-$u.svg" "$out/$sz/places/user-$u.svg"; done
+    ln -sf "$d/folder-$col.svg" "$out/$sz/places/inode-directory.svg"   # plain folders in the file list
+    dirs="$dirs${dirs:+,}$sz/places"
+  done
+  { printf '[Icon Theme]\nName=S6 %s\nComment=Papirus with %s folders (S6 Migrate)\nInherits=%s,breeze,hicolor\nDirectories=%s\n' "$base" "$col" "$base" "$dirs"
+    for x in ${dirs//,/ }; do   # each folder size exactly as Papirus defines it, so it's picked at every size
+      if grep -q "^\[$x\]" "$src/index.theme"; then printf '\n'; sed -n "/^\[${x//\//\\/}\]/,/^\$/p" "$src/index.theme" | sed '/^$/d'
+      else sz=${x%%/*}; n=${sz%%x*}; printf '\n[%s]\nContext=Places\nSize=%s\nType=Fixed\n' "$x" "$n"; fi
+    done; } > "$out/index.theme"
+  echo "$name"
+}
 polish() { # polish light|dark
   local th=${1:-$(getconf theme)} ic
-  if [ -d /usr/share/icons/Papirus ]; then [ "$th" = dark ] && ic=Papirus-Dark || ic=Papirus
+  if [ -d /usr/share/icons/Papirus ]; then [ "$th" = dark ] && ic=Papirus-Dark || ic=Papirus; ic=$(s6_icons "$ic")
   else [ "$th" = dark ] && ic=breeze-dark || ic=breeze; fi
   if [ -x /usr/libexec/plasma-changeicons ] && pgrep -u "$(id -u)" -x plasmashell >/dev/null; then /usr/libexec/plasma-changeicons "$ic" >/dev/null 2>&1
   else kw --file kdeglobals --group Icons --key Theme "$ic"; fi
@@ -141,7 +167,8 @@ dolphin_style() { # view mode 0 icons, 1 details; icon sizes; single tap to open
   local big=$([ "$icons" -ge 80 ] && echo 1 || echo 0)
   kw --file dolphinrc --group MainWindow --key MenuBar Disabled
   kw --file dolphinrc --group General --key ShowSelectionToggle true
-  kw --file dolphinrc --group General --key EditableUrl false
+  kw --file dolphinrc --group General --key EditableUrl false      # the address bar: tap a part to jump there, tap beside it to type a path
+  kw --file dolphinrc --group General --key ShowFullPath false     # "Documents › Design", like Files' "Home › Documents"
   kw --file dolphinrc --group General --key ShowToolTips false
   kw --file dolphinrc --group PlacesPanel --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
   kw --file dolphinrc --group MainWindow --group "Toolbar mainToolBar" --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
@@ -149,7 +176,7 @@ dolphin_style() { # view mode 0 icons, 1 details; icon sizes; single tap to open
 }
 # Two toolbars like the Files app / Windows 11 Explorer: getting around on top (back, forward, up, refresh, the path,
 # search, menu), the things you do with files underneath (new, cut, copy, paste, rename, trash, select, sort, view,
-# details). Like Files, only New, Sort and View show their names (priority 0 = icon only). The version number is
+# details), icons only like Files. The version number is
 # high so Dolphin uses this layout; Dolphin's own menu (☰) keeps every other action.
 dolphin_toolbars() { # dolphin_toolbars ICONSIZE
   local d="${XDG_DATA_HOME:-$HOME/.local/share}/kxmlgui5/dolphin"
@@ -168,24 +195,27 @@ dolphin_toolbars() { # dolphin_toolbars ICONSIZE
   <Action name="split_view"/>
   <Action name="hamburger_menu"/>
  </ToolBar>
- <ToolBar name="s6FileActions" newline="true" noMerge="1" iconText="textbesideicon" iconSize="$1" alreadyVisited="1">
+ <ToolBar name="s6FileActions" newline="true" noMerge="1" iconText="icononly" iconSize="$1" alreadyVisited="1">
   <text>File Actions</text>
   <Action name="new_menu"/>
-  <Separator/>
-  <Action name="edit_cut" priority="0"/>
-  <Action name="edit_copy" priority="0"/>
-  <Action name="edit_paste" priority="0"/>
-  <Action name="rename" priority="0"/>
-  <Action name="movetotrash" priority="0"/>
-  <Separator/>
-  <Action name="toggle_selection_mode" priority="0"/>
+  <Separator lineSeparator="false"/>
+  <Action name="edit_cut"/>
+  <Action name="edit_copy"/>
+  <Action name="edit_paste"/>
+  <Action name="rename"/>
+  <Action name="movetotrash"/>
+  <Separator lineSeparator="false"/>
+  <Action name="toggle_selection_mode"/>
   <Action name="sort"/>
   <Action name="view_mode"/>
-  <Action name="show_information_panel" priority="0"/>
+  <Action name="show_information_panel"/>
  </ToolBar>
 </gui>
 XML
-  kw --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key ToolButtonStyle TextBesideIcon
+  kw --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key ToolButtonStyle IconOnly
+  # a quiet status line like Files ("17 items, 1 selected"): no zoom slider, no free-space gauge
+  kw --file dolphinrc --group General --key ShowZoomSlider false
+  kw --file dolphinrc --group General --key ShowSpaceInfo false
   kw --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key IconSize "$1"
 }
 

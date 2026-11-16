@@ -21,6 +21,9 @@ Pane {
         event_handler.onKeyReleased("", "commit")
         event_handler.onKeyReleased(t, "")
         event_handler.onKeyReleased("", "commit")
+        // a clip never leaves the keyboard stuck on capitals (caps lock stays as it was)
+        if (keypad.activeKeypadState === "SHIFTED") keypad.activeKeypadState = "NORMAL"
+        keypad.autoCapsTriggered = false
         fullScreenItem.s6clips = false
     }
     onVisibleChanged: if (visible) load()

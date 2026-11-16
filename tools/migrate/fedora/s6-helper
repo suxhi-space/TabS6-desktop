@@ -52,7 +52,7 @@ as_user() { # as_user USER CMD... : run in USER's home with the first-run sudo r
 set_autologin() { # set_autologin USER-or-empty: SDDM's automatic login, in sddm.conf.d and (if it sets one) sddm.conf
   local u=$1 tmp
   mkdir -p "$ETC/sddm.conf.d"
-  printf '# S6 Migrate: who logs in automatically\n[General]\nInputMethod=qtvirtualkeyboard\n[Autologin]\nUser=%s\n' "$u" > "$ETC/sddm.conf.d/zz-s6migrate.conf"
+  printf '# S6 Migrate: who logs in automatically\n[General]\nInputMethod=qtvirtualkeyboard\n[Autologin]\nUser=%s\nSession=plasma.desktop\n' "$u" > "$ETC/sddm.conf.d/zz-s6migrate.conf"
   if [ -f "$ETC/sddm.conf" ] && grep -q '^User=' "$ETC/sddm.conf"; then
     tmp=$(mktemp) && sed "/^\[Autologin\]/,/^\[/ s/^User=.*/User=$u/" "$ETC/sddm.conf" > "$tmp" && cat "$tmp" > "$ETC/sddm.conf"; rm -f "$tmp"
   fi

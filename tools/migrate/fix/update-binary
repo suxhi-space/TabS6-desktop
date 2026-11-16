@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 6: why won't Fedora start?"
+ui "S6 Migrate fix 7: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -228,7 +228,7 @@ ui "Packages:"
 PB=""
 if [ -z "${S6F_ROOT:-}" ]; then for d in dev proc sys; do mount -o bind "/$d" "$ROOT/$d" 2>/dev/null && PB="$PB $d"; done; fi
 RPMQ=${S6F_RPMQ:-chroot "$ROOT" /usr/bin/rpm}
-$RPMQ -qa --qf '%{NAME}\n' 2>/dev/null | sort | { prev=""; while IFS= read -r n; do [ "$n" = "$prev" ] && echo "$n"; prev=$n; done; } | sort -u > /tmp/s6fix-dups
+$RPMQ -qa --qf '%{NAME}\n' 2>/dev/null | sort | { prev=""; while IFS= read -r n; do [ "$n" = "$prev" ] && echo "$n"; prev=$n; done; } | sort -u | grep -v '^gpg-pubkey$' > /tmp/s6fix-dups
 $RPMQ -q --qf '%{NAME} %{VERSION}-%{RELEASE}\n' kwin kwin-libs plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma kdecoration kwin-effects-better-blur-dx darkly 2>/dev/null > /tmp/s6fix-ver
 for d in $PB; do umount "$ROOT/$d" 2>/dev/null || umount -l "$ROOT/$d" 2>/dev/null; done
 nd=$(grep -c . /tmp/s6fix-dups)
@@ -239,7 +239,10 @@ note "----- desktop versions -----"; cat /tmp/s6fix-ver >> "$REP"
 nv=$(grep -v 'not installed' /tmp/s6fix-ver | grep -E '^(kwin|kwin-libs|plasma-workspace|plasma-workspace-libs|libplasma|sddm-wayland-plasma) ' | cut -d' ' -f2 | cut -d- -f1 | sort -u | grep -c .)
 ui "  desktop versions: $(grep -E '^(kwin|plasma-workspace-libs|libplasma) ' /tmp/s6fix-ver | tr '\n' ' ' | cut -c1-90)"
 note "----- last dnf log -----"; tail -n 40 "$ROOT/var/log/dnf5.log" >> "$REP" 2>/dev/null
-if [ "$nd" -gt 0 ] || [ "$nv" -gt 1 ]; then
+nm=$(grep -c -E 'package (kwin|kwin-libs|plasma-workspace|libplasma|sddm-wayland-plasma) is not installed' /tmp/s6fix-ver)
+[ "$nm" -gt 0 ] && ui "  desktop packages missing from Fedora's package list: $nm (the cut-off update)"
+grep -q 'libkwin.so.6: file too short\|file too short' /tmp/s6fix-j.txt 2>/dev/null && ui "  a desktop file was cut short by the freeze (libkwin.so.6)"
+if [ "$nd" -gt 0 ] || [ "$nv" -gt 1 ] || [ "$nm" -gt 0 ] || grep -q 'file too short' /tmp/s6fix-j.txt 2>/dev/null; then
   mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/multi-user.target.wants"
   cat > "$ROOT/usr/local/libexec/s6migrate/s6-repair" <<'EOR'
 #!/usr/bin/bash
@@ -257,14 +260,26 @@ for i in $(seq 1 60); do
   sleep 5
 done
 if [ $online = 0 ]; then say "No internet: repair skipped this time (it tries again on the next start)."; exit 0; fi
-say "Removing the old copies of half-updated packages..."
-dnf -y remove --duplicates --setopt=excludepkgs='kernel*' || say "(no old copies removed)"
-say "Bringing every package to the same, current version (kernel left alone)..."
-if dnf -y --refresh distro-sync --setopt=excludepkgs='kernel*'; then
+X='--setopt=excludepkgs=kernel*'
+say "Step 1 of 4: removing old copies of half-updated packages..."
+dnf -y remove --duplicates "$X" || say "(no old copies removed)"
+say "Step 2 of 4: bringing every package to the same, current version (kernel left alone)..."
+dnf -y --refresh distro-sync "$X" || say "(distro-sync reported a problem; continuing)"
+say "Step 3 of 4: putting back desktop packages missing from the package list..."
+dnf -y install "$X" kwin kwin-libs kwin-common plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma \
+  plasma-desktop plasma-workspace-wayland || say "(some desktop packages could not be installed)"
+say "Step 4 of 4: checking every installed file and reinstalling packages with damaged files (this takes a while)..."
+rpm -Va --nomtime --nouser --nogroup --nomode --nordev --nolinkto --nocaps 2>/dev/null \
+  | grep -E '^(..5|.S)' | grep -v ' c /' | awk '{print $NF}' > /tmp/s6-damaged || true
+pk=$(xargs -r rpm -qf --qf '%{NAME}\n' < /tmp/s6-damaged 2>/dev/null | grep -v -E '^(kernel|file |error)' | sort -u | tr '\n' ' ')
+say "Damaged files: $(wc -l < /tmp/s6-damaged); packages to reinstall: ${pk:-none}"
+[ -n "$pk" ] && { dnf -y reinstall "$X" $pk || say "(some packages could not be reinstalled)"; }
+if [ -x /usr/bin/kwin_wayland ] && ldd /usr/bin/kwin_wayland 2>&1 | grep -q -v 'not found\|too short' \
+   && ! ldd /usr/bin/kwin_wayland 2>&1 | grep -q 'not found\|too short'; then
   rm -f /var/lib/s6migrate/repair-wanted
-  say "Repair finished. Starting the login screen."
+  say "Repair finished: the desktop's files check out. Starting the login screen."
 else
-  say "The repair did not finish (it tries again on the next start). Details: /var/lib/s6migrate/repair.log"
+  say "The desktop still has a problem (it tries again on the next start). Details: /var/lib/s6migrate/repair.log"
 fi
 chvt 7 2>/dev/null
 exit 0
@@ -295,12 +310,14 @@ ui "Login test (Fedora's own checks, run from here):"
 cat > "$ROOT/tmp/s6pamtest.py" <<'EOPY'
 # @PAMTEST@
 EOPY
+AUTOUSER=$(grep -h '^User=' "$ROOT/etc/sddm.conf.d/zz-s6migrate.conf" 2>/dev/null | tail -n 1 | cut -d= -f2)
+[ -n "$AUTOUSER" ] && ui "  automatic login goes to: $AUTOUSER ($(grep -q "^$AUTOUSER:" "$ROOT/etc/passwd" && echo 'account exists' || echo 'NO SUCH ACCOUNT'))"
 BOUND=""
 if [ -z "${S6F_ROOT:-}" ]; then
   for d in dev proc sys; do mount -o bind "/$d" "$ROOT/$d" 2>/dev/null && BOUND="$BOUND $d"; done
 fi
-if [ -n "${S6F_PAMRUN:-}" ]; then $S6F_PAMRUN "$ROOT/tmp/s6pamtest.py" > /tmp/s6fix-pam.txt 2>&1
-else chroot "$ROOT" /usr/bin/python3 -u /tmp/s6pamtest.py > /tmp/s6fix-pam.txt 2>&1; echo "exit $?" >> /tmp/s6fix-pam.txt; fi
+if [ -n "${S6F_PAMRUN:-}" ]; then $S6F_PAMRUN "$ROOT/tmp/s6pamtest.py" $AUTOUSER > /tmp/s6fix-pam.txt 2>&1
+else chroot "$ROOT" /usr/bin/python3 -u /tmp/s6pamtest.py $AUTOUSER > /tmp/s6fix-pam.txt 2>&1; echo "exit $?" >> /tmp/s6fix-pam.txt; fi
 for d in $BOUND; do umount "$ROOT/$d" 2>/dev/null || umount -l "$ROOT/$d" 2>/dev/null; done
 rm -f "$ROOT/tmp/s6pamtest.py" "$ROOT/etc/pam.d/s6fix-probe"
 note "----- login test -----"; cat /tmp/s6fix-pam.txt >> "$REP"

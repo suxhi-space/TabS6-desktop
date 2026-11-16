@@ -92,7 +92,15 @@ def probe(service, user, stage):
     try: os.remove("/etc/pam.d/s6fix-probe")
     except OSError: pass
 
-tests = [("sddm-autologin", "s6setup", b""), ("sddm", "s6setup", b"123456"), ("sddm", "fedora", b"123456")]
+import pwd
+def exists(u):
+    try: pwd.getpwnam(u); return True
+    except KeyError: return False
+# Automatic login for the account(s) named on the command line (the one SDDM logs in), plus the temporary accounts
+# while they still exist (their password is 123456 from the fix).
+tests = [("sddm-autologin", u, b"") for u in sys.argv[1:] if u]
+if exists("s6setup"): tests += [("sddm-autologin", "s6setup", b""), ("sddm", "s6setup", b"123456")]
+if exists("fedora"): tests += [("sddm", "fedora", b"123456")]
 for service, user, pw in tests:
     if not os.path.exists("/etc/pam.d/" + service): print("RESULT", service, user, "-", "missing", "no such login rules"); continue
     PASSWORD = pw

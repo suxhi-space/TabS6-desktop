@@ -79,6 +79,22 @@ for h in "$ROOT"/home/*; do
 done
 ls -laR "$ROOT"/usr/share/alsa/ucm2 2>/dev/null | head -400 > "$OUT/sound/ucm2-listing.txt"
 ls -la "$ROOT"/usr/share/pipewire "$ROOT"/usr/share/pipewire/pipewire.conf.d > "$OUT/sound/pipewire-listing.txt" 2>&1
+# t860-fedora's own tablet helpers (power button, screenshots, rotation): to work with them, not against them
+mkdir -p "$OUT/tabs6"
+for f in "$ROOT"/usr/local/bin/tabs6-* "$ROOT"/usr/local/bin/usb-role; do [ -f "$f" ] && cp "$f" "$OUT/tabs6/"; done
+[ -d "$ROOT/usr/local/libexec/tabs6" ] && cp -r "$ROOT/usr/local/libexec/tabs6" "$OUT/tabs6/libexec" 2>/dev/null
+ls "$ROOT"/etc/systemd/system/*.service "$ROOT"/etc/systemd/system/*.wants 2>/dev/null > "$OUT/tabs6/services.txt"
+# the boot partition (kernel start settings: loader/entries), read only
+ESP=/tmp/s6report-esp; mkdir -p "$ESP"
+EDEV=$(readlink -f /dev/block/by-name/cache 2>/dev/null)
+if [ -n "$EDEV" ] && mount -o ro "$EDEV" "$ESP" 2>/dev/null; then
+  mkdir -p "$OUT/esp"; ls -laR "$ESP" > "$OUT/esp/listing.txt" 2>&1
+  cp -r "$ESP/loader" "$OUT/esp/loader" 2>/dev/null
+  for f in "$ESP"/*.nsh "$ESP"/*.txt "$ESP"/*.conf; do [ -f "$f" ] && cp "$f" "$OUT/esp/"; done
+  umount "$ESP"
+else
+  grep -E " /cache " /proc/mounts > "$OUT/esp-not-mounted.txt" 2>&1
+fi
 mkdir -p "$OUT/boot"
 ls -laR "$ROOT/boot" > "$OUT/boot/listing.txt" 2>&1
 cp_if "$ROOT/boot/loader" "boot/loader"

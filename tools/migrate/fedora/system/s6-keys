@@ -104,7 +104,12 @@ def main():
         log("%s: %s (%s)" % (p, n, ", ".join(sorted({KEY_POWER: "power", KEY_VOLUMEDOWN: "volume down"}[x] for x in k))))
     if os.environ.get("S6K_DRY") == "1" or not devs:
         return 0 if devs else 1
-    u = virtual_power()
+    # t860-fedora's own power-button helper (tabs6-powerkeyd) reads the same button: never take it away from it,
+    # only watch (Power + Volume Down still takes a screenshot).
+    helper = subprocess.run(["pgrep", "-f", "tabs6-powerkeyd"], capture_output=True).returncode == 0
+    if helper:
+        log("tabs6-powerkeyd is running: only watching the power button")
+    u = None if helper else virtual_power()
     grabbed = set()
     if u is not None:
         for fd, (p, n, k) in devs.items():

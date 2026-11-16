@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=S6
+Description=S6 Migrate: the Fedora logo and a thin progress bar
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/s6
+ScriptFile=/usr/share/plymouth/themes/s6/s6.script

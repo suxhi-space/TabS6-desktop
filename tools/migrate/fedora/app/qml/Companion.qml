@@ -287,6 +287,18 @@ ApplicationWindow {
             }
             // Like the power menu on Android builds: restart into TWRP or Download mode without holding buttons.
             Card {
+                width: parent.width
+                Label2 { text: "Start-up screen"; display: true; font.pixelSize: 19; width: parent.width }
+                Segmented {
+                    width: parent.width
+                    value: (backend.read("/var/lib/s6migrate/boot-screen") || "verbose").trim()
+                    options: [{ id: "quiet", label: "Logo and progress bar", sub: "The Fedora logo with a thin bar while the tablet starts" },
+                              { id: "verbose", label: "Text", sub: "Every start-up message scrolling by (useful when something goes wrong)" }]
+                    onPicked: (id) => win.run("bootscreen", win.h(["boot-screen", id]), null, null)
+                }
+                Label2 { text: "Holding Volume Down while it starts still opens the boot menu."; font.pixelSize: 13; color: Theme.muted; width: parent.width }
+            }
+            Card {
                 id: pw
                 width: parent.width
                 property bool plugged: tb.bat.status !== "" && tb.bat.status !== "Discharging"
@@ -349,7 +361,7 @@ ApplicationWindow {
             Toggle {
                 width: parent.width; title: "S6 Keyboard extras"
                 sub: "Emoji, clipboard and hide buttons on the on-screen keyboard. Off: the plain keyboard (takes effect the next time it opens)."
-                checked: !backend.exists(backend.home() + "/.config/s6migrate/stock-keyboard")
+                checked: !backend.exists(backend.home + "/.config/s6migrate/stock-keyboard")
                 onCheckedChanged: win.run("kbd", backend.mock ? ["true"] : ["/bin/sh", "-c", checked
                     ? "rm -f \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"
                     : "mkdir -p \"$HOME/.config/s6migrate\" && touch \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"], null, null)

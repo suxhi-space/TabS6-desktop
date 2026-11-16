@@ -28,6 +28,7 @@
 #   prepare-look USER LAYOUT SIZE light|dark EFFECTS [#RRGGBB]   the new account's desktop, before its first login
 #                                                     (the colour: your Android accent, applied to KDE)
 #   power restart|recovery|download|off|sleep   restart (also into TWRP or Samsung's Download mode), power off, sleep
+#   boot-screen quiet|verbose|status the start-up screen: S6's (Fedora logo + bar) or the scrolling text
 #   power-status                     PLUGGED|yes/no  (powering off while plugged in starts the tablet again)
 #   storage                          COPY|PATH|KB|ORIGINAL (yes/no: the original on the card/drive is still there)
 #   free-copy PATH                   delete a copy of your package that the switch put on the tablet (never the original)
@@ -415,6 +416,51 @@ free-copy)
   [ -d "$d" ] && [ -f "$d/plan.txt" ] || die "not a package copy: $d"
   rm -rf -- "$d" && sed -i "\|$(basename "$d")|d" "$ST/package.info" 2>/dev/null
   echo "Removed $d"
+  ;;
+
+boot-screen)
+  # Start-up: "quiet" = S6's screen (Fedora logo + progress bar, Plymouth), "verbose" = the scrolling text.
+  # Only the options line of loader/entries/fedora.conf on the boot partition changes; the original is kept as
+  # fedora.conf.s6orig next to it, and "verbose" puts its settings back. Holding Volume Down at start still opens the
+  # boot menu (LAST KNOWN GOOD) either way.
+  mode=${1:-status}; ESP=${S6H_ESP:-/dev/sda27}; M=/mnt/s6-boot; T=/usr/share/plymouth/themes/s6
+  case "$mode" in quiet|verbose|status) ;; *) die "quiet, verbose or status" ;; esac
+  mkdir -p "$M"; LE=$(losetup -f --show "$ESP") && mount "$LE" "$M" || die "could not open the boot partition"
+  E="$M/loader/entries/fedora.conf"
+  if [ ! -f "$E" ]; then umount "$M"; losetup -d "$LE"; die "no boot entry found (loader/entries/fedora.conf)"; fi
+  cur=$(grep -q -w quiet "$E" && echo quiet || echo verbose)
+  if [ "$mode" = status ]; then echo "BOOTSCREEN|$cur"; umount "$M"; losetup -d "$LE"; exit 0; fi
+  [ -f "$E.s6orig" ] || cp "$E" "$E.s6orig"
+  opts=$(sed -n 's/^options[[:space:]]*//p' "$E" | head -n 1)
+  clean=$(printf '%s\n' $opts | grep -v -x -E 'quiet|splash|rhgb|loglevel=[0-9]+|rd\.udev\.log_level=[0-9]+|vt\.global_cursor_default=0|plymouth\.ignore-serial-consoles' | tr '\n' ' ' | sed 's/ $//')
+  if [ "$mode" = quiet ]; then
+    new="$clean quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles"
+    # the S6 theme: Fedora's own logo, and the bar pictures (made here: two small PNGs)
+    for l in /usr/share/pixmaps/fedora_whitelogo_med.png /usr/share/plymouth/themes/spinner/watermark.png /usr/share/pixmaps/fedora-logo.png; do
+      [ -f "$l" ] && { ln -sf "$l" "$T/logo.png"; break; }; done
+    python3 - "$T" <<'PY'
+import struct, sys, zlib
+def png(path, rgba):
+    w = h = 4
+    raw = b"".join(b"\0" + bytes(rgba) * w for _ in range(h))
+    def chunk(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+png(sys.argv[1] + "/track.png", (255, 255, 255, 64))
+png(sys.argv[1] + "/fill.png", (255, 255, 255, 255))
+PY
+    plymouth-set-default-theme s6 >/dev/null 2>&1 || true
+  else
+    orig=$(sed -n 's/^options[[:space:]]*//p' "$E.s6orig" | head -n 1)
+    new=$(printf '%s\n' $orig | grep -v -x -E 'quiet|splash|rhgb' | tr '\n' ' ' | sed 's/ $//')
+    printf '%s\n' $new | grep -q '^loglevel=' || new="$new loglevel=6"
+  fi
+  sed -i "s#^options.*#options $new#" "$E"
+  sync
+  grep -q "^options $new\$" "$E" && ok=1 || ok=0
+  umount "$M"; losetup -d "$LE"
+  [ $ok = 1 ] || die "the boot entry didn't take the change; the original is in fedora.conf.s6orig"
+  echo "$mode" > "$ST/boot-screen"
+  echo "Start-up screen: $mode (from the next start)"
   ;;
 
 power-status)

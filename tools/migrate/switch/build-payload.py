@@ -25,7 +25,8 @@ def build(mode):
     if "# @S6_EMBED@" not in script:
         raise SystemExit("no embed marker")
     tag = "S6_EOF_%x" % time.time_ns()
-    out = [f"S6_EMBEDDED=1\nS6_MODE={mode}\nmkdir -p \"$W/zip/s6migrate\"\n"]
+    out = [f"S6_EMBEDDED=1\nS6_MODE={mode}\nS6_TZ='America/Chicago'\nS6_LANG='en-US'\nS6_NAME='Test Tab S6'\n"
+           f"S6_TIME='202611161200.00'\nS6_EPOCH=1794830400\nmkdir -p \"$W/zip/s6migrate\"\n"]
     lst = []
     for i, line in enumerate(asset("fedora/install.list").decode().splitlines()):
         if not line.strip() or line.startswith("#"):

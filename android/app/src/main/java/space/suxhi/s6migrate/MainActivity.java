@@ -1109,15 +1109,151 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // ------------------------------------------------------------------ region (chosen before installing, like other installers)
+
+    /** Time zone, language and device name for Fedora, from Android unless the user changed them. Saved across visits. */
+    String regionTz() {
+        String v = getSharedPreferences("region", MODE_PRIVATE).getString("tz", null);
+        return v != null ? v : java.util.TimeZone.getDefault().getID();
+    }
+
+    String regionLang() {
+        String v = getSharedPreferences("region", MODE_PRIVATE).getString("lang", null);
+        if (v != null) return v;
+        java.util.Locale l = java.util.Locale.getDefault();
+        return l.getCountry().isEmpty() ? l.getLanguage() : l.getLanguage() + "-" + l.getCountry();
+    }
+
+    String regionName() {
+        String v = getSharedPreferences("region", MODE_PRIVATE).getString("name", null);
+        if (v != null) return v;
+        String n = null;
+        try { n = android.provider.Settings.Global.getString(getContentResolver(), "device_name"); } catch (Exception ignored) { }
+        return n != null && !n.trim().isEmpty() ? n.trim() : "Galaxy Tab S6";
+    }
+
+    void saveRegion(String key, String value) {
+        getSharedPreferences("region", MODE_PRIVATE).edit().putString(key, value).apply();
+    }
+
+    static final java.util.regex.Pattern TZ_OK = java.util.regex.Pattern.compile(
+            "^(UTC|(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)/[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?)$");
+    static final java.util.regex.Pattern LANG_OK = java.util.regex.Pattern.compile("^[a-z]{2,3}(-[A-Z]{2})?$");
+
+    String tzLabel(String id) {
+        if ("UTC".equals(id)) return "UTC (no time zone)";
+        int off = java.util.TimeZone.getTimeZone(id).getOffset(System.currentTimeMillis()) / 60000;
+        String[] parts = id.split("/");
+        StringBuilder place = new StringBuilder();
+        for (int i = parts.length - 1; i >= 1; i--) place.append(parts[i].replace('_', ' ')).append(", ");
+        place.append(parts[0]);
+        return String.format(java.util.Locale.US, "%s (UTC%s%02d:%02d)", place, off < 0 ? "-" : "+", Math.abs(off) / 60, Math.abs(off) % 60);
+    }
+
+    String langLabel(String tag) {
+        java.util.Locale l = java.util.Locale.forLanguageTag(tag);
+        String n = l.getDisplayName(l);
+        return (n.isEmpty() ? tag : Character.toUpperCase(n.charAt(0)) + n.substring(1)) + "  ·  " + tag;
+    }
+
+    /** A searchable list in a dialog (time zones, languages): ids and labels in the same order. */
+    void pickFrom(String title, List<String> ids, List<String> labels, String current, java.util.function.Consumer<String> picked) {
+        LinearLayout box = vbox();
+        box.setPadding(dp(16), dp(8), dp(16), 0);
+        EditText search = new EditText(this);
+        search.setHint("Search");
+        search.setSingleLine(true);
+        box.addView(search, lpm(MATCH, WRAP, 0, 0, 0, 6));
+        android.widget.ListView lv = new android.widget.ListView(this);
+        List<String> shown = new ArrayList<>(labels);
+        android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_list_item_1, shown);
+        lv.setAdapter(ad);
+        box.addView(lv, lpm(MATCH, dp(420), 0, 0, 0, 0));
+        int ci = ids.indexOf(current);
+        if (ci >= 0) lv.setSelection(Math.max(0, ci - 3));
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle(title).setView(box).setNegativeButton("Close", null).create();
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence c, int a, int b, int d) { }
+            public void onTextChanged(CharSequence c, int a, int b, int d) { }
+            public void afterTextChanged(android.text.Editable e) {
+                String q = e.toString().trim().toLowerCase(java.util.Locale.ROOT);
+                shown.clear();
+                for (String l : labels) if (q.isEmpty() || l.toLowerCase(java.util.Locale.ROOT).contains(q)) shown.add(l);
+                ad.notifyDataSetChanged();
+            }
+        });
+        lv.setOnItemClickListener((parent, v, pos, id) -> {
+            int i = labels.indexOf(shown.get(pos));
+            if (i >= 0) picked.accept(ids.get(i));
+            dlg.dismiss();
+        });
+        dlg.show();
+    }
+
+    void pickTimeZone(Runnable after) {
+        List<String> ids = new ArrayList<>();
+        for (String id : java.util.TimeZone.getAvailableIDs()) if (TZ_OK.matcher(id).matches() && !id.equals("UTC")) ids.add(id);
+        java.util.Collections.sort(ids, (a, b) -> tzLabel(a).compareToIgnoreCase(tzLabel(b)));
+        ids.add(0, "UTC");
+        List<String> labels = new ArrayList<>();
+        for (String id : ids) labels.add(tzLabel(id));
+        pickFrom("Time zone", ids, labels, regionTz(), v -> { saveRegion("tz", v); after.run(); });
+    }
+
+    void pickLanguage(Runnable after) {
+        java.util.TreeMap<String, String> byLabel = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (java.util.Locale l : java.util.Locale.getAvailableLocales()) {
+            if (l.getLanguage().isEmpty() || l.getCountry().isEmpty() || !l.getVariant().isEmpty() || !l.getScript().isEmpty()) continue;
+            String tag = l.getLanguage() + "-" + l.getCountry();
+            if (LANG_OK.matcher(tag).matches()) byLabel.put(langLabel(tag), tag);
+        }
+        List<String> labels = new ArrayList<>(byLabel.keySet()), ids = new ArrayList<>(byLabel.values());
+        pickFrom("Language and region", ids, labels, regionLang(), v -> { saveRegion("lang", v); after.run(); });
+    }
+
+    void editDeviceName(Runnable after) {
+        EditText et = new EditText(this);
+        et.setText(regionName());
+        et.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("Device name").setMessage("How the tablet shows up on Bluetooth and your network.")
+                .setView(et).setPositiveButton("Save", (d, w) -> {
+                    String n = et.getText().toString().replaceAll("[^\\p{L}\\p{N} ._'-]", "").trim();
+                    if (n.length() > 40) n = n.substring(0, 40);
+                    if (!n.isEmpty()) saveRegion("name", n);
+                    after.run();
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    View regionCard(Runnable refresh) {
+        LinearLayout rc = card();
+        rc.addView(tv("Your region", 17, fSemi, t.text));
+        rc.addView(tv("Fedora uses these from its very first start. S6 Setup shows them again so you can still change them.", 14, fText, t.sub));
+        String[][] rows = {{"Time zone", tzLabel(TZ_OK.matcher(regionTz()).matches() ? regionTz() : "UTC")},
+                {"Language", langLabel(regionLang())}, {"Device name", regionName()}};
+        Runnable[] acts = {() -> pickTimeZone(refresh), () -> pickLanguage(refresh), () -> editDeviceName(refresh)};
+        for (int i = 0; i < rows.length; i++) {
+            LinearLayout r = hbox();
+            LinearLayout txt = vbox();
+            txt.addView(tv(rows[i][0], 13, fSemi, t.sub));
+            txt.addView(tv(rows[i][1], 16, fText, t.text));
+            r.addView(txt, new LinearLayout.LayoutParams(0, WRAP, 1f));
+            r.addView(button("Change", false, acts[i]));
+            rc.addView(r, lpm(MATCH, WRAP, 0, 10, 0, 0));
+        }
+        return rc;
+    }
+
     void finalConfirm(String drive) {
         curStep = 5;
         LinearLayout body = vbox();
+        body.addView(regionCard(() -> finalConfirm(drive)));
+        body.addView(gap(16));
         body.addView(h2("What happens now"));
         body.addView(text("1. The tablet restarts into TWRP. If TWRP asks for a password, tap Cancel.\n"
                 + "2. TWRP checks the Fedora download and saves your Android boot backup to the drive.\n"
                 + "3. Fedora is installed. Android and everything not in your package is erased.\n"
-                + "4. The tablet restarts into Fedora (log in as fedora / fedora), and S6 Migrate brings your files, "
-                + "settings and apps back.\n\nIt takes about 30-40 minutes. Keep the charger plugged in and the drive connected. "
+                + "4. The tablet restarts into Fedora and S6 Setup opens: Wi-Fi, your own account, your look, and your files, "
+                + "settings and apps.\n\nIt takes about 30-40 minutes. Keep the charger plugged in and the drive connected. "
                 + "Don't press any buttons in TWRP.", 15, false));
         body.addView(gap(10));
         body.addView(muted("If anything fails before step 3, TWRP says \"Nothing was erased\" and you can go back to Android."));
@@ -1181,7 +1317,15 @@ public class MainActivity extends Activity {
         String script = readAsset("switch/update-binary");
         if (!script.contains("# @S6_EMBED@")) throw new IOException("switch script has no embed marker");
         String tag = "S6_EOF_" + Long.toHexString(System.nanoTime());
+        String rTz = regionTz(), rLang = regionLang(), rName = regionName();
+        if (!TZ_OK.matcher(rTz).matches()) rTz = "UTC";
+        if (!LANG_OK.matcher(rLang).matches()) rLang = "en-US";
+        rName = rName.replaceAll("[^\\p{L}\\p{N} ._'-]", "").trim();
+        java.text.SimpleDateFormat utc = new java.text.SimpleDateFormat("yyyyMMddHHmm.ss", java.util.Locale.US);
+        utc.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
         StringBuilder e = new StringBuilder("S6_EMBEDDED=1\nS6_MODE=" + (rehearsal ? "rehearsal" : "switch")
+                + "\nS6_TZ=" + q(rTz) + "\nS6_LANG=" + q(rLang) + "\nS6_NAME=" + q(rName)
+                + "\nS6_TIME=" + q(utc.format(new java.util.Date())) + "\nS6_EPOCH=" + (System.currentTimeMillis() / 1000)
                 + "\nmkdir -p \"$W/zip/s6migrate\"\n");
         StringBuilder list = new StringBuilder();
         String[] lines = readAsset("fedora/install.list").split("\n");

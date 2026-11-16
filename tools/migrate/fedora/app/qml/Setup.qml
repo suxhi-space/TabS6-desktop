@@ -282,7 +282,8 @@ ApplicationWindow {
             width: parent.width; spacing: 18
             function next() {
                 win.deviceName = dn.text.trim() || "Galaxy Tab S6"
-                win.timeZone = tz.text.trim() || "UTC"
+                win.timeZone = tz.value || "UTC"
+                win.loc = lang.value || win.loc
                 win.page = 4
             }
             Component.onCompleted: {
@@ -294,16 +295,29 @@ ApplicationWindow {
                 width: parent.width; columns: frame.roomy ? 2 : 1; columnSpacing: 20; rowSpacing: 16
                 property real cw: frame.roomy ? (width - 20) / 2 : width
                 Field { id: dn; width: parent.cw; label: "Device name"; text: win.deviceName; hint: "How it shows up on Bluetooth and your network." }
-                Field { id: tz; width: parent.cw; label: "Time zone"; text: win.timeZone; hint: "From Android. Format: Region/City, like America/Chicago." }
+                Picker {
+                    id: tz; width: parent.cw; label: "Time zone"; value: win.timeZone
+                    options: backend.timeZones(); searchHint: "Search by city or country"
+                    hint: "From Android. Tap to choose another; search by city or country."
+                }
+                Picker {
+                    id: lang; width: parent.cw; label: "Language and region"; value: win.loc; searchHint: "Search by language or country"
+                    hint: "From Android. Used for the menus, dates and numbers."
+                    Component.onCompleted: {
+                        var o = [], codes = backend.languages()
+                        for (var i = 0; i < codes.length; i++) {
+                            var l = Qt.locale(codes[i].replace("-", "_"))
+                            var name = l.nativeLanguageName ? l.nativeLanguageName + (l.nativeTerritoryName ? " (" + l.nativeTerritoryName + ")" : "") : codes[i]
+                            o.push({ id: codes[i], label: name.charAt(0).toUpperCase() + name.slice(1) + "  ·  " + codes[i] })
+                        }
+                        o.sort(function (a, b) { return a.label.localeCompare(b.label) })
+                        options = o
+                    }
+                }
             }
             Card {
                 width: parent.width
-                Label2 {
-                    property var l: Qt.locale(win.loc.replace("-", "_"))
-                    text: "Language and region: " + l.nativeLanguageName + (l.nativeTerritoryName ? " (" + l.nativeTerritoryName + ")" : "")
-                    width: parent.width
-                }
-                Label2 { text: "Set from Android. Your wallpaper comes over too and appears after you log in."; font.pixelSize: 14; color: Theme.muted; width: parent.width }
+                Label2 { text: "Your wallpaper comes over from Android too and appears after you log in."; font.pixelSize: 14; color: Theme.muted; width: parent.width }
                 Rectangle { width: parent.width; height: 1; color: Theme.hair }
                 Toggle {
                     width: parent.width; title: "Set up Android app support"

@@ -354,6 +354,17 @@ Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore 
   - Rehearsal and switch with verification off, with verification on and writable, and with verification on and read-only.
   - An installer that can't free `/data`.
 
+## Region before installing (app 0.4.7)
+
+Like other installers (PikaOS's asks before it installs), the app's last page before the switch has a **Your region** card:
+- **Time zone:** a searchable list of every time zone, labelled like "Chicago, America (UTC-06:00)".
+- **Language and region:** searchable, in each language's own name.
+- **Device name.**
+
+All three are pre-filled from Android and saved across visits.
+
+The switch writes them into Fedora: `/etc/localtime`, `/etc/locale.conf`, `/etc/hostname` and `/etc/machine-info`. It also sets the date of `/var/lib/systemd/timesync/clock` to the time the switch was prepared. systemd never starts the clock earlier than that file's date, so Fedora's clock can't begin a month behind (it did on the first real switch, which broke secure downloads). S6 Setup shows the same choices again, with searchable pickers instead of a typed "Region/City".
+
 ## Recovering by hand: what the first real switch taught us
 
 These facts about the tablet under t860-fedora cost an evening to learn. The scripts now avoid every problem listed below. Keep this page for anyone who still ends up recovering by hand.

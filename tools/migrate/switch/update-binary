@@ -296,6 +296,28 @@ if [ $ROOT_OK = 1 ]; then
     sed '/^\[Autologin\]/,/^\[/ s/^User=.*/User=s6setup/' "$ROOT/var/lib/s6migrate/sddm.conf.orig" > "$W/sddm.conf.new" \
       && cat "$W/sddm.conf.new" > "$ROOT/etc/sddm.conf"
   fi
+  # The region chosen in the app right before installing (time zone, language, device name) and the right time,
+  # so Fedora is correct from its very first start (its clock started a month behind on the first real switch).
+  if [ -n "${S6_TZ:-}" ] && [ -e "$ROOT/usr/share/zoneinfo/$S6_TZ" ]; then
+    rm -f "$ROOT/etc/localtime"; ln -s "../usr/share/zoneinfo/$S6_TZ" "$ROOT/etc/localtime"
+  fi
+  if [ -n "${S6_LANG:-}" ]; then
+    l=${S6_LANG%%-*}; c=${S6_LANG#*-}; [ "$c" = "$S6_LANG" ] && c=""
+    echo "LANG=${l}${c:+_$c}.UTF-8" > "$ROOT/etc/locale.conf"
+  fi
+  if [ -n "${S6_NAME:-}" ]; then
+    printf 'PRETTY_HOSTNAME="%s"\n' "$S6_NAME" > "$ROOT/etc/machine-info"
+    slug=$(echo "$S6_NAME" | tr 'A-Z ' 'a-z-' | tr -cd 'a-z0-9-' | cut -c1-40)
+    [ -n "$slug" ] && echo "$slug" > "$ROOT/etc/hostname"
+  fi
+  if [ -n "${S6_TIME:-}" ]; then   # systemd never sets the clock earlier than this file's date at start-up
+    mkdir -p "$ROOT/var/lib/systemd/timesync"; : > "$ROOT/var/lib/systemd/timesync/clock"
+    ( export TZ=UTC; f="$ROOT/var/lib/systemd/timesync/clock"
+      B touch -t "$S6_TIME" "$f" 2>/dev/null || toybox touch -t "$S6_TIME" "$f" 2>/dev/null || touch -t "$S6_TIME" "$f" 2>/dev/null ) \
+      || warn "could not set the clock hint (Fedora corrects its clock once online)"
+  fi
+  printf 'tz=%s\nlang=%s\nname=%s\n' "${S6_TZ:-}" "${S6_LANG:-}" "${S6_NAME:-}" > "$ROOT/var/lib/s6migrate/region.env"
+  [ -n "${S6_TZ:-}" ] && ui "   region: ${S6_TZ}, ${S6_LANG:-}, \"${S6_NAME:-}\""
   # SELinux: files written from TWRP have no Fedora security labels. If SELinux is on, let Fedora relabel
   # once on the first start (Fedora's own mechanism; adds a few minutes and one automatic restart).
   # t860-fedora boots with selinux=0: then a relabel only adds a long, silent first start.

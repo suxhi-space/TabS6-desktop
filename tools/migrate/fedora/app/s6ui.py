@@ -16,6 +16,7 @@ S6_MOCK=1 runs every command as a short simulation (for screenshots and tests on
 import base64
 import json
 import os
+import subprocess
 import re
 import shlex
 import sys
@@ -30,7 +31,7 @@ SHARE = Path(os.environ.get("S6_SHARE", "/usr/local/share/s6migrate"))
 HELPER = os.environ.get("S6_HELPER", "/usr/local/libexec/s6migrate/s6-helper")
 STATE = Path(os.environ.get("S6_STATE", "/var/lib/s6migrate"))
 MOCK = os.environ.get("S6_MOCK") == "1"
-VERSION = "0.4.6"
+VERSION = "0.4.7"
 
 
 def load_fonts():
@@ -94,6 +95,13 @@ def package_parts():
 
 def read_settings(parts):
     s = {}
+    # The region chosen in the app right before installing wins over the Android values in the package.
+    reg = STATE / "region.env"
+    if reg.is_file():
+        r = dict(l.split("=", 1) for l in reg.read_text(errors="replace").splitlines() if "=" in l)
+        for k_from, k_to in (("tz", "timezone"), ("lang", "locale"), ("name", "device_name")):
+            if r.get(k_from):
+                s[k_to] = r[k_from]
     for p in parts:
         f = Path(p) / "settings" / "settings.txt"
         if f.is_file():
@@ -281,6 +289,52 @@ class Backend(QObject):
             return True
         except Exception:
             return False
+
+    @Slot(result="QVariantList")
+    def timeZones(self):
+        """Every time zone as {id, label}: "Chicago, America (UTC-06:00)", sorted by region and city."""
+        import datetime
+        try:
+            from zoneinfo import ZoneInfo, available_timezones
+            names = available_timezones()
+        except Exception:
+            return [{"id": "UTC", "label": "UTC"}]
+        regions = ("Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific")
+        out = []
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for n in names:
+            if n.split("/")[0] not in regions or n.count("/") > 2:
+                continue
+            try:
+                off = now.astimezone(ZoneInfo(n)).utcoffset()
+            except Exception:
+                continue
+            mins = int(off.total_seconds() // 60)
+            sign = "+" if mins >= 0 else "-"
+            parts = n.split("/")
+            place = ", ".join(x.replace("_", " ") for x in reversed(parts[1:])) + ", " + parts[0]
+            out.append({"id": n, "label": "%s (UTC%s%02d:%02d)" % (place, sign, abs(mins) // 60, abs(mins) % 60),
+                        "key": (parts[0], place)})
+        out.sort(key=lambda o: o["key"])
+        for o in out:
+            del o["key"]
+        return [{"id": "UTC", "label": "UTC (no time zone)"}] + out
+
+    @Slot(result="QStringList")
+    def languages(self):
+        """Language codes Fedora can use, like "en-US" (from localectl; glibc-all-langpacks is installed)."""
+        codes = []
+        try:
+            r = subprocess.run(["localectl", "list-locales"], capture_output=True, text=True, timeout=10)
+            for line in r.stdout.split():
+                if line.endswith(".UTF-8") and "@" not in line:
+                    c = line[:-6].replace("_", "-")
+                    if c not in codes:
+                        codes.append(c)
+        except Exception:
+            pass
+        return codes or ["en-US", "en-GB", "es-ES", "es-MX", "fr-FR", "de-DE", "it-IT", "pt-BR", "pt-PT", "nl-NL",
+                         "pl-PL", "ru-RU", "uk-UA", "tr-TR", "ar-SA", "hi-IN", "ja-JP", "ko-KR", "zh-CN", "zh-TW"]
 
     @Slot(str, result=str)
     def suggestUser(self, full):

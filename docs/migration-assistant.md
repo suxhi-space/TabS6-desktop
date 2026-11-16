@@ -399,6 +399,7 @@ sync; umount /tmp/r; reboot
 **S6Migrate-FIX.zip** (`tools/migrate/fix/`, build with `build-zip.py`). For a tablet that shows a login screen instead of S6 Setup: put the ZIP on a USB stick or the card and install it from TWRP. It erases nothing. It:
 - shows why logins fail: from Fedora's log, and from its own boot check's report on the next run
 - gives the temporary `s6setup` and `fedora` accounts the password 123456 (S6 Setup removes both)
+- refills Fedora's core login files if they are empty (`system-auth`, `password-auth`, `postlogin`, `fingerprint-auth`, `smartcard-auth`, `nsswitch.conf`, `authselect.conf`), in place so authselect's links stay; empty login-rule files make libpam refuse every account with "Permission denied" (seen on the first real switch, probably from a forced restart while they were being rewritten). Lists every empty file in `/etc`
 - checks Fedora's login rules (PAM): restores missing `system-auth`, `password-auth` or `postlogin` files, and marks rule lines naming uninstalled modules as skippable (originals kept in `/var/lib/s6migrate/pam.before-fix`)
 - rewrites the automatic-login file and removes stale blockers (`/etc/nologin`, `.autorelabel`)
 - keeps logs on disk

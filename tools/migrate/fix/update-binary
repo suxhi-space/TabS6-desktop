@@ -24,7 +24,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 3: why can't anyone log in?"
+ui "S6 Migrate fix 4: why can't anyone log in?"
 if [ -z "${S6F_ROOT:-}" ]; then
   DEV=$(readlink -f /dev/block/by-name/userdata)
   mkdir -p "$ROOT"
@@ -131,13 +131,90 @@ EOP
 pam_target() { # where an /etc/pam.d name really lives (follows a symlink inside Fedora)
   t="$PD/$1"; if [ -L "$t" ]; then l=$(readlink "$t"); case "$l" in /*) t="$ROOT$l" ;; *) t="$PD/$l" ;; esac; fi; echo "$t"
 }
-checked=""; fixedpam=0
+blank() { ! { grep -v '^ *#' "$1" 2>/dev/null | grep -q '[a-z]'; }; }   # missing, empty, or comments only
+gen_stack() { cat <<'EOP'
+# Restored by S6 Migrate fix: this file was empty. Fedora's standard local rules (authselect "local" profile).
+auth        required                                     pam_env.so
+auth        required                                     pam_faildelay.so delay=2000000
+auth        sufficient                                   pam_unix.so nullok
+auth        required                                     pam_deny.so
+
+account     required                                     pam_unix.so
+
+password    requisite                                    pam_pwquality.so
+password    sufficient                                   pam_unix.so yescrypt shadow nullok use_authtok
+password    required                                     pam_deny.so
+
+session     optional                                     pam_keyinit.so revoke
+session     required                                     pam_limits.so
+-session    optional                                     pam_systemd.so
+session     [success=1 default=ignore]                   pam_succeed_if.so service in crond quiet use_uid
+session     required                                     pam_unix.so
+EOP
+}
+gen_noauth() { cat <<'EOP'
+# Restored by S6 Migrate fix: this file was empty (no fingerprint or smartcard sign-in).
+auth        required                                     pam_deny.so
+account     required                                     pam_unix.so
+password    required                                     pam_deny.so
+session     optional                                     pam_keyinit.so revoke
+session     required                                     pam_limits.so
+-session    optional                                     pam_systemd.so
+session     required                                     pam_unix.so
+EOP
+}
+gen_postlogin() { printf '# Restored by S6 Migrate fix: this file was empty.\nsession     optional                   pam_umask.so silent\n'; }
+gen_nss() { cat <<'EOP'
+# Restored by S6 Migrate fix: this file was empty. Fedora's standard local lookups.
+passwd:     files systemd
+shadow:     files
+group:      files systemd
+hosts:      files myhostname resolve [!UNAVAIL=return] dns
+services:   files
+netgroup:   files
+automount:  files
+aliases:    files
+ethers:     files
+gshadow:    files
+networks:   files dns
+protocols:  files
+publickey:  files
+rpc:        files
+EOP
+}
+restore() { # restore PATH-IN-/etc GENERATOR: refill an empty core file in place (keeps authselect's symlink)
+  local link="$ROOT$1" t
+  t=$link; if [ -L "$link" ]; then l=$(readlink "$link"); case "$l" in /*) t="$ROOT$l" ;; *) t="$(dirname "$link")/$l" ;; esac; fi
+  blank "$t" || return 0
+  [ -f "$t" ] && cp "$t" "$BK/$(basename "$1").empty" 2>/dev/null
+  if [ -d "$(dirname "$t")" ]; then $2 > "$t"; else rm -f "$link"; $2 > "$link"; t=$link; fi
+  chmod 644 "$t"; ui "  restored $1 (it was empty)"; fixedpam=1
+}
+fixedpam=0
+restore /etc/pam.d/system-auth gen_stack
+restore /etc/pam.d/password-auth gen_stack
+restore /etc/pam.d/postlogin gen_postlogin
+restore /etc/pam.d/fingerprint-auth gen_noauth
+restore /etc/pam.d/smartcard-auth gen_noauth
+restore /etc/nsswitch.conf gen_nss
+if [ -d "$ROOT/etc/authselect" ] && blank "$ROOT/etc/authselect/authselect.conf"; then
+  printf 'local\nwith-silent-lastlog\n' > "$ROOT/etc/authselect/authselect.conf"; chmod 644 "$ROOT/etc/authselect/authselect.conf"
+  ui "  restored the login profile setting (local)"
+fi
+# Other files a crash may have emptied: listed in the report, critical ones on screen.
+find "$ROOT/etc" -type f -size 0 2>/dev/null | sed "s|^$ROOT||" > /tmp/s6fix-empty
+note "----- empty files in /etc -----"; cat /tmp/s6fix-empty >> "$REP"
+for c in /etc/passwd /etc/group /etc/shadow /etc/gshadow /etc/hostname /etc/machine-id /etc/fstab /etc/locale.conf /etc/sudoers; do
+  grep -qx "$c" /tmp/s6fix-empty && ui "  WARNING: $c is empty"
+done
+ui "  empty files in /etc: $(wc -l < /tmp/s6fix-empty) (listed in the report)"
+checked=""
 check_pam() { # check_pam NAME (recursive through include/substack)
   local f bad line m mp t2
   case " $checked " in *" $1 "*) return ;; esac; checked="$checked $1"
   f=$(pam_target "$1")
-  if [ ! -f "$f" ]; then
-    note "pam: $1 missing ($( [ -L "$PD/$1" ] && echo "link to $(readlink "$PD/$1")" || echo "no file"))"
+  if [ ! -f "$f" ] || blank "$f"; then
+    note "pam: $1 missing or empty ($( [ -L "$PD/$1" ] && echo "link to $(readlink "$PD/$1")" || echo "no file"))"
     case "$1" in
       system-auth|password-auth) { [ -e "$PD/$1" ] || [ -L "$PD/$1" ]; } && mv "$PD/$1" "$BK/$1.link" 2>/dev/null; write_stack "$1"; ui "  login rules: $1 was missing, restored"; fixedpam=1 ;;
       postlogin) { [ -e "$PD/$1" ] || [ -L "$PD/$1" ]; } && mv "$PD/$1" "$BK/$1.link" 2>/dev/null; printf '#%%PAM-1.0\n# Restored by S6 Migrate fix.\nsession optional pam_umask.so silent\n' > "$PD/$1"; chmod 644 "$PD/$1"; ui "  login rules: postlogin was missing, restored"; fixedpam=1 ;;
@@ -182,7 +259,7 @@ if [ -z "${S6F_ROOT:-}" ]; then
   for d in dev proc sys; do mount -o bind "/$d" "$ROOT/$d" 2>/dev/null && BOUND="$BOUND $d"; done
 fi
 if [ -n "${S6F_PAMRUN:-}" ]; then $S6F_PAMRUN "$ROOT/tmp/s6pamtest.py" > /tmp/s6fix-pam.txt 2>&1
-else chroot "$ROOT" /usr/bin/python3 /tmp/s6pamtest.py > /tmp/s6fix-pam.txt 2>&1; fi
+else chroot "$ROOT" /usr/bin/python3 -u /tmp/s6pamtest.py > /tmp/s6fix-pam.txt 2>&1; echo "exit $?" >> /tmp/s6fix-pam.txt; fi
 for d in $BOUND; do umount "$ROOT/$d" 2>/dev/null || umount -l "$ROOT/$d" 2>/dev/null; done
 rm -f "$ROOT/tmp/s6pamtest.py" "$ROOT/etc/pam.d/s6fix-probe"
 note "----- login test -----"; cat /tmp/s6fix-pam.txt >> "$REP"

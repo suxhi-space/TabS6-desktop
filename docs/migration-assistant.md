@@ -378,6 +378,28 @@ On the first real switch, S6 Companion installed Better Blur DX while the deskto
 - The Wi-Fi country comes from the chosen region (`options cfg80211 ieee80211_regdom=XX`).
 - Saved Android networks come over during the switch: TWRP converts the package's `WifiConfigStore.xml` to NetworkManager keyfiles (root-only, 600), so Fedora connects on its own at the first start, before S6 Setup. It converts WPA/WPA2-personal, WPA3 (SAE) and open networks, hidden ones included. Enterprise networks and networks with hex-encoded names are skipped.
 
+## Your desktop is ready at the first login (0.4.7)
+
+S6 Setup prepares the new account's desktop before anyone logs in (`s6-helper prepare-look`, which runs `s6-look prepare` as the user):
+- installs the S6 layouts as Global Themes in the account
+- names the chosen one in `kdeglobals` (`LookAndFeelPackage`), so Plasma builds the very first desktop from that layout
+- writes the colours and icons, window borders, Dolphin style, effects settings and touch mode
+
+Two things need the running desktop, so `s6-look heal` does them the moment you log in:
+- the screen scale
+- panel see-through
+
+At that point `heal` also checks the panels match the chosen layout, and applies the layout if Plasma didn't.
+
+With Wi-Fi, the restart after S6 Setup installs these before the first login, so the first desktop is up to date and complete:
+- Fedora updates
+- Better Blur DX and Darkly
+- the RPM Fusion codecs, whose drivers can require matching graphics libraries
+
+S6 Setup's progress page now has two parts, "Setting up your tablet" and "Moving your things in".
+
+**Still planned:** the Android app could download these extras together with Fedora, so a tablet with no Wi-Fi at first start is complete too. The build system would produce a list of exact Fedora 44 aarch64 package URLs and checksums, the app would download them to the drive, and the switch would hand them to `s6-maint` as a local repository.
+
 ## Region before installing (app 0.4.7)
 
 Like other installers (PikaOS's asks before it installs), the app's last page before the switch has a **Your region** card:

@@ -62,7 +62,10 @@ ApplicationWindow {
             var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "soft"
             // Queued for the next restart (added before the login screen), never installed under the running desktop.
             if (eff !== "off" && !backend.exists("/var/lib/s6migrate/last-update")) t.push({ title: "Better blur and the Darkly style: added at the next restart", argv: h(["look-extras"]), optional: true })
-            t.push({ title: "Your layout, size and effects (" + layoutName(lay) + ", " + size + ", " + eff + ")",
+            // S6 Setup prepares the desktop before the first login; older setups get it applied here.
+            if (backend.exists(backend.home + "/.config/s6migrate/prepared"))
+                t.push({ title: "Your layout, look and effects (" + layoutName(lay) + ", " + eff + "): set up before you logged in", argv: ["true"] })
+            else t.push({ title: "Your layout, size and effects (" + layoutName(lay) + ", " + size + ", " + eff + ")",
                      argv: sh("s6-look theme " + theme + "; s6-look effects " + eff + "; s6-look layout " + lay + "; s6-look size " + size + "; s6-look install-themes") })
             if (android) {
                 t.push({ title: "Download Android for apps (about 1 GB)" + (setup.gapps === "1" ? ", with Google Play" : ""), argv: h(["waydroid-init", setup.gapps === "1" ? "1" : "0"]) })
@@ -372,7 +375,12 @@ ApplicationWindow {
                 { id: "protect", t: "Protect the tablet's own parts", d: "Fedora updates never replace the login screen and sensor service that t860-fedora customised for this tablet." },
                 { id: "codecs", t: "Media codecs", d: "Every common video and music format, from RPM Fusion. Needs Wi-Fi; stays installed when switched off." }]
             function load() { var x = {}; win.run("tst", win.h(["tune-status"]), function (l) { var f = l.split("|"); if (f[0] === "TUNE") x[f[1]] = f[2] === "on" }, function () { if (backend.mock) x = { memory: true, background: true, logs: true, shutdown: true, downloads: true, protect: true, codecs: false }; st = x }) }
-            function set(id, on) { busy = true; out = ""; win.run("tune", win.h(["tune", id, on ? "on" : "off"]), function (l) { tn.out = l }, function () { busy = false; load() }) }
+            function set(id, on) {
+                busy = true; out = ""
+                // Codecs install graphics-related packages: never under the running desktop, at the next restart instead.
+                if (id === "codecs" && on) { win.run("tune", win.h(["schedule", "codecs"]), null, function () { busy = false; tn.out = "Media codecs are added at the next restart, before the login screen."; load() }); return }
+                win.run("tune", win.h(["tune", id, on ? "on" : "off"]), function (l) { tn.out = l }, function () { busy = false; load() })
+            }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Tune-ups"
                 frame.subtitle = "Small changes that make Fedora run better on this tablet. Each one can be switched off again."

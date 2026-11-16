@@ -260,11 +260,50 @@ JSON
   done
   echo "installed $n S6 layouts as Global Themes"
   ;;
+prepare)
+  # Before the first login (run by S6 Setup as the new user, no desktop running): everything that is only settings.
+  # Plasma builds a new user's first desktop from the Global Theme named in kdeglobals, so the chosen layout's theme
+  # makes the very first desktop come up arranged. Screen scale and panel see-through need the running desktop:
+  # they are queued and "heal" applies them the moment you log in.
+  lay=${2:-touch}; sz=${3:-larger}; th=${4:-light}; eff=${5:-soft}
+  case "$lay" in touch|centered|traditional|topdock|plasma) ;; *) echo "unknown layout"; exit 2 ;; esac
+  case "$sz" in standard|larger|largest) ;; *) echo "unknown size"; exit 2 ;; esac
+  case "$th" in light|dark) ;; *) echo "light or dark"; exit 2 ;; esac
+  case "$eff" in off|soft|glassy) ;; *) echo "off, soft or glassy"; exit 2 ;; esac
+  bash "$SELF" install-themes >/dev/null
+  kw --file kdeglobals --group KDE --key LookAndFeelPackage "org.s6migrate.$lay"
+  if [ "$th" = dark ]; then kw --file kdeglobals --group General --key ColorScheme BreezeDark; kw --file kdeglobals --group Icons --key Theme breeze-dark
+  else kw --file kdeglobals --group General --key ColorScheme BreezeLight; kw --file kdeglobals --group Icons --key Theme breeze; fi
+  bash "$SELF" dolphin "$lay" >/dev/null 2>&1
+  apply_borders "$lay" >/dev/null 2>&1
+  bash "$SELF" effects "$eff" >/dev/null 2>&1   # settings only here; the reload calls simply find no desktop yet
+  if [ "$lay" = topdock ]; then kw --file kwinrc --group Plugins --key magiclampEnabled true; kw --file kwinrc --group Plugins --key squashEnabled false
+  else kw --file kwinrc --group Plugins --key magiclampEnabled false; kw --file kwinrc --group Plugins --key squashEnabled true; fi
+  if [ "$sz" = standard ]; then kw --file kwinrc --group Input --key TabletMode auto; else kw --file kwinrc --group Input --key TabletMode on; fi
+  setconf layout "$lay"; setconf theme "$th"; setconf effects "$eff"; setconf size-pending "$sz"; setconf panels-pending 1
+  date > "$(dirname "$CONF")/prepared"
+  echo "your desktop is prepared: $lay layout, $sz, $th, $eff effects"
+  ;;
 layout-js)
   # the panel script for a layout (shared by "layout" and the Global Themes)
   bash "$SELF" layout "${2:-touch}" --print
   ;;
 heal)
+  # The parts of "prepare" that need the running desktop, once, right at the first login.
+  sz=$(getconf size-pending)
+  if [ -n "$sz" ]; then sleep 3; bash "$SELF" size "$sz" >/dev/null 2>&1 && setconf size-pending ""; fi
+  if [ "$(getconf panels-pending)" = 1 ]; then
+    sleep 2
+    # Check that the first desktop came up with the prepared layout (Plasma builds it from the Global Theme);
+    # if not, apply the layout now.
+    lay=$(getconf layout)
+    case "$lay" in touch) want="bottom:64" ;; centered) want="bottom:56" ;; traditional) want="bottom:48" ;;
+                   topdock) want="bottom:68,top:36" ;; *) want="" ;; esac
+    have=$(plasma_js 'print(panels().map(function (p) { return p.location + ":" + p.height }).sort().join(","))' 2>/dev/null)
+    [ -n "$want" ] && [ -n "$have" ] && [ "$have" != "$want" ] && bash "$SELF" layout "$lay" >/dev/null 2>&1
+    case "$(getconf effects)" in glassy) panel_opacity 2 ;; off) panel_opacity 1 ;; *) panel_opacity 0 ;; esac
+    setconf panels-pending 0
+  fi
   # Better Blur DX is built for one exact KWin version; after a Fedora update it may not load until it's rebuilt.
   eff=$(getconf effects)
   [ -n "$eff" ] && [ "$eff" != off ] || exit 0

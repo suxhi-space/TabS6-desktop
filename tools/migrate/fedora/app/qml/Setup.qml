@@ -397,18 +397,21 @@ ApplicationWindow {
                 t.push({ title: "Create your account (" + win.userName + ")", argv: win.h(["create-user", win.userName, win.fullName]), input: win.password + "\n" })
                 t.push({ title: "Apply your tablet's settings", argv: win.h(["settings", win.timeZone, win.loc, win.deviceName, win.userName, win.dark ? "dark" : "light"]) })
                 t.push({ title: "Remember your layout and choices", argv: win.h(["save-prefs", win.userName, "layout=" + win.layout, "size=" + win.size, "effects=" + win.effects, "migrate=" + (win.migrate ? "yes" : "no"), "android=" + (win.android ? "yes" : "no"), "tune=" + (win.tune ? "yes" : "no")]) })
+                t.push({ title: "Set up your desktop: " + win.layout + " layout, " + (win.dark ? "dark" : "light") + " look, " + win.effects + " effects",
+                         argv: win.h(["prepare-look", win.userName, win.layout, win.size, win.dark ? "dark" : "light", win.effects]) })
+                t.push({ title: "Your screen size (" + win.size + "): set the moment you log in", skip: true, after: true })
                 if (win.tune) {
                     var tunes = ["memory", "logs", "shutdown", "downloads", "background", "protect"]
                     for (var u = 0; u < tunes.length; u++) t.push({ title: "Tune-up: " + ["smoother memory use", "smaller system log", "faster shutdown", "faster update downloads", "fewer background jobs", "protect the tablet's own parts from updates"][u], argv: win.h(["tune", tunes[u], "on"]) })
                 }
-                if (win.codecs) t.push({ title: "Media codecs (RPM Fusion)", argv: win.h(["tune", "codecs", "on"]), needsNet: true })
+                // Codec drivers can need matching graphics libraries: installed at the restart, before the first login.
+                if (win.codecs) t.push({ title: "Media codecs (RPM Fusion): added during the restart", argv: win.h(["schedule", "codecs"]) })
                 for (var i = 0; i < (win.migrate ? win.parts.length : 0); i++)
-                    t.push({ title: "Your files and settings" + (win.parts.length > 1 ? " (part " + (i + 1) + " of " + win.parts.length + ")" : ""), argv: win.h(["restore-files", win.userName, win.parts[i]]), files: true })
+                    t.push({ title: "Your files and settings" + (win.parts.length > 1 ? " (part " + (i + 1) + " of " + win.parts.length + ")" : ""), argv: win.h(["restore-files", win.userName, win.parts[i]]), files: true, part: "move" })
                 for (var j = 0; j < (win.migrate ? win.parts.length : 0); j++)
-                    t.push({ title: "Your Linux apps" + (win.parts.length > 1 ? " (part " + (j + 1) + ")" : ""), argv: win.h(["linux-apps", win.userName, win.parts[j]]), needsNet: true })
-                if (win.migrate && win.parts.length === 0) t.push({ title: "Your files: no package found (bring it over later in S6 Companion)", skip: true })
-                t.push({ title: "Your layout (" + win.layout + ") and size: applied when you log in", skip: true, after: true })
-                if (win.android) t.push({ title: win.migrate && win.info.apps > 0 ? "Android apps: they finish installing after you log in" : "Android app support: set up after you log in", skip: true, after: true })
+                    t.push({ title: "Your Linux apps" + (win.parts.length > 1 ? " (part " + (j + 1) + ")" : ""), argv: win.h(["linux-apps", win.userName, win.parts[j]]), needsNet: true, part: "move" })
+                if (win.migrate && win.parts.length === 0) t.push({ title: "Your files: no package found (bring it over later in S6 Companion)", skip: true, part: "move" })
+                if (win.android) t.push({ title: win.migrate && win.info.apps > 0 ? "Android apps: they finish installing after you log in" : "Android app support: set up after you log in", skip: true, after: true, part: "move" })
                 for (var k = 0; k < t.length; k++) { t[k].state = "wait"; t[k].detail = ""; t[k].progress = -1 }
                 tasks = t
                 step()
@@ -445,7 +448,18 @@ ApplicationWindow {
                 width: parent.width; spacing: 16
                 Repeater {
                     model: mp.tasks
-                    delegate: TaskRow { width: mp.width - 36; title: modelData.title; detail: modelData.detail; status: modelData.state; progress: modelData.progress }
+                    // Two parts: setting up the tablet, then moving your things in (files, apps, Android).
+                    delegate: Column {
+                        required property var modelData
+                        required property int index
+                        width: mp.width - 36; spacing: 6
+                        Label2 {
+                            visible: index === 0 || (mp.tasks[index - 1].part || "setup") !== (modelData.part || "setup")
+                            text: (modelData.part || "setup") === "move" ? "Moving your things in" : "Setting up your tablet"
+                            strong: true; color: Theme.sub; font.pixelSize: 15; topPadding: index === 0 ? 0 : 12; width: parent.width
+                        }
+                        TaskRow { width: parent.width; title: modelData.title; detail: modelData.detail; status: modelData.state; progress: modelData.progress }
+                    }
                 }
             }
         }
@@ -480,7 +494,7 @@ ApplicationWindow {
                 TaskRow { title: "Your account: " + win.fullName + " (" + win.userName + ")" + (win.autoLogin ? ", logs in automatically" : ""); status: "done" }
                 TaskRow { title: "Device name " + win.deviceName + ", time zone " + win.timeZone + ", " + (win.dark ? "dark" : "light") + " look"; status: "done" }
                 TaskRow { title: !win.migrate ? "A fresh start: bring things over later in S6 Companion if you like" : (win.parts.length > 0 ? "Your files are in your home folder" : "Your files: bring them over later in S6 Companion"); status: win.migrate && win.parts.length > 0 ? "done" : "skip" }
-                TaskRow { title: "Your layout and size are applied when you log in"; status: "wait" }
+                TaskRow { title: "Your desktop is set up; the screen size is set the moment you log in"; status: "done" }
                 TaskRow { visible: win.android; title: "Android apps finish after you log in" + (win.gapps ? ", with Google Play" : ""); status: "wait" }
             }
             Card {

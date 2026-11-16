@@ -4,18 +4,19 @@
 #   repair   finish an update a freeze or forced restart cut off (from s6-selfcheck or S6Migrate-FIX.zip)
 #   update   bring Fedora up to date (S6 Setup's first update, or "Update at restart" in S6 Companion)
 #   extras   Better Blur DX and Darkly
+#   codecs   media codecs from RPM Fusion (their drivers can need matching graphics libraries)
 # Desktop packages are never changed under a running desktop: that froze the tablet once and cut a library short.
 # Everything is downloaded first (in rounds, keeping what's done, patient with slow Wi-Fi), then installed from
 # the downloaded files only, so a Wi-Fi drop can't interrupt installing. Kernel packages are never touched (this
 # tablet boots its own kernel); neither are the parts t860-fedora customises. Progress is shown on the screen.
 ST=/var/lib/s6migrate; M=$ST/maint; L=$ST/maint.log
-ls "$M"/repair "$M"/update "$M"/extras >/dev/null 2>&1 || exit 0
+ls "$M"/repair "$M"/update "$M"/extras "$M"/codecs >/dev/null 2>&1 || exit 0
 chvt 1 2>/dev/null
 exec > >(tee -a "$L" > /dev/tty1) 2>&1
 say() { echo; echo "== $(date '+%F %T') $*"; }
 X='--setopt=excludepkgs=kernel*,sddm,iio-sensor-proxy'
 NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
-jobs=$(cd "$M" && ls repair update extras 2>/dev/null | tr '\n' ' ')
+jobs=$(cd "$M" && ls repair update extras codecs 2>/dev/null | tr '\n' ' ')
 say "S6 Migrate is finishing work before the login screen: $jobs"
 say "Keep the tablet plugged in. On slow Wi-Fi this can take a while; it never installs anything half-downloaded."
 
@@ -73,6 +74,10 @@ if [ -f "$M/extras" ] && [ $fail = 0 ]; then
   done
   [ -n "$got" ] && say "Added:$got" || say "Not available for this Plasma right now: the standard blur and Breeze are used."
   rm -f "$M/extras"
+fi
+if [ -f "$M/codecs" ] && [ $fail = 0 ]; then
+  say "Adding media codecs (RPM Fusion)..."
+  if /usr/local/libexec/s6migrate/s6-helper tune codecs on; then rm -f "$M/codecs"; else fail=1; fi
 fi
 n=$(cat "$M/attempts" 2>/dev/null || echo 0)
 if [ $fail = 1 ]; then

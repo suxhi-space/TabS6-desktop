@@ -25,7 +25,8 @@
 #   tune-status                      TUNE|name|on/off for each
 #   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
 #   look-extras                      Better Blur DX and Darkly: added at the next restart, before the login screen
-#   schedule repair|update|extras    queue maintenance for the next restart (s6-maint runs it before the login screen)
+#   prepare-look USER LAYOUT SIZE light|dark EFFECTS   the new account's desktop, before its first login
+#   schedule repair|update|extras|codecs   queue maintenance for the next restart (s6-maint runs it before the login screen)
 #   unschedule repair|update|extras  take a queued job back
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
@@ -374,9 +375,17 @@ look-extras)
   echo "Better Blur DX and Darkly are added at the next restart, before the login screen."
   ;;
 
+prepare-look)
+  # The new account's desktop, set up before its first login (s6-look prepare runs as that user).
+  u=${1:-}; valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
+  hd=$(getent passwd "$u" | cut -d: -f6)
+  runuser -u "$u" -- env HOME="$hd" XDG_CONFIG_HOME="$hd/.config" XDG_DATA_HOME="$hd/.local/share" \
+    /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-soft}"
+  ;;
+
 schedule|unschedule)
   job=${1:-}
-  case "$job" in repair|update|extras) ;; *) die "unknown job: $job" ;; esac
+  case "$job" in repair|update|extras|codecs) ;; *) die "unknown job: $job" ;; esac
   mkdir -p "$ST/maint"
   if [ "$act" = schedule ]; then date > "$ST/maint/$job"; echo "$job: at the next restart"; else rm -f "$ST/maint/$job"; echo "$job: not queued"; fi
   ;;

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Restart to Download mode
+Comment=Restart into Samsung's Download mode (experimental; for flashing firmware from a computer)
+Exec=pkexec /usr/local/libexec/s6migrate/s6-helper power download
+Icon=system-reboot
+Categories=System;
+Keywords=download;odin;reboot;restart;

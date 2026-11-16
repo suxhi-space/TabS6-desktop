@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Restart to TWRP
+Comment=Restart the tablet into TWRP (recovery) without holding buttons
+Exec=pkexec /usr/local/libexec/s6migrate/s6-helper power recovery
+Icon=system-reboot
+Categories=System;
+Keywords=recovery;twrp;reboot;restart;

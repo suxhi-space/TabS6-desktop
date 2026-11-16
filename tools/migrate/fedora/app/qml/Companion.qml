@@ -285,6 +285,38 @@ ApplicationWindow {
                     Btn { text: "Power and battery settings"; onClicked: backend.detach("systemsettings kcm_powerdevilprofilesconfig") }
                 }
             }
+            // Like the power menu on Android builds: restart into TWRP or Download mode without holding buttons.
+            Card {
+                id: pw
+                width: parent.width
+                property bool plugged: tb.bat.status !== "" && tb.bat.status !== "Discharging"
+                property string ask: ""
+                Label2 { text: "Restart and power"; display: true; font.pixelSize: 19; width: parent.width }
+                Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
+                         text: "Restart into TWRP (recovery) or Samsung's Download mode without holding buttons. Save your work first." }
+                Flow {
+                    width: parent.width; spacing: 10
+                    Btn { text: "Restart"; onClicked: backend.detach("systemctl reboot") }
+                    Btn { text: "Restart to TWRP"; onClicked: pw.ask = "recovery" }
+                    Btn { text: "Restart to Download mode"; onClicked: pw.ask = "download" }
+                    Btn { text: "Sleep"; onClicked: backend.detach("systemctl suspend") }
+                    Btn { text: "Power off"; onClicked: pw.ask = "off" }
+                }
+                Card {
+                    width: parent.width; warn: true; visible: pw.ask !== ""
+                    Label2 { width: parent.width; color: Theme.warnText
+                             text: pw.ask === "recovery" ? "The tablet restarts into TWRP. To come back, tap Reboot > System in TWRP."
+                                 : pw.ask === "download" ? "Experimental: Samsung's Download mode is for flashing firmware from a computer (Odin). If the tablet just starts Fedora again, this tablet's bootloader didn't take the request; hold Volume Up + Volume Down while plugging in the USB cable instead. To leave Download mode, hold Power + Volume Down."
+                                 : pw.plugged ? "The tablet is plugged in: Samsung tablets switch themselves back on when power arrives over USB, so it will likely start again. Unplug first, or choose Sleep." : "The tablet turns off. Hold Power to turn it on." }
+                    Flow {
+                        width: parent.width; spacing: 10
+                        Btn { primary: true; text: pw.ask === "off" ? "Power off" : "Restart now"
+                              onClicked: { var a = pw.ask; pw.ask = ""; if (a === "off") backend.detach("systemctl poweroff"); else win.run("power", win.h(["power", a]), null, null) } }
+                        Btn { visible: pw.ask === "off" && pw.plugged; text: "Sleep instead"; onClicked: { pw.ask = ""; backend.detach("systemctl suspend") } }
+                        Btn { text: "Cancel"; onClicked: pw.ask = "" }
+                    }
+                }
+            }
         }
     }
 

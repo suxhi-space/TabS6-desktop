@@ -49,3 +49,5 @@ fedora/system/s6-selfcheck|/usr/local/libexec/s6migrate/s6-selfcheck|755|
 fedora/system/s6-maint|/usr/local/libexec/s6migrate/s6-maint|755|
 fedora/system/s6-selfcheck.service|/etc/systemd/system/s6-selfcheck.service|644|
 fedora/system/s6-maint.service|/etc/systemd/system/s6-maint.service|644|
+fedora/system/s6-restart-twrp.desktop|/usr/local/share/applications/s6-restart-twrp.desktop|644|
+fedora/system/s6-restart-download.desktop|/usr/local/share/applications/s6-restart-download.desktop|644|

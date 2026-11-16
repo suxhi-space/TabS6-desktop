@@ -404,6 +404,21 @@ S6 Setup's progress page now has two parts, "Setting up your tablet" and "Moving
 
 **Still planned:** the Android app could download these extras together with Fedora, so a tablet with no Wi-Fi at first start is complete too. The build system would produce a list of exact Fedora 44 aarch64 package URLs and checksums, the app would download them to the drive, and the switch would hand them to `s6-maint` as a local repository.
 
+## Restart and power options (like Android builds' power menu)
+
+S6 Companion → Tablet → **Restart and power**:
+- **Restart**
+- **Restart to TWRP:** in the app menu too ("Restart to TWRP").
+- **Restart to Download mode:** experimental, also in the app menu.
+- **Sleep**
+- **Power off**
+
+How the special restarts work:
+- **TWRP:** `s6-helper power recovery` writes Android's `boot-recovery` message to the misc partition, then restarts with the reason `recovery`. Samsung's bootloader reads both. TWRP clears the message when it restarts. If Fedora starts instead, `s6-selfcheck` clears it, so a later restart doesn't open TWRP unexpectedly.
+- **Download mode:** restarts with the reason `download`. Samsung's own Download-mode request lives in memory this Linux kernel doesn't manage, so if it doesn't take, the tablet simply starts Fedora again. The manual way still works: hold Volume Up + Volume Down while plugging in the USB cable.
+
+**Power off:** t860-fedora's kernel tells the power chip to shut down (not restart) when Fedora powers off. A Samsung tablet that is **plugged in** switches itself back on when USB power arrives, so powering off while charging usually starts it again. S6 Companion warns about this and offers Sleep instead. Not confirmed on this tablet yet: test by powering off unplugged.
+
 ## Updating S6 Migrate on a tablet that already runs Fedora
 
 There are two ways:

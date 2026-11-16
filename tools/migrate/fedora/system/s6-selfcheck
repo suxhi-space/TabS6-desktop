@@ -32,6 +32,13 @@ fi
 # 3. Packages left half-installed (two copies of the same package; signing keys are always listed several times).
 d=$(rpm -qa --qf '%{NAME}\n' 2>/dev/null | sort | uniq -d | grep -v '^gpg-pubkey$' | head -n 5 | tr '\n' ' ')
 [ -n "$d" ] && { log "half-installed: $d"; date > "$M/repair"; }
+# 3b. A "restart into TWRP" request that Fedora started through instead (bootloader ignored it): clear it, so a later
+#     restart doesn't unexpectedly open TWRP.
+misc=$(readlink -f /dev/disk/by-partlabel/misc 2>/dev/null)
+if [ -b "$misc" ] && [ "$(head -c 13 "$misc" 2>/dev/null)" = boot-recovery ]; then
+  dd if=/dev/zero of="$misc" bs=2048 count=1 conv=notrunc 2>/dev/null && log "cleared a restart-into-TWRP request (Fedora started instead)"
+fi
+
 # 4. Did the last session end cleanly? If not (a freeze, a forced restart, the battery), keep the end of its log, so the
 #    cause can be found: S6 Companion's Fixes page shows these reports. At most the 5 newest are kept.
 if journalctl --list-boots --no-pager 2>/dev/null | grep -q -- '^ *-1 '; then

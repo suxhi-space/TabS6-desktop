@@ -26,6 +26,8 @@
 #   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
 #   look-extras                      Better Blur DX and Darkly: added at the next restart, before the login screen
 #   prepare-look USER LAYOUT SIZE light|dark EFFECTS   the new account's desktop, before its first login
+#   power restart|recovery|download|off|sleep   restart (also into TWRP or Samsung's Download mode), power off, sleep
+#   power-status                     PLUGGED|yes/no  (powering off while plugged in starts the tablet again)
 #   schedule repair|update|extras|codecs   queue maintenance for the next restart (s6-maint runs it before the login screen)
 #   unschedule repair|update|extras  take a queued job back
 set -u
@@ -387,6 +389,42 @@ prepare-look)
   hd=$(getent passwd "$u" | cut -d: -f6)
   runuser -u "$u" -- env HOME="$hd" XDG_CONFIG_HOME="$hd/.config" XDG_DATA_HOME="$hd/.local/share" \
     /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-soft}"
+  ;;
+
+power-status)
+  pl=no
+  for f in /sys/class/power_supply/*/online; do
+    t=$(cat "${f%/online}/type" 2>/dev/null); case "$t" in USB*|Mains) [ "$(cat "$f" 2>/dev/null)" = 1 ] && pl=yes ;; esac
+  done
+  echo "PLUGGED|$pl"
+  ;;
+
+power)
+  # Like the power menu on Android builds: restart, or restart into TWRP (recovery) or Download mode.
+  # Samsung's bootloader reads why the tablet restarted: the Android "boot-recovery" message on the misc partition,
+  # and the restart reason Linux passes on. Both are set for TWRP; TWRP clears the message when it restarts, and
+  # S6's self-check clears it if Fedora starts instead.
+  case "${1:-}" in
+    restart) systemctl reboot ;;
+    recovery)
+      misc=$(readlink -f /dev/disk/by-partlabel/misc 2>/dev/null)
+      if [ -b "$misc" ]; then
+        python3 - "$misc" <<'PY' && echo "TWRP is next"
+import sys
+b = bytearray(2048)
+b[0:13] = b"boot-recovery"          # command[32]
+b[64:73] = b"recovery\n"            # recovery[768]
+with open(sys.argv[1], "r+b") as f:
+    f.write(b); f.flush()
+PY
+        sync
+      fi
+      systemctl reboot --reboot-argument=recovery ;;
+    download) systemctl reboot --reboot-argument=download ;;
+    off) systemctl poweroff ;;
+    sleep) systemctl suspend ;;
+    *) die "restart, recovery, download, off or sleep" ;;
+  esac
   ;;
 
 schedule|unschedule)

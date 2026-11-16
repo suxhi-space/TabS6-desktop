@@ -24,7 +24,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix: why can't anyone log in?"
+ui "S6 Migrate fix 2: why can't anyone log in?"
 if [ -z "${S6F_ROOT:-}" ]; then
   DEV=$(readlink -f /dev/block/by-name/userdata)
   mkdir -p "$ROOT"
@@ -64,7 +64,7 @@ for u in s6setup fedora; do
   f=$(grep "^$u:" "$ROOT/etc/shadow" | cut -d: -f2 | cut -c1-3)
   ui "  $u: $(grep -q "^$u:" "$ROOT/etc/passwd" && echo account ok || echo NO ACCOUNT), password type '${f:-none}'"
 done
-ui "  login rules: $(head -n 1 "$ROOT/etc/authselect/authselect.conf" 2>/dev/null || echo 'no authselect')"
+ui "  login profile (authselect): $(head -n 1 "$ROOT/etc/authselect/authselect.conf" 2>/dev/null || echo none)"
 note "----- /etc/pam.d/sddm -----"; cat "$ROOT/etc/pam.d/sddm" >> "$REP" 2>&1
 note "----- /etc/pam.d/sddm-autologin -----"; cat "$ROOT/etc/pam.d/sddm-autologin" >> "$REP" 2>&1
 note "----- sddm settings -----"; grep -H -E '^\[|User=|Session=|Relogin=|DisplayServer=|Current=' "$ROOT"/etc/sddm.conf.d/*.conf "$ROOT"/usr/lib/sddm/sddm.conf.d/*.conf >> "$REP" 2>&1
@@ -102,7 +102,73 @@ mkdir -p "$ROOT/var/log/journal"
 for d in /var/lib/s6migrate /usr/local/libexec/s6migrate /usr/local/share/s6migrate /etc/sddm.conf.d; do
   [ -d "$ROOT$d" ] && find "$ROOT$d" -type d ! -path "*/setup-home*" -exec chmod 755 {} + 2>/dev/null
 done
-# 4. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
+# 4. Login rules (PAM). "Permission denied" for every account means a rule file names a part (module) that isn't
+#    installed, or includes a file that doesn't exist. Only what is missing is repaired; originals are kept.
+PD=$ROOT/etc/pam.d; LIB=$ROOT/usr/lib64/security; BK=$S/pam.before-fix
+mkdir -p "$BK"
+write_stack() { # write_stack NAME: Fedora's standard local rules (what authselect's "local" profile gives)
+  cat > "$PD/$1" <<'EOP'
+#%PAM-1.0
+# Restored by S6 Migrate fix (the original was missing). Fedora's standard local rules.
+auth        required      pam_env.so
+auth        required      pam_faildelay.so delay=2000000
+auth        sufficient    pam_unix.so nullok
+auth        required      pam_deny.so
+
+account     required      pam_unix.so
+
+password    requisite     pam_pwquality.so
+password    sufficient    pam_unix.so yescrypt shadow nullok use_authtok
+password    required      pam_deny.so
+
+session     optional      pam_keyinit.so revoke
+session     required      pam_limits.so
+-session    optional      pam_systemd.so
+session     required      pam_unix.so
+EOP
+  chmod 644 "$PD/$1"
+}
+pam_target() { # where an /etc/pam.d name really lives (follows a symlink inside Fedora)
+  t="$PD/$1"; if [ -L "$t" ]; then l=$(readlink "$t"); case "$l" in /*) t="$ROOT$l" ;; *) t="$PD/$l" ;; esac; fi; echo "$t"
+}
+checked=""; fixedpam=0
+check_pam() { # check_pam NAME (recursive through include/substack)
+  local f bad line m mp t2
+  case " $checked " in *" $1 "*) return ;; esac; checked="$checked $1"
+  f=$(pam_target "$1")
+  if [ ! -f "$f" ]; then
+    note "pam: $1 missing ($( [ -L "$PD/$1" ] && echo "link to $(readlink "$PD/$1")" || echo "no file"))"
+    case "$1" in
+      system-auth|password-auth) { [ -e "$PD/$1" ] || [ -L "$PD/$1" ]; } && mv "$PD/$1" "$BK/$1.link" 2>/dev/null; write_stack "$1"; ui "  login rules: $1 was missing, restored"; fixedpam=1 ;;
+      postlogin) { [ -e "$PD/$1" ] || [ -L "$PD/$1" ]; } && mv "$PD/$1" "$BK/$1.link" 2>/dev/null; printf '#%%PAM-1.0\n# Restored by S6 Migrate fix.\nsession optional pam_umask.so silent\n' > "$PD/$1"; chmod 644 "$PD/$1"; ui "  login rules: postlogin was missing, restored"; fixedpam=1 ;;
+      *) ui "  login rules: $1 is missing (not repaired)" ;;
+    esac
+    f=$(pam_target "$1"); [ -f "$f" ] || return
+  fi
+  bad=0
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*|-*) continue ;; esac
+    t2=$(echo "$line" | tr -s ' \t' '  ' | cut -d' ' -f2)
+    case "$t2" in include|substack) check_pam "$(echo "$line" | tr -s ' \t' '  ' | cut -d' ' -f3)"; continue ;; esac
+    m=$(echo "$line" | grep -o '[^ ]*\.so' | head -n 1); [ -n "$m" ] || continue
+    case "$m" in /*) mp="$ROOT$m" ;; *) mp="$LIB/$m" ;; esac
+    if [ ! -e "$mp" ]; then bad=1; note "pam: $1 uses $m, which is not installed"; fi
+  done < "$f"
+  if [ $bad = 1 ]; then
+    cp "$f" "$BK/$1" 2>/dev/null
+    while IFS= read -r line; do
+      case "$line" in ''|'#'*|-*) printf '%s\n' "$line"; continue ;; esac
+      m=$(echo "$line" | grep -o '[^ ]*\.so' | head -n 1)
+      case "$m" in /*) mp="$ROOT$m" ;; *) mp="$LIB/$m" ;; esac
+      if [ -n "$m" ] && [ ! -e "$mp" ]; then printf '%s\n' "-$line"; else printf '%s\n' "$line"; fi
+    done < "$f" > /tmp/s6fix-pam && cat /tmp/s6fix-pam > "$f"
+    ui "  login rules: $1 named parts that aren't installed (now skipped)"; fixedpam=1
+  fi
+}
+for n in sddm sddm-autologin sddm-greeter; do [ -e "$PD/$n" ] || [ -L "$PD/$n" ] && check_pam "$n"; done
+[ $fixedpam = 0 ] && ui "  login rules: all files and parts present"
+note "pam files: $(ls -l "$PD" 2>&1 | grep -E 'sddm|system-auth|password-auth|postlogin' | tr -s ' ' | cut -d' ' -f1,9- | tr '\n' ';')"
+# 5. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
 mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/sddm.service.wants"
 cat > "$ROOT/usr/local/libexec/s6migrate/s6-bootcheck" <<'EOF'
 #!/usr/bin/bash

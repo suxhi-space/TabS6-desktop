@@ -1,0 +1,16 @@
+/* S6 Migrate: Dolphin like the Files app / Windows 11 Explorer. The address bar sits in a rounded field; toolbar
+   buttons are flat with a soft rounded highlight. Colours come from the theme (light, dark, your accent). */
+QToolBar > QWidget {
+    background-color: palette(base);
+    border: 1px solid palette(midlight);
+    border-radius: 10px;
+}
+QToolBar > QToolButton {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 5px;
+}
+QToolBar > QToolButton:hover { background-color: palette(midlight); }
+QToolBar > QToolButton:pressed, QToolBar > QToolButton:checked { background-color: palette(mid); }
+QToolBar > QToolButton::menu-indicator { image: none; width: 0px; }

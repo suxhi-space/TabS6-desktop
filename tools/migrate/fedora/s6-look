@@ -173,6 +173,17 @@ dolphin_style() { # view mode 0 icons, 1 details; icon sizes; single tap to open
   kw --file dolphinrc --group PlacesPanel --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
   kw --file dolphinrc --group MainWindow --group "Toolbar mainToolBar" --key IconSize "$([ $big = 1 ] && echo 32 || echo 22)"
   dolphin_toolbars "$([ $big = 1 ] && echo 28 || echo 22)"
+  dolphin_qss
+}
+# The rounded address bar and flat, softly highlighted toolbar buttons (a Qt stylesheet Dolphin gets at start):
+# Dolphin's own launcher and the "open this folder" service are pointed at it, in your own folder.
+dolphin_qss() {
+  local qss=/usr/local/share/s6migrate/dolphin/s6-dolphin.qss apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  local svc="${XDG_DATA_HOME:-$HOME/.local/share}/dbus-1/services"
+  [ -f "$qss" ] && [ -f /usr/share/applications/org.kde.dolphin.desktop ] || return 0
+  mkdir -p "$apps" "$svc"
+  sed "s|^Exec=dolphin|Exec=dolphin -stylesheet $qss|" /usr/share/applications/org.kde.dolphin.desktop > "$apps/org.kde.dolphin.desktop"
+  printf '[D-BUS Service]\nName=org.freedesktop.FileManager1\nExec=/usr/bin/dolphin -stylesheet %s --daemon\n' "$qss" > "$svc/org.freedesktop.FileManager1.service"
 }
 # Two toolbars like the Files app / Windows 11 Explorer: getting around on top (back, forward, up, refresh, the path,
 # search, menu), the things you do with files underneath (new, cut, copy, paste, rename, trash, select, sort, view,

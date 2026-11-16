@@ -18,10 +18,11 @@
 #                                            brought back by pointing at the edge)
 #
 # Layouts (named by what they look like):
-#   touch        one floating bottom bar, icons the size of Android's: made for fingers (default)
+#   touch        one bottom bar, icons the size of Android's: made for fingers (default)
 #   centered     a bottom taskbar with the app icons in the middle
 #   traditional  a full-width bottom taskbar with the menu on the left and window names
 #   topdock      a thin bar at the top with the menu and clock, and a dock at the bottom
+# Only the top bar + dock layout's dock floats (a little); the other panels sit on the screen edge.
 # Panels never hide by themselves: on this touch screen a hidden panel may not come back (no pointer to push
 # against the edge), which leaves no way to open apps.
 #   plasma       KDE Plasma's own default
@@ -86,11 +87,31 @@ polish() { # polish light|dark
   else [ "$th" = dark ] && ic=breeze-dark || ic=breeze; fi
   if [ -x /usr/libexec/plasma-changeicons ] && pgrep -u "$(id -u)" -x plasmashell >/dev/null; then /usr/libexec/plasma-changeicons "$ic" >/dev/null 2>&1
   else kw --file kdeglobals --group Icons --key Theme "$ic"; fi
+  # Screenshots like Windows 11's Snipping Tool: Meta+Shift+S picks an area, then Spectacle's editor (crop, arrows,
+  # text, highlight, blur). Print and Power + Volume Down (s6-keys) take the whole screen.
+  kw --file kglobalshortcutsrc --group org.kde.spectacle.desktop --key RectangularRegionScreenShot \
+     "Meta+Shift+Print"$'\t'"Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
   if fc-list 2>/dev/null | grep -q -i 'Inter[ ,:]\|/Inter'; then
     for k in font menuFont toolBarFont; do kw --file kdeglobals --group General --key "$k" "Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"; done
     kw --file kdeglobals --group General --key smallestReadableFont "Inter,8,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"
     kw --file kdeglobals --group WM --key activeFont "Inter,10,-1,5,600,0,0,0,0,0,0,0,0,0,0,1"
   fi
+}
+# The on-screen keyboard, like Android's: Maliit (it has a real emoji keyboard). With only your language and emoji
+# switched on, its language key becomes the emoji key. Light/dark follows the desktop; key-press vibration and word
+# suggestions on. (Most people use the tablet without a keyboard.)
+keyboard() { # keyboard light|dark
+  local th=${1:-$(getconf theme)} lang gs
+  [ -f /usr/share/applications/com.github.maliit.keyboard.desktop ] || return 0
+  kw --file kwinrc --group Wayland --key InputMethod /usr/share/applications/com.github.maliit.keyboard.desktop
+  lang=$(sed -n 's/^LANG=\([a-z][a-z]\).*/\1/p' /etc/locale.conf 2>/dev/null); lang=${lang:-en}
+  gs="gsettings"; [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || gs="dbus-run-session gsettings"
+  $gs set org.maliit.keyboard.maliit enabled-languages "['$lang', 'emoji']" 2>/dev/null
+  $gs set org.maliit.keyboard.maliit active-language "$lang" 2>/dev/null
+  $gs set org.maliit.keyboard.maliit theme "$([ "$th" = dark ] && echo BreezeDark || echo Breeze)" 2>/dev/null
+  $gs set org.maliit.keyboard.maliit key-press-haptic-feedback true 2>/dev/null
+  $gs set org.maliit.keyboard.maliit word-ribbon true 2>/dev/null
+  $gs set org.maliit.keyboard.maliit predictive-text true 2>/dev/null
 }
 kwin_reload() { "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
@@ -149,7 +170,7 @@ case "${1:-status}" in
 layout)
   name=${2:-touch}
   case "$name" in
-    touch) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 52; setp(p, "floating", true);
+    touch) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 52; setp(p, "floating", false);
       p.addWidget("org.kde.plasma.kickoff"); tasks(p, false); p.addWidget("org.kde.plasma.marginsseparator"); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
     centered) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 48; setp(p, "floating", false);
       p.addWidget("org.kde.plasma.panelspacer"); p.addWidget("org.kde.plasma.kickoff"); tasks(p, false);
@@ -198,7 +219,7 @@ theme)
   if [ -n "$acc" ]; then plasma-apply-colorscheme --accent-color "$acc" "$scheme" >/dev/null 2>&1
   else plasma-apply-colorscheme "$scheme" >/dev/null 2>&1; fi || kw --file kdeglobals --group General --key ColorScheme "$scheme"
   plasma-apply-desktoptheme default >/dev/null 2>&1    # Plasma's own theme follows the colours
-  setconf theme "$2"; polish "$2"; echo "theme: $2"
+  setconf theme "$2"; polish "$2"; keyboard "$2"; echo "theme: $2"
   ;;
 effects)
   lvl=${2:-soft}
@@ -271,7 +292,7 @@ install-themes)
   n=0
   for id in touch centered traditional topdock plasma; do
     case "$id" in
-      touch) title="S6 Touch"; desc="One tall floating bar with big icons, made for fingers" ;;
+      touch) title="S6 Touch"; desc="One bar with big icons along the bottom, made for fingers" ;;
       centered) title="S6 Centered"; desc="A bottom taskbar with the app icons in the middle" ;;
       traditional) title="S6 Traditional"; desc="Menu on the left and window names in a full-width bar" ;;
       topdock) title="S6 Top Bar and Dock"; desc="A slim top bar with the menu and clock, and a dock below" ;;
@@ -300,6 +321,10 @@ JSON
       "$style" "$deco" "$theme" "$bl" "$br" > "$d/contents/defaults"
     for pre in /usr/local/share/s6migrate/previews "${S6L_PREVIEWS:-}"; do
       [ -f "$pre/$id.png.b64" ] && { base64 -d "$pre/$id.png.b64" > "$d/contents/previews/preview.png"; cp "$d/contents/previews/preview.png" "$d/contents/previews/fullscreenpreview.jpg"; break; }
+    done
+    # The on-screen display for volume and brightness: S6's rounded slider
+    for o in /usr/local/share/s6migrate/osd "${S6L_OSD:-}"; do
+      [ -f "$o/Osd.qml" ] && { mkdir -p "$d/contents/osd"; cp "$o/Osd.qml" "$o/OsdItem.qml" "$d/contents/osd/"; break; }
     done
     n=$((n+1))
   done
@@ -332,7 +357,7 @@ prepare)
     kw --file kdeglobals --group General --key AccentColor "$((16#${acc:1:2})),$((16#${acc:3:2})),$((16#${acc:5:2}))"
     setconf accent-pending "$acc"; setconf accent "$acc"
   fi
-  polish "$th"
+  polish "$th"; keyboard "$th"
   date > "$(dirname "$CONF")/prepared"
   echo "your desktop is prepared: $lay layout, $sz, $th, $eff effects${acc:+, accent $acc}"
   ;;
@@ -356,7 +381,7 @@ heal)
     case "$(getconf effects)" in glassy) panel_opacity 2 ;; off) panel_opacity 1 ;; *) panel_opacity 0 ;; esac
     setconf panels-pending 0
   fi
-  polish   # icons and font, once the extras arrived (they're installed at a restart)
+  polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
   acc=$(getconf accent-pending)
   if [ -n "$acc" ] && command -v plasma-apply-colorscheme >/dev/null; then
     plasma-apply-colorscheme --accent-color "$acc" >/dev/null 2>&1 && setconf accent-pending ""

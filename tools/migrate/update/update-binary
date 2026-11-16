@@ -1,0 +1,115 @@
+#!/sbin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# S6Migrate-UPDATE.zip: run from TWRP (Install) to bring a working Fedora up to the newest S6 Migrate.
+# It erases nothing and doesn't touch accounts, passwords or login settings. It:
+#   1. installs the newest S6 Migrate files (S6 Companion, S6 Setup, tools, the maintenance service, S6 Quick Settings);
+#   2. makes hidden taskbars visible again (a touch screen can't bring back a panel set to auto-hide);
+#   3. applies your layout again at your next login (new sizes, S6 Quick Settings in the taskbar);
+#   4. schedules the look extras (Darkly, Better Blur DX, Papirus icons, the Inter font) for the next start.
+# Test hooks: S6F_TEST=1 (print to stdout), S6F_ROOT (an unpacked Fedora root instead of userdata), S6F_CARD.
+umask 022
+# TWRP's shell keeps here-document text in $TMPDIR (Android: /data/local/tmp). /data is Fedora now, so that folder is
+# gone and every here-document came out EMPTY (fix 4 "restored" empty files). Use /tmp, and check it works.
+export TMPDIR=/tmp
+OUTFD=${2:-1}
+ROOT=${S6F_ROOT:-/tmp/s6fix-root}
+CARD=${S6F_CARD:-/external_sd}
+REP=/tmp/s6update-report.txt
+: > "$REP"
+ui() { if [ "${S6F_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; fi; echo "$*" >> "$REP"; }
+note() { echo "$*" >> "$REP"; }   # report only (too long for the screen)
+ZIPDIR=$(dirname "${3:-/nonexistent/x}")
+save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
+  [ -d "$ZIPDIR" ] && cp "$REP" "$ZIPDIR/update-report.txt" 2>/dev/null
+  [ -d "$CARD/S6Migrate" ] && cp "$REP" "$CARD/S6Migrate/update-report.txt" 2>/dev/null
+}
+stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
+
+
+ui "S6 Migrate update"
+HD=$(cat <<'EOT'
+heredoc-ok
+EOT
+)
+if [ "$HD" != heredoc-ok ]; then mkdir -p /tmp/s6update-tmp; export TMPDIR=/tmp/s6update-tmp; ui "(text writing switched to /tmp/s6update-tmp)"; fi
+if [ -z "${S6F_ROOT:-}" ]; then
+  DEV=$(readlink -f /dev/block/by-name/userdata)
+  mkdir -p "$ROOT"
+  grep -q " $ROOT " /proc/mounts || mount -t ext4 "$DEV" "$ROOT" || stop "could not open Fedora's storage"
+fi
+[ -f "$ROOT/etc/os-release" ] && grep -q -i fedora "$ROOT/etc/os-release" || stop "Fedora was not found on this tablet"
+S=$ROOT/var/lib/s6migrate
+
+
+ui " "
+ui "1/4 S6 Migrate files"
+# 4b. The same self-check and maintenance services the switch installs (S6 Migrate 0.4.7+), and Wi-Fi settings.
+mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/multi-user.target.wants" "$S/maint" "$ROOT/etc/NetworkManager/conf.d"
+cat > "$ROOT/usr/local/libexec/s6migrate/s6-selfcheck" <<'EOSC'
+# @S6SELFCHECK@
+EOSC
+cat > "$ROOT/usr/local/libexec/s6migrate/s6-maint" <<'EOMT'
+# @S6MAINT@
+EOMT
+chmod 755 "$ROOT/usr/local/libexec/s6migrate/s6-selfcheck" "$ROOT/usr/local/libexec/s6migrate/s6-maint"
+printf '%s\n' '[Unit]' 'Description=S6 Migrate self-check (login rules, damaged desktop files)' 'After=local-fs.target' \
+  'Before=display-manager.service sddm.service s6-maint.service' '' '[Service]' 'Type=oneshot' \
+  'ExecStart=/usr/local/libexec/s6migrate/s6-selfcheck' 'TimeoutStartSec=3min' '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-selfcheck.service"
+printf '%s\n' '[Unit]' 'Description=S6 Migrate maintenance before the login screen (repair, updates, extras)' \
+  'After=s6-selfcheck.service NetworkManager.service tabs6-wifi.service' 'Before=display-manager.service sddm.service' \
+  '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/libexec/s6migrate/s6-maint' 'TimeoutStartSec=infinity' \
+  '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-maint.service"
+for u in s6-selfcheck s6-maint s6-keys; do ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"; done
+rm -f "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service" "$ROOT/etc/systemd/system/s6-repair.service" "$S/repair-wanted"
+[ -f "$S/repair.log" ] && [ ! -f "$S/maint.log" ] && cp "$S/repair.log" "$S/maint.log"
+[ -f "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf" ] ||   # keep a choice made in S6 Companion > Tune-ups
+  printf '%s\n' '# S6 Migrate: Wi-Fi power saving off (it makes the Tab S6 Wi-Fi slow and drops downloads).' '[connection]' 'wifi.powersave = 2' > "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf"
+cc=$(sed -n 's/^LANG=[a-z]*_\([A-Z][A-Z]\).*/\1/p' "$ROOT/etc/locale.conf" 2>/dev/null)
+[ -n "$cc" ] && mkdir -p "$ROOT/etc/modprobe.d" && printf 'options cfg80211 ieee80211_regdom=%s\n' "$cc" > "$ROOT/etc/modprobe.d/s6migrate-wifi-country.conf"
+if [ "$(grep -c . "$ROOT/usr/local/libexec/s6migrate/s6-maint")" -gt 50 ]; then
+  ui "  self-check and maintenance installed; $(grep -q '= *3' "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf" && echo 'Wi-Fi power saving stays on (your choice)' || echo 'Wi-Fi power saving off')${cc:+, Wi-Fi country $cc}"
+else
+  ui "  COULD NOT write the maintenance service"
+fi
+# 4c. Bring S6 Migrate itself (S6 Companion, S6 Setup, tools, services) up to this ZIP's version: the way to update a
+#     tablet that can no longer run the Android app. Setup-time files (the setup account, automatic login) are skipped.
+n_s6=0
+# @S6FILES@
+ui "  S6 Migrate updated to $S6_FIX_VERSION ($n_s6 files: S6 Companion, S6 Setup, tools)"
+
+ui " "
+ui "2/4 Taskbar"
+n=0
+for hd in "$ROOT"/home/*; do
+  [ -d "$hd/.config" ] || continue
+  own=$(stat -c '%u:%g' "$hd")
+  f="$hd/.config/plasmashellrc"
+  if [ -f "$f" ] && grep -q '^panelVisibility=[123]' "$f"; then
+    sed -i 's/^panelVisibility=[123]/panelVisibility=0/' "$f" && chown "$own" "$f" && n=$((n+1))
+  fi
+done
+[ $n -gt 0 ] && ui "  hidden taskbar made visible again ($n account(s))" || ui "  no hidden taskbars"
+
+ui " "
+ui "3/4 Your layout, with S6 Quick Settings"
+n=0
+for hd in "$ROOT"/home/*; do
+  c="$hd/.config/s6migrate/look.conf"
+  [ -f "$c" ] || continue
+  own=$(stat -c '%u:%g' "$hd")
+  grep -v '^panels-pending=' "$c" > "$c.tmp"; echo "panels-pending=1" >> "$c.tmp"; mv "$c.tmp" "$c"; chown "$own" "$c"
+  n=$((n+1))
+done
+[ $n -gt 0 ] && ui "  applied again at your next login (new sizes; Wi-Fi, sound and battery move into Quick Settings)" \
+             || ui "  no S6 layout found (choose one in S6 Companion > Look)"
+
+ui " "
+ui "4/4 Look extras"
+mkdir -p "$S/maint"; : > "$S/maint/extras"
+ui "  Darkly, Better Blur DX, Papirus icons and the Inter font: installed at the next start, before the login"
+ui "  screen (needs Wi-Fi; the progress is shown)."
+ui " "
+ui "Done. Reboot to System."
+sync
+save
+exit 0

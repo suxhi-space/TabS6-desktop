@@ -4,6 +4,7 @@
 here=$(cd "$(dirname "$0")/.." && pwd); fail=0
 cd "$here"
 for f in app/*.py app/qml/*.qml app/qml/qmldir system/* s6-* plasmoid/*/metadata.json plasmoid/*/contents/ui/*.qml; do
+  case "$f" in *__pycache__*) continue ;; esac
   grep -q "^fedora/$f|" install.list || { echo "MISSING from install.list: $f"; fail=1; }
 done
 # and every QML type named in qmldir has its file installed

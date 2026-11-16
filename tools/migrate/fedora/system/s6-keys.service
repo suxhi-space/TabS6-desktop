@@ -1,0 +1,11 @@
+[Unit]
+Description=S6 Migrate buttons: Power + Volume Down takes a screenshot
+After=systemd-udev-settle.service
+
+[Service]
+ExecStart=/usr/local/libexec/s6migrate/s6-keys
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

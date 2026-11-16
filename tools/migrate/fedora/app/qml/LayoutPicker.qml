@@ -8,7 +8,7 @@ Grid {
     property string effects: "soft"
     signal picked(string id)
     readonly property var options: [
-        { id: "touch", name: "Touch", sub: "One big floating bar, made for fingers" },
+        { id: "touch", name: "Touch", sub: "One bar with big icons, made for fingers" },
         { id: "centered", name: "Centered", sub: "App icons in the middle of the bar" },
         { id: "traditional", name: "Traditional", sub: "Menu on the left, window names" },
         { id: "topdock", name: "Top bar & dock", sub: "Menu and clock on top, a dock below" },

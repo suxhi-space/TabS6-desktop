@@ -312,7 +312,7 @@ if [ $ROOT_OK = 1 ]; then
   # Self-check and maintenance before the login screen, from the first start on (repairs what a forced restart
   # can leave behind; updates and extras are only ever installed there, never under a running desktop).
   mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" "$ROOT/var/lib/s6migrate/maint"
-  for u in s6-selfcheck s6-maint; do
+  for u in s6-selfcheck s6-maint s6-keys; do
     [ -f "$ROOT/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"
   done
   # The setup account's desktop: no welcome or update pop-ups over the setup screen.

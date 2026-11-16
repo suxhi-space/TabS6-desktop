@@ -163,7 +163,7 @@ self)
   done < "$T/install.list"
   # Services added in newer versions (self-check, maintenance before the login screen) are switched on too.
   mkdir -p /var/lib/s6migrate/maint /etc/systemd/system/multi-user.target.wants
-  for u in s6-selfcheck s6-maint; do
+  for u in s6-selfcheck s6-maint s6-keys; do
     [ -f "/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "/etc/systemd/system/multi-user.target.wants/$u.service"
   done
   systemctl daemon-reload 2>/dev/null

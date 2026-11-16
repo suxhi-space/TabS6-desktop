@@ -125,8 +125,8 @@ if [ -f "$M/extras" ] && [ $fail = 0 ]; then
     if rounds "Downloading $p" --refresh install "$p" && dnfw -y $NET "$X" install "$p"; then got="$got $p"; fi
   done
   # Cleaner icons and a modern font (Fedora's own repositories)
-  if rounds "Downloading Papirus icons and the Inter font" install papirus-icon-theme rsms-inter-fonts \
-     && dnfw -y -C "$X" install papirus-icon-theme rsms-inter-fonts; then got="$got papirus inter"; fi
+  if rounds "Downloading Papirus icons, the Inter font and the on-screen keyboard" install papirus-icon-theme rsms-inter-fonts maliit-keyboard \
+     && dnfw -y -C "$X" install papirus-icon-theme rsms-inter-fonts maliit-keyboard; then got="$got papirus inter keyboard"; fi
   [ -n "$got" ] && say "Added:$got" || say "Not available for this Plasma right now: the standard blur and Breeze are used."
   rm -f "$M/extras"
 fi

@@ -40,7 +40,7 @@ Rectangle {
     Rectangle {
         id: b
         readonly property bool dock: pv.layout === "topdock"
-        readonly property bool floaty: pv.layout === "touch" || dock
+        readonly property bool floaty: dock          // only the dock floats (a little)
         height: pv.height * (pv.layout === "touch" ? 0.16 : dock ? 0.15 : pv.layout === "traditional" ? 0.1 : 0.12)
         width: dock ? pv.width * 0.42 : (floaty ? pv.width - 12 : pv.width)
         x: (pv.width - width) / 2

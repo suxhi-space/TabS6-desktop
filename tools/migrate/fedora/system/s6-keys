@@ -1,0 +1,159 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""s6-keys: Power + Volume Down takes a screenshot, like Android (S6 Migrate).
+
+Plasma has no button combinations, and the power button acts the moment it's pressed. So this service takes the
+power button's input device for itself (EVIOCGRAB) and passes every press on unchanged through a virtual button
+(uinput): a short press, a long press and holding all behave as before. Only when Volume Down joins while Power is
+down does it swallow that press and ask Spectacle (KDE's screenshot app, which has crop, arrows, text, highlight and
+blur for editing) for a screenshot in the session on screen. If uinput isn't available it never takes the power
+button: then it only watches, and the combination still takes a screenshot (the power button keeps acting too).
+Standard library only. Test hook: S6K_DRY=1 lists the buttons it found and exits.
+"""
+import fcntl, glob, os, select, struct, subprocess, sys, time
+
+EV_SYN, EV_KEY = 0, 1
+KEY_POWER, KEY_VOLUMEDOWN, KEY_VOLUMEUP = 116, 114, 115
+FMT = "llHHi"; SZ = struct.calcsize(FMT)
+EVIOCGRAB = 0x40044590
+def EVIOCGBIT(ev, n): return 0x80000000 | (n << 16) | (0x45 << 8) | (0x20 + ev)
+def EVIOCGNAME(n): return 0x80000000 | (n << 16) | (0x45 << 8) | 0x06
+UI_SET_EVBIT, UI_SET_KEYBIT, UI_DEV_CREATE, UI_DEV_SETUP = 0x40045564, 0x40045565, 0x5501, 0x405C5503
+HOLD = 0.30        # a power press held this long goes through at once (long press = power menu, as before)
+WINDOW = 0.30      # Volume Down pressed this soon before Power still counts as the combination
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+def keys_of(fd):
+    buf = bytearray(96)
+    try:
+        fcntl.ioctl(fd, EVIOCGBIT(EV_KEY, len(buf)), buf)
+    except OSError:
+        return set()
+    return {k for k in (KEY_POWER, KEY_VOLUMEDOWN) if buf[k // 8] >> (k % 8) & 1}
+
+
+def name_of(fd):
+    buf = bytearray(128)
+    try:
+        fcntl.ioctl(fd, EVIOCGNAME(len(buf)), buf)
+    except OSError:
+        return "?"
+    return buf.split(b"\0", 1)[0].decode(errors="replace")
+
+
+def virtual_power():
+    """A virtual power button that passes presses on (None without uinput)."""
+    try:
+        u = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+        fcntl.ioctl(u, UI_SET_EVBIT, EV_KEY)
+        fcntl.ioctl(u, UI_SET_KEYBIT, KEY_POWER)
+        setup = struct.pack("HHHH80sI", 0x06, 0, 0, 1, b"S6 power button", 0)   # BUS_VIRTUAL
+        fcntl.ioctl(u, UI_DEV_SETUP, setup)
+        fcntl.ioctl(u, UI_DEV_CREATE)
+        time.sleep(0.3)
+        return u
+    except OSError as e:
+        log("no uinput (%s): only watching the buttons" % e)
+        return None
+
+
+def emit(u, value):
+    t = time.time(); s, us = int(t), int((t % 1) * 1e6)
+    os.write(u, struct.pack(FMT, s, us, EV_KEY, KEY_POWER, value) + struct.pack(FMT, s, us, EV_SYN, 0, 0))
+
+
+def screenshot():
+    """Spectacle's own 'whole screen' shortcut, in each signed-in Plasma session (it shows a notification with
+    Annotate to edit, and saves to Pictures/Screenshots)."""
+    done = False
+    for bus in glob.glob("/run/user/*/bus"):
+        uid = bus.split("/")[3]
+        try:
+            user = subprocess.run(["id", "-nu", uid], capture_output=True, text=True).stdout.strip()
+        except OSError:
+            continue
+        if not user or subprocess.run(["pgrep", "-u", uid, "-x", "plasmashell"], capture_output=True).returncode != 0:
+            continue
+        env = ["env", "DBUS_SESSION_BUS_ADDRESS=unix:path=" + bus, "XDG_RUNTIME_DIR=/run/user/" + uid]
+        qd = "qdbus6" if subprocess.run(["sh", "-c", "command -v qdbus6"], capture_output=True).returncode == 0 else "qdbus"
+        r = subprocess.run(["runuser", "-u", user, "--"] + env + [qd, "org.kde.kglobalaccel", "/component/org_kde_spectacle_desktop",
+                            "org.kde.kglobalaccel.Component.invokeShortcut", "FullScreenScreenShot"], capture_output=True)
+        if r.returncode != 0:   # older Spectacle: run it directly, in the background (notification with Annotate)
+            subprocess.Popen(["runuser", "-u", user, "--"] + env + ["WAYLAND_DISPLAY=wayland-0", "spectacle", "-f", "-b"])
+        done = True
+    log("screenshot" if done else "screenshot: no Plasma session")
+
+
+def main():
+    devs = {}
+    for p in sorted(glob.glob("/dev/input/event*")):
+        try:
+            fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+        k = keys_of(fd)
+        if k:
+            devs[fd] = (p, name_of(fd), k)
+        else:
+            os.close(fd)
+    for fd, (p, n, k) in devs.items():
+        log("%s: %s (%s)" % (p, n, ", ".join(sorted({KEY_POWER: "power", KEY_VOLUMEDOWN: "volume down"}[x] for x in k))))
+    if os.environ.get("S6K_DRY") == "1" or not devs:
+        return 0 if devs else 1
+    u = virtual_power()
+    grabbed = set()
+    if u is not None:
+        for fd, (p, n, k) in devs.items():
+            if KEY_POWER in k and KEY_VOLUMEDOWN not in k:   # never take the volume buttons
+                try:
+                    fcntl.ioctl(fd, EVIOCGRAB, 1); grabbed.add(fd)
+                except OSError as e:
+                    log("couldn't take %s: %s" % (p, e))
+    log("power button %s" % ("passed through" if grabbed else "only watched"))
+    power_down = None        # time Power went down (held back, not passed on yet)
+    passed = False           # this press already went through
+    combo = False
+    vol_at = 0.0
+    while True:
+        timeout = None
+        if power_down is not None and not passed and not combo:
+            timeout = max(0, HOLD - (time.time() - power_down))
+        r, _, _ = select.select(list(devs), [], [], timeout)
+        now = time.time()
+        if not r and power_down is not None and not passed and not combo and grabbed:
+            emit(u, 1); passed = True              # held: a long press, as before
+            continue
+        for fd in r:
+            try:
+                data = os.read(fd, SZ * 64)
+            except OSError:
+                continue
+            for i in range(0, len(data) - SZ + 1, SZ):
+                _, _, typ, code, val = struct.unpack(FMT, data[i:i + SZ])
+                if typ != EV_KEY:
+                    continue
+                if code == KEY_VOLUMEDOWN and val == 1:
+                    vol_at = now
+                    if power_down is not None and not combo:
+                        combo = True; screenshot()
+                elif code == KEY_POWER and fd in devs:
+                    if val == 1:
+                        power_down, passed, combo = now, False, False
+                        if now - vol_at < WINDOW:
+                            combo = True; screenshot()
+                    elif val == 0 and power_down is not None:
+                        if grabbed and fd in grabbed:
+                            if passed:
+                                emit(u, 0)
+                            elif not combo:
+                                emit(u, 1); emit(u, 0)     # a short press, passed on
+                        power_down = None
+                    # val == 2 (repeat): nothing; the held press already went through
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
-"""Build S6Migrate-FIX.zip (run from TWRP: Install). Usage: build-zip.py OUT.zip"""
+"""Build S6Migrate-FIX.zip (run from TWRP: Install). Usage: build-zip.py OUT.zip
+Also used by ../update/build-zip.py for S6Migrate-UPDATE.zip (the same files, without the login repairs)."""
 import sys, zipfile, pathlib
 here = pathlib.Path(__file__).parent
-out = sys.argv[1] if len(sys.argv) > 1 else "S6Migrate-FIX.zip"
-with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+
+
+def build(template, out, label="S6 Migrate fix"):
+  with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     i = zipfile.ZipInfo("META-INF/com/google/android/update-binary"); i.external_attr = 0o755 << 16; i.compress_type = zipfile.ZIP_DEFLATED
-    ub = (here / "update-binary").read_text()
+    ub = pathlib.Path(template).read_text()
     py = (here / "s6pamtest.py").read_text()
-    assert "EOPY" not in py and "# @PAMTEST@" in ub
+    assert "EOPY" not in py
     fed = here.parent / "fedora" / "system"
     sc, mt = (fed / "s6-selfcheck").read_text(), (fed / "s6-maint").read_text()
     assert "EOSC" not in sc and "EOMT" not in mt and "# @S6SELFCHECK@" in ub and "# @S6MAINT@" in ub
@@ -44,5 +47,9 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             parts.append('[ -e "$ROOT%s" ] && rm -f "$ROOT%s.new" || mv "$ROOT%s.new" "$ROOT%s"\n' % (dest, dest, dest, dest))
     ub = ub.replace("# @S6FILES@\n", "".join(parts))
     z.writestr(i, ub)
-    z.writestr("META-INF/com/google/android/updater-script", "# S6 Migrate fix: the work is done by update-binary\n")
-print(out)
+    z.writestr("META-INF/com/google/android/updater-script", "# %s: the work is done by update-binary\n" % label)
+  return out
+
+
+if __name__ == "__main__":
+    print(build(here / "update-binary", sys.argv[1] if len(sys.argv) > 1 else "S6Migrate-FIX.zip"))

@@ -36,6 +36,8 @@ jobs:
           bash -n tools/migrate/fedora/s6-helper
           bash -n tools/migrate/fedora/s6-update
           bash -n tools/migrate/fedora/s6-look
+          bash -n tools/migrate/fedora/s6-quick
+          python3 -m py_compile tools/migrate/fedora/system/s6-keys tools/migrate/fedora/app/ready.py
           bash -n tools/migrate/fedora/system/s6-setup-session
           python3 -m py_compile tools/migrate/fedora/app/s6ui.py tools/migrate/fedora/app/setup.py tools/migrate/fedora/app/companion.py
 
@@ -46,6 +48,8 @@ jobs:
           sh -n /tmp/ub-rehearsal && sh -n /tmp/ub-switch
           bash tools/migrate/fedora/tests/test-maint.sh
           bash tools/migrate/fedora/tests/test-install-list.sh
+          python3 tools/migrate/fedora/tests/test-keys.py
+          python3 tools/migrate/update/build-zip.py /tmp/S6Migrate-UPDATE.zip && sh -n tools/migrate/update/update-binary
           sh -n tools/migrate/fix/update-binary && python3 -m py_compile tools/migrate/fix/s6pamtest.py && python3 tools/migrate/fix/build-zip.py /tmp/S6Migrate-FIX.zip
 
       - uses: actions/setup-java@v4

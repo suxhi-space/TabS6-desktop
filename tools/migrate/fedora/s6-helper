@@ -32,7 +32,7 @@
 #   storage                          COPY|PATH|KB|ORIGINAL (yes/no: the original on the card/drive is still there)
 #   free-copy PATH                   delete a copy of your package that the switch put on the tablet (never the original)
 #   schedule-linux-apps USER PART    queue the Linux versions of your apps for the restart (before the first login)
-#   schedule repair|update|extras|codecs   queue maintenance for the next restart (s6-maint runs it before the login screen)
+#   schedule repair|update|extras|codecs|cosmicfiles   queue maintenance for the next restart (s6-maint runs it before the login screen)
 #   unschedule repair|update|extras  take a queued job back
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
@@ -463,7 +463,7 @@ schedule-linux-apps)
 
 schedule|unschedule)
   job=${1:-}
-  case "$job" in repair|update|extras|codecs) ;; *) die "unknown job: $job" ;; esac
+  case "$job" in repair|update|extras|codecs|cosmicfiles) ;; *) die "unknown job: $job" ;; esac
   mkdir -p "$ST/maint"
   if [ "$act" = schedule ]; then date > "$ST/maint/$job"; echo "$job: at the next restart"; else rm -f "$ST/maint/$job"; echo "$job: not queued"; fi
   ;;

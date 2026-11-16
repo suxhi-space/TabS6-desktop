@@ -6,13 +6,14 @@
 #   linuxapps  Linux versions of your Android apps (S6 Setup; lines "USER|PACKAGE-PART"), after the update
 #   extras   Better Blur DX and Darkly
 #   codecs   media codecs from RPM Fusion (their drivers can need matching graphics libraries)
+#   cosmicfiles  COSMIC Files, when chosen as the file manager in S6 Companion > Look
 # Desktop packages are never changed under a running desktop: that froze the tablet once and cut a library short.
 # Everything is downloaded first (in rounds, keeping what's done, patient with slow Wi-Fi), then installed from
 # the downloaded files only, so a Wi-Fi drop can't interrupt installing. Kernel packages are never touched (this
 # tablet boots its own kernel); neither are the parts t860-fedora customises. Progress is shown on the screen.
 ST=${S6M_STATE:-/var/lib/s6migrate}; M=$ST/maint; L=$ST/maint.log; TTY=${S6M_TTY:-/dev/tty1}   # S6M_*: test hooks
 # Any job waiting? (One check per job: listing them all at once failed whenever one was missing, so nothing ran.)
-any=0; for j in repair update linuxapps extras codecs; do [ -f "$M/$j" ] && any=1; done
+any=0; for j in repair update linuxapps extras codecs cosmicfiles; do [ -f "$M/$j" ] && any=1; done
 [ $any = 1 ] || exit 0
 chvt 1 2>/dev/null
 off=$(stat -c %s "$L" 2>/dev/null || echo 0)
@@ -33,7 +34,7 @@ ui_stop() { pkill -f "s6migrate/app/ready.py" 2>/dev/null; sleep 1; chvt 1 2>/de
 say() { echo; echo "== $(date '+%F %T') $*"; }
 X='--setopt=excludepkgs=kernel*,sddm,iio-sensor-proxy'
 NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
-jobs=""; for j in repair update linuxapps extras codecs; do [ -f "$M/$j" ] && jobs="$jobs$j "; done
+jobs=""; for j in repair update linuxapps extras codecs cosmicfiles; do [ -f "$M/$j" ] && jobs="$jobs$j "; done
 say "S6 Migrate is finishing work before the login screen: $jobs"
 say "Keep the tablet plugged in. On slow Wi-Fi this can take a while; it never installs anything half-downloaded."
 
@@ -133,6 +134,10 @@ fi
 if [ -f "$M/codecs" ] && [ $fail = 0 ]; then
   say "Adding media codecs (RPM Fusion)..."
   if /usr/local/libexec/s6migrate/s6-helper tune codecs on; then rm -f "$M/codecs"; else fail=1; fi
+fi
+if [ -f "$M/cosmicfiles" ] && [ $fail = 0 ]; then
+  say "Adding COSMIC Files (the file manager from the COSMIC desktop)..."
+  if rounds "Downloading COSMIC Files" install cosmic-files && dnfw -y -C "$X" install cosmic-files; then rm -f "$M/cosmicfiles"; else fail=1; fi
 fi
 n=$(cat "$M/attempts" 2>/dev/null || echo 0)
 if [ $fail = 1 ]; then

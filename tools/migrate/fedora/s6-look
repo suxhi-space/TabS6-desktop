@@ -14,6 +14,7 @@
 # When installed (s6-helper look-extras), Better Blur DX (xarblu) replaces Plasma's blur and Darkly (Bali10050)
 # replaces the Breeze app style, for frosted, rounded windows. Without them, Plasma's own effects are used.
 #   s6-look status                           LAYOUT|.. SIZE|.. THEME|..
+#   s6-look files dolphin|cosmic             the file manager (COSMIC Files is installed at the next restart)
 #   s6-look show-panels                      bring back panels set to auto-hide (on a touch screen they can't be
 #                                            brought back by pointing at the edge)
 #
@@ -113,6 +114,13 @@ keyboard() { # keyboard light|dark
   $gs set org.maliit.keyboard.maliit predictive-text true 2>/dev/null
   $gs set org.maliit.keyboard.maliit device tablet 2>/dev/null
 }
+# The file manager: Dolphin (KDE's, set up for touch) or COSMIC Files (from the COSMIC desktop, written in Rust;
+# installed at a restart when chosen). It opens your folders and is pinned to the taskbar.
+COSMIC_FILES=com.system76.CosmicFiles.desktop
+files_desktop() {
+  if [ "$(getconf files)" = cosmic ] && [ -f "/usr/share/applications/$COSMIC_FILES" ]; then echo "$COSMIC_FILES"; else echo org.kde.dolphin.desktop; fi
+}
+files_apply() { xdg-mime default "$(files_desktop)" inode/directory 2>/dev/null; }
 kwin_reload() { "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
   local ids id
@@ -145,7 +153,7 @@ function setp(p, k, v) { try { p[k] = v; } catch (e) { } }
 function tasks(p, plain) {
   var t = p.addWidget(plain ? "org.kde.plasma.taskmanager" : "org.kde.plasma.icontasks");
   t.currentConfigGroup = ["General"];
-  t.writeConfig("launchers", ["applications:org.kde.dolphin.desktop", "applications:firefox.desktop", "applications:org.kde.discover.desktop", "applications:s6-companion.desktop"]);
+  t.writeConfig("launchers", ["applications:" + (typeof FILES !== "undefined" ? FILES : "org.kde.dolphin.desktop"), "applications:firefox.desktop", "applications:org.kde.discover.desktop", "applications:s6-companion.desktop"]);
   return t;
 }
 // The status icons (Wi-Fi, sound, battery, Bluetooth, brightness) live in S6 Quick Settings, an Android-style panel
@@ -184,8 +192,9 @@ layout)
     plasma) js='clear(); loadTemplate("org.kde.plasma.desktop.defaultPanel");' ;;
     *) echo "unknown layout: $name"; exit 2 ;;
   esac
-  if [ "${3:-}" = --print ]; then printf '%s\n%s\n' "$js_common" "$js"; exit 0; fi
-  plasma_js "$js_common $js" && setconf layout "$name" && echo "layout: $name"
+  fj="var FILES = \"$(files_desktop)\";"
+  if [ "${3:-}" = --print ]; then printf '%s\n%s\n%s\n' "$fj" "$js_common" "$js"; exit 0; fi
+  plasma_js "$fj $js_common $js" && setconf layout "$name" && echo "layout: $name"
   bash "$SELF" dolphin "$name"
   apply_borders "$name"
   eff=$(getconf effects); [ -n "$eff" ] && bash "$SELF" effects "$eff" >/dev/null   # new panels get the chosen look too
@@ -383,6 +392,10 @@ heal)
     setconf panels-pending 0
   fi
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
+  # COSMIC Files arrived since it was chosen: open folders with it and pin it
+  if [ "$(getconf files)" = cosmic ] && [ "$(xdg-mime query default inode/directory 2>/dev/null)" != "$(files_desktop)" ]; then
+    files_apply; [ "$(files_desktop)" = "$COSMIC_FILES" ] && setconf panels-pending 1
+  fi
   acc=$(getconf accent-pending)
   if [ -n "$acc" ] && command -v plasma-apply-colorscheme >/dev/null; then
     plasma-apply-colorscheme --accent-color "$acc" >/dev/null 2>&1 && setconf accent-pending ""
@@ -408,11 +421,21 @@ extras)
   echo "PAPIRUS|$([ -d /usr/share/icons/Papirus ] && echo installed || echo missing)"
   echo "INTER|$(fc-list 2>/dev/null | grep -q -i '/Inter' && echo installed || echo missing)"
   ;;
+files)
+  case "${2:-}" in dolphin|cosmic) ;; *) echo "dolphin or cosmic"; exit 2 ;; esac
+  was=$(files_desktop); setconf files "$2"; files_apply
+  if [ "$2" = cosmic ] && [ ! -f "/usr/share/applications/$COSMIC_FILES" ]; then
+    echo "COSMIC Files is installed at the next restart, then it opens your folders"
+  else
+    [ "$(files_desktop)" != "$was" ] && [ -n "$(getconf layout)" ] && bash "$SELF" layout "$(getconf layout)" >/dev/null   # pin it
+    echo "file manager: $2"
+  fi
+  ;;
 show-panels)
   plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."
   ;;
 status)
-  echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
+  echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

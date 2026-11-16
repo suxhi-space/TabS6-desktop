@@ -29,9 +29,10 @@ JOBS = [("repair", re.compile(r"^Repair \d/4|^Downloading packages to reinstall"
         ("update", re.compile(r"^Updating Fedora|^Downloading updates")),
         ("linuxapps", re.compile(r"^Installing the Linux versions")),
         ("extras", re.compile(r"^Adding Better Blur|^Downloading (kwin-effects|darkly|Papirus)")),
-        ("codecs", re.compile(r"^Adding media codecs"))]
+        ("codecs", re.compile(r"^Adding media codecs")),
+        ("cosmicfiles", re.compile(r"^Adding COSMIC Files|^Downloading COSMIC Files"))]
 NAMES = {"repair": "Repairing Fedora", "update": "Updating Fedora", "linuxapps": "Installing your Linux apps",
-         "extras": "Adding blur, window style, icons and font", "codecs": "Adding media codecs"}
+         "extras": "Adding blur, window style, icons and font", "codecs": "Adding media codecs", "cosmicfiles": "Adding COSMIC Files"}
 COUNTER = re.compile(r"^\[\s*(\d+)/(\d+)\]\s*(.*)")
 INSTALLING = re.compile(r"\b(Installing|Upgrading|Reinstalling|Removing|Cleanup|Verifying|Running scriptlet|Downgrading)\b", re.I)
 FINAL = re.compile(r"^(All done|Not finished this time|No internet)")

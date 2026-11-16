@@ -346,6 +346,12 @@ ApplicationWindow {
                 Label2 { anchors.verticalCenter: parent.verticalCenter; text: "Taskbar gone after turning on auto-hide?"; color: Theme.sub; font.pixelSize: 14 }
                 Btn { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: "Show the taskbar again"; onClicked: lk.apply(["show-panels"]) }
             }
+            Segmented {
+                width: parent.width; label: "File manager"; value: lk.cur.FILES || "dolphin"
+                options: [{ id: "dolphin", label: "Dolphin", sub: "KDE's file manager, set up for touch" },
+                          { id: "cosmic", label: "COSMIC Files", sub: "From the COSMIC desktop, written in Rust (installed at the next restart)" }]
+                onPicked: (id) => { if (id === "cosmic") win.run("sched", win.h(["schedule", "cosmicfiles"]), null, null); lk.apply(["files", id]) }
+            }
             Label2 { text: "Size"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
                 width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12

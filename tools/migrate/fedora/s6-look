@@ -370,6 +370,7 @@ heal)
   sz=$(getconf size-pending)
   if [ -n "$sz" ]; then sleep 3; bash "$SELF" size "$sz" >/dev/null 2>&1 && setconf size-pending ""; fi
   if [ "$(getconf panels-pending)" = 1 ]; then
+    bash "$SELF" install-themes >/dev/null 2>&1   # the S6 Global Themes (layouts, the rounded volume slider) up to date
     sleep 2
     # Check that the first desktop came up with the prepared layout (Plasma builds it from the Global Theme);
     # if not, apply the layout now.

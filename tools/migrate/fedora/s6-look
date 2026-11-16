@@ -265,7 +265,8 @@ prepare)
   # Plasma builds a new user's first desktop from the Global Theme named in kdeglobals, so the chosen layout's theme
   # makes the very first desktop come up arranged. Screen scale and panel see-through need the running desktop:
   # they are queued and "heal" applies them the moment you log in.
-  lay=${2:-touch}; sz=${3:-larger}; th=${4:-light}; eff=${5:-soft}
+  lay=${2:-touch}; sz=${3:-larger}; th=${4:-light}; eff=${5:-soft}; acc=${6:-}
+  case "$acc" in ""|\#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) echo "accent: #RRGGBB"; exit 2 ;; esac
   case "$lay" in touch|centered|traditional|topdock|plasma) ;; *) echo "unknown layout"; exit 2 ;; esac
   case "$sz" in standard|larger|largest) ;; *) echo "unknown size"; exit 2 ;; esac
   case "$th" in light|dark) ;; *) echo "light or dark"; exit 2 ;; esac
@@ -281,8 +282,13 @@ prepare)
   else kw --file kwinrc --group Plugins --key magiclampEnabled false; kw --file kwinrc --group Plugins --key squashEnabled true; fi
   if [ "$sz" = standard ]; then kw --file kwinrc --group Input --key TabletMode auto; else kw --file kwinrc --group Input --key TabletMode on; fi
   setconf layout "$lay"; setconf theme "$th"; setconf effects "$eff"; setconf size-pending "$sz"; setconf panels-pending 1
+  # Your Android accent colour: KDE apps read it from kdeglobals at once; the colour scheme is tinted at the first login.
+  if [ -n "$acc" ]; then
+    kw --file kdeglobals --group General --key AccentColor "$((16#${acc:1:2})),$((16#${acc:3:2})),$((16#${acc:5:2}))"
+    setconf accent-pending "$acc"
+  fi
   date > "$(dirname "$CONF")/prepared"
-  echo "your desktop is prepared: $lay layout, $sz, $th, $eff effects"
+  echo "your desktop is prepared: $lay layout, $sz, $th, $eff effects${acc:+, accent $acc}"
   ;;
 layout-js)
   # the panel script for a layout (shared by "layout" and the Global Themes)
@@ -303,6 +309,10 @@ heal)
     [ -n "$want" ] && [ -n "$have" ] && [ "$have" != "$want" ] && bash "$SELF" layout "$lay" >/dev/null 2>&1
     case "$(getconf effects)" in glassy) panel_opacity 2 ;; off) panel_opacity 1 ;; *) panel_opacity 0 ;; esac
     setconf panels-pending 0
+  fi
+  acc=$(getconf accent-pending)
+  if [ -n "$acc" ] && command -v plasma-apply-colorscheme >/dev/null; then
+    plasma-apply-colorscheme --accent-color "$acc" >/dev/null 2>&1 && setconf accent-pending ""
   fi
   # Better Blur DX is built for one exact KWin version; after a Fedora update it may not load until it's rebuilt.
   eff=$(getconf effects)

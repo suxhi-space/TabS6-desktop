@@ -42,6 +42,12 @@ Canvas {
         case "wifi": c.lineWidth = 2*s; c.beginPath(); c.arc(12*s, 19*s, 14*s, -Math.PI*0.78, -Math.PI*0.22); c.stroke(); c.beginPath(); c.arc(12*s, 19*s, 9*s, -Math.PI*0.75, -Math.PI*0.25); c.stroke(); c.beginPath(); c.arc(12*s, 19*s, 4*s, -Math.PI*0.72, -Math.PI*0.28); c.stroke(); circle(12, 19, 1.4, true); break;
         case "lock": c.lineWidth = 1.8*s; rrect(5, 10, 14, 11, 2); c.beginPath(); c.arc(12*s, 10*s, 4.5*s, Math.PI, 0); c.stroke(); break;
         case "user": c.lineWidth = 1.8*s; circle(12, 8, 4); c.beginPath(); c.arc(12*s, 22*s, 8*s, Math.PI*1.1, Math.PI*1.9); c.stroke(); break;
+        case "tablet": c.lineWidth = 1.7*s; rrect(1, 4, 22, 16, 3); circle(12, 6.3, 0.75, true); c.lineWidth = 1.2*s; rrect(3.6, 8, 16.8, 9.6, 1.2); line([9.5,15.2, 14.5,15.2]); break;
+        case "sparkle": c.beginPath(); c.moveTo(12*s,2*s); c.quadraticCurveTo(13*s,11*s,22*s,12*s); c.quadraticCurveTo(13*s,13*s,12*s,22*s); c.quadraticCurveTo(11*s,13*s,2*s,12*s); c.quadraticCurveTo(11*s,11*s,12*s,2*s); c.fill(); circle(19.5, 4.5, 1.6, true); break;
+        case "globe": c.lineWidth = 1.8*s; circle(12, 12, 9.5); c.beginPath(); c.ellipse(7.8*s, 2.5*s, 8.4*s, 19*s); c.stroke(); line([2.8,12, 21.2,12]); line([4.5,7, 19.5,7]); line([4.5,17, 19.5,17]); break;
+        case "look": c.lineWidth = 1.8*s; rrect(3, 3, 18, 18, 4); c.beginPath(); c.moveTo(21*s,7*s); c.lineTo(21*s,17*s); c.arcTo(21*s,21*s,17*s,21*s,4*s); c.lineTo(7*s,21*s); c.closePath(); c.fill(); break;
+        case "move": c.lineWidth = 1.8*s; c.beginPath(); c.moveTo(3*s,11*s); c.lineTo(3*s,21*s); c.lineTo(21*s,21*s); c.lineTo(21*s,11*s); c.stroke(); line([3,11, 8,11]); line([16,11, 21,11]); line([12,2, 12,15]); line([8,11, 12,15, 16,11]); break;
+        case "check": c.lineWidth = 2.6*s; line([4,12.5, 9.5,18, 20,6.5]); break;
         case "spin": c.lineWidth = 2.4*s; c.strokeStyle = String(trackc); circle(12, 12, 9.5); c.strokeStyle = String(tint); c.beginPath(); var a = turn * Math.PI / 180; c.arc(12*s, 12*s, 9.5*s, a, a + Math.PI*0.6); c.stroke(); break;
         case "logo":
             c.beginPath(); c.roundedRect(0, 0, width, height, width*0.27, width*0.27); c.fill();

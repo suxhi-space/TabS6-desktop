@@ -315,6 +315,8 @@ while IFS='|' read -r t a b c; do
       echo "time_12_24=$(settings get system time_12_24 </dev/null 2>/dev/null)"
       echo "screen_off_timeout=$(settings get system screen_off_timeout </dev/null 2>/dev/null)"
       echo "auto_rotate=$(settings get system accelerometer_rotation </dev/null 2>/dev/null)"
+      # Material You / One UI colour palette (Android 12+): becomes the accent colour in Setup and KDE
+      echo "theme=$(settings get secure theme_customization_overlay_packages </dev/null 2>/dev/null | tr -d '\n')"
     } > "$new/settings.txt"
     for w in wallpaper wallpaper_lock; do
       [ -f "$RP/data/system/users/0/$w" ] && cp "$RP/data/system/users/0/$w" "$new/$w"

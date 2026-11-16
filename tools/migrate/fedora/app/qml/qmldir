@@ -11,3 +11,4 @@ Label2 1.0 Label2.qml
 LayoutPreview 1.0 LayoutPreview.qml
 LayoutPicker 1.0 LayoutPicker.qml
 Picker 1.0 Picker.qml
+SetupFrame 1.0 SetupFrame.qml

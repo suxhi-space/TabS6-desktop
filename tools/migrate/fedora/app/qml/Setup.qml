@@ -20,6 +20,9 @@ ApplicationWindow {
     property int want: info.want || 1
     property int page: 0
     readonly property var steps: ["Welcome", "Wi-Fi", "Your account", "Your tablet", "Look and feel", "Moving in", "All set"]
+    readonly property var icons: ["tablet", "wifi", "user", "globe", "look", "move", "check"]
+    property var walls: JSON.parse(backend.wallpapers())
+    readonly property url backdrop: personal && walls.android ? walls.android : walls["default"]
     readonly property var helper: backend.mock ? ["true"] : ["pkexec", backend.helper]
 
     // choices
@@ -43,6 +46,9 @@ ApplicationWindow {
     property bool codecs: true
     property bool online: false
     property string connectedTo: ""
+    property bool useAccent: true          // your Android (Material You) colour for Setup and KDE
+    readonly property bool personal: page >= 1 && migrate && parts.length > 0
+    Binding { target: Theme; property: "tint"; value: win.personal && win.useAccent && win.info.tint ? win.info.tint : null }
 
     Component.onCompleted: { Theme.dark = dark; findParts() }
     onDarkChanged: Theme.dark = dark
@@ -76,15 +82,21 @@ ApplicationWindow {
                 info = JSON.parse(backend.packageInfo()); set = info.settings || set
                 if (info.parts.length > parts.length) parts = info.parts
                 want = Math.max(info.want || 1, want)
+                walls = JSON.parse(backend.wallpapers())
             }
         })
     }
 
-    Frame {
+    // pages that don't show progress or a terminal
+    function plainFrame() { frame.progress = -1; frame.detailsAvailable = false; frame.detailsShown = false; frame.details = "" }
+
+    SetupFrame {
         id: frame
         anchors.fill: parent
         steps: win.steps
         current: win.page
+        icon: win.icons[win.page]
+        wallpaper: win.backdrop
         keyboardHeight: kb.active ? kb.height : 0
         Loader {
             id: pageLoader
@@ -110,7 +122,7 @@ ApplicationWindow {
         Column {
             width: parent.width; spacing: 18
             Component.onCompleted: {
-                frame.eyebrow = "Fedora 44 · Galaxy Tab S6"
+                win.plainFrame(); frame.eyebrow = "Fedora 44 · Galaxy Tab S6"
                 frame.title = "Welcome to your new Fedora"
                 frame.subtitle = "Let's set up your tablet. It takes a few minutes, and your apps, files and settings from Android move in along the way."
                 frame.note = ""; frame.primary = "Let's go"; frame.secondary = ""; frame.primaryEnabled = true
@@ -156,7 +168,7 @@ ApplicationWindow {
             property string status: ""
             function next() { win.page = 2 }
             Component.onCompleted: {
-                frame.eyebrow = ""; frame.title = "Connect to Wi-Fi"
+                win.plainFrame(); frame.eyebrow = ""; frame.title = "Connect to Wi-Fi"
                 frame.subtitle = win.info.wifi > 0 ? "Your Wi-Fi networks from Android are added for you. Wi-Fi is needed for your Linux apps and Android app support." : "Wi-Fi is needed for your Linux apps and Android app support."
                 frame.primary = "Continue"; frame.secondary = "Back"; frame.note = "You can skip this and connect later."
                 importAndScan()
@@ -246,7 +258,7 @@ ApplicationWindow {
                 win.page = 3
             }
             Component.onCompleted: {
-                frame.eyebrow = ""; frame.title = "Create your account"
+                win.plainFrame(); frame.eyebrow = ""; frame.title = "Create your account"
                 frame.subtitle = "This is you on Fedora. Your password unlocks the tablet and approves system changes."
                 frame.primary = "Continue"; frame.secondary = "Back"; frame.note = ""
             }
@@ -287,7 +299,7 @@ ApplicationWindow {
                 win.page = 4
             }
             Component.onCompleted: {
-                frame.eyebrow = ""; frame.title = "Your tablet"
+                win.plainFrame(); frame.eyebrow = ""; frame.title = "Your tablet"
                 frame.subtitle = "Filled in from your Android settings. Change anything you like."
                 frame.primary = "Continue"; frame.secondary = "Back"; frame.note = ""
             }
@@ -341,7 +353,7 @@ ApplicationWindow {
             width: parent.width; spacing: 18
             function next() { win.page = 5 }
             Component.onCompleted: {
-                frame.eyebrow = ""; frame.title = "Look and feel"
+                win.plainFrame(); frame.eyebrow = ""; frame.title = "Look and feel"
                 frame.subtitle = "Pick a layout, size and effects. The file manager matches the layout. Change any of it later in S6 Companion."
                 frame.primary = win.migrate ? "Move my stuff in" : "Set it up"; frame.secondary = "Back"; frame.note = "Nothing on your drives is changed or erased."
             }
@@ -370,6 +382,13 @@ ApplicationWindow {
             }
             Card {
                 width: parent.width
+                Toggle {
+                    visible: !!win.info.tint && win.migrate && win.parts.length > 0
+                    width: parent.width; title: "Your colour from Android"
+                    sub: "The accent colour of your Android (Material You) for buttons, highlights and the whole KDE desktop."
+                    checked: win.useAccent; onCheckedChanged: win.useAccent = checked
+                }
+                Rectangle { visible: !!win.info.tint && win.migrate && win.parts.length > 0; width: parent.width; height: 1; color: Theme.hair }
                 Toggle { width: parent.width; title: "Tune Fedora for this tablet (recommended)"; sub: "Smoother memory use, a smaller system log, faster shutdown and updates, fewer background jobs, and the tablet's own parts protected from updates."; checked: win.tune; onCheckedChanged: win.tune = checked }
                 Rectangle { width: parent.width; height: 1; color: Theme.hair }
                 Toggle { width: parent.width; title: "Media codecs"; sub: "Plays every common video and music format (from RPM Fusion; needs Wi-Fi)."; checked: win.codecs; onCheckedChanged: win.codecs = checked }
@@ -390,6 +409,7 @@ ApplicationWindow {
             function next() { if (finished) win.page = 6 }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Moving in"
+                frame.detailsAvailable = true; frame.detailsShown = false; frame.details = ""; frame.progress = 0
                 frame.subtitle = "Keep the tablet plugged in. This can take a while for lots of photos."
                 frame.primary = "Continue"; frame.secondary = ""; frame.primaryEnabled = false
                 frame.note = "Nothing is deleted from your package or drives."
@@ -398,7 +418,8 @@ ApplicationWindow {
                 t.push({ title: "Apply your tablet's settings", argv: win.h(["settings", win.timeZone, win.loc, win.deviceName, win.userName, win.dark ? "dark" : "light"]) })
                 t.push({ title: "Remember your layout and choices", argv: win.h(["save-prefs", win.userName, "layout=" + win.layout, "size=" + win.size, "effects=" + win.effects, "migrate=" + (win.migrate ? "yes" : "no"), "android=" + (win.android ? "yes" : "no"), "tune=" + (win.tune ? "yes" : "no")]) })
                 t.push({ title: "Set up your desktop: " + win.layout + " layout, " + (win.dark ? "dark" : "light") + " look, " + win.effects + " effects",
-                         argv: win.h(["prepare-look", win.userName, win.layout, win.size, win.dark ? "dark" : "light", win.effects]) })
+                         argv: win.h(["prepare-look", win.userName, win.layout, win.size, win.dark ? "dark" : "light", win.effects,
+                                       win.personal && win.useAccent && win.info.tint ? win.info.tint[win.dark ? "dark" : "light"].accent : ""]) })
                 t.push({ title: "Your screen size (" + win.size + "): set the moment you log in", skip: true, after: true })
                 if (win.tune) {
                     var tunes = ["memory", "logs", "shutdown", "downloads", "background", "protect"]
@@ -417,11 +438,23 @@ ApplicationWindow {
                 tasks = t
                 step()
             }
+            // the terminal view keeps the last 400 lines
+            property var log: []
+            function say(line) { log.push(line); if (log.length > 400) log.splice(0, log.length - 400); frame.details = log.join("\n") }
+            function overall() {
+                var n = 0, d = 0
+                for (var i = 0; i < tasks.length; i++) { if (tasks[i].skip && tasks[i].after) continue; n++; if (i < at || tasks[i].state === "done" || tasks[i].state === "fail" || tasks[i].state === "skip") d += 1; else if (i === at && tasks[i].progress > 0) d += tasks[i].progress }
+                frame.progress = n ? Math.min(1, d / n) : 1
+            }
             function setTask(i, props) { var t = tasks.slice(); for (var k in props) t[i][k] = props[k]; tasks = t }
             function step() {
                 at++
+                overall()
                 if (at >= tasks.length) {
-                    finished = true; frame.primaryEnabled = true
+                    finished = true; frame.primaryEnabled = true; frame.progress = 1
+                    frame.progressLabel = failures > 0 ? "Finished with " + failures + " problem(s)" : "All done"
+                    say("")
+                    say(failures > 0 ? "== finished, " + failures + " problem(s)" : "== all done")
                     frame.subtitle = failures > 0 ? "Done, with " + failures + " problem(s). Details are in the log; S6 Companion can try again." : "Everything's in place."
                     return
                 }
@@ -430,12 +463,17 @@ ApplicationWindow {
                 if (t.needsNet && !win.online) { setTask(at, { state: "skip", detail: "No Wi-Fi: S6 Companion installs them later." }); step(); return }
                 setTask(at, { state: "run" })
                 var idx = at
+                frame.progressLabel = t.title
+                say((at > 0 ? "\n" : "") + "== " + t.title)
+                say("$ " + (t.argv[0] === win.helper[0] ? ["s6-helper"].concat(t.argv.slice(win.helper.length)) : t.argv).map(function (a) { return /[\s'"]/.test(a) ? "'" + a + "'" : a }).join(" "))
                 win.run("task" + idx, t.argv, function (l) {
+                    mp.say(l)
                     var m = /checking (\d+) of (\d+)/.exec(l)
-                    if (m) setTask(idx, { progress: parseInt(m[1]) / Math.max(1, parseInt(m[2])), detail: "Checking your package: " + m[1] + " of " + m[2] })
+                    if (m) { setTask(idx, { progress: parseInt(m[1]) / Math.max(1, parseInt(m[2])), detail: "Checking your package: " + m[1] + " of " + m[2] }); mp.overall() }
                     else if (/^==/.test(l)) setTask(idx, { detail: l.replace(/=/g, "").trim() })
                     else if (/->|installed|Installing|added|set:/.test(l)) setTask(idx, { detail: l.trim() })
                 }, function (code) {
+                    mp.say(code === 0 ? "-- ok" : "-- exit code " + code)
                     if (code !== 0) failures++
                     setTask(idx, { state: code === 0 ? "done" : "fail", progress: -1, detail: code === 0 ? (tasks[idx].detail.indexOf("Checking") === 0 ? "" : tasks[idx].detail) : "Didn't finish (code " + code + "). The setup continues." })
                     if (idx === 0 && code !== 0) { // no account: nothing else can go on
@@ -485,7 +523,7 @@ ApplicationWindow {
                 })
             }
             Component.onCompleted: {
-                frame.eyebrow = ""; frame.title = "All set, " + win.firstName() + "!"
+                win.plainFrame(); frame.eyebrow = ""; frame.title = "All set, " + win.firstName() + "!"
                 frame.subtitle = win.online ? "Your tablet is ready. While it restarts it brings Fedora up to date (this can take a while; the progress is shown), then opens your own account, all set up."
                                             : "Your tablet is ready. It restarts once (about a minute) into your own account, then S6 Companion finishes your Android apps and shows you around."
                 frame.primary = "Restart into my account"; frame.secondary = ""; frame.primaryEnabled = true; frame.note = ""

@@ -113,6 +113,61 @@ def read_settings(parts):
     return s
 
 
+def _hex_seed(theme_json):
+    """The seed colour from Android's theme_customization_overlay_packages (Material You / One UI palette)."""
+    try:
+        t = json.loads(theme_json)
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(t, dict):        # "null" when Android has no palette set
+        return ""
+    for k in ("android.theme.customization.system_palette", "android.theme.customization.accent_color"):
+        v = str(t.get(k, "")).lstrip("#")
+        if re.fullmatch(r"[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8}", v):
+            return "#" + v[-6:].upper()
+    return ""
+
+
+def _wallpaper_seed(path):
+    """Like Android's wallpaper colours: the most common vivid hue of the picture."""
+    from PySide6.QtGui import QImage
+    from PySide6.QtCore import Qt
+    img = QImage(str(path))
+    if img.isNull():
+        return ""
+    img = img.scaled(48, 48, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+    bins = {}
+    for y in range(img.height()):
+        for x in range(img.width()):
+            c = img.pixelColor(x, y)
+            h, s, v = c.hsvHueF(), c.hsvSaturationF(), c.valueF()
+            if h < 0 or s < 0.25 or v < 0.25:
+                continue
+            b = int(h * 24) % 24
+            w, r, g, bl, n = bins.get(b, (0, 0, 0, 0, 0))
+            bins[b] = (w + s * v, r + c.redF(), g + c.greenF(), bl + c.blueF(), n + 1)
+    if not bins:
+        return ""
+    w, r, g, b, n = max(bins.values())
+    return "#%02X%02X%02X" % (int(255 * r / n), int(255 * g / n), int(255 * b / n))
+
+
+def accent_palette(seed):
+    """Accent tokens for light and dark from one seed colour, kept readable (white text on the light accent)."""
+    import colorsys
+    if not seed:
+        return None
+    r, g, b = (int(seed[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    h, _l, s = colorsys.rgb_to_hls(r, g, b)
+    s = min(0.85, max(0.45, s))
+
+    def c(l, sat=s):
+        return "#%02X%02X%02X" % tuple(int(round(255 * x)) for x in colorsys.hls_to_rgb(h, l, sat))
+    return {"seed": seed,
+            "light": {"accent": c(0.42), "accentText": c(0.34), "accent2": c(0.76, s * 0.8), "sel": c(0.95, 0.6), "link": c(0.38)},
+            "dark": {"accent": c(0.64), "accentText": c(0.75), "accent2": c(0.30), "sel": c(0.17, 0.45), "link": c(0.72)}}
+
+
 def count_wifi(parts):
     n = 0
     for p in parts:
@@ -266,13 +321,63 @@ class Backend(QObject):
         info["settings"] = read_settings(info["parts"])
         info["wifi"] = count_wifi(info["parts"])
         info.update(plan_summary(info["parts"]))
+        seed = _hex_seed(info["settings"].get("theme", ""))
+        if not seed:
+            for p in info["parts"]:
+                if (Path(p) / "settings" / "wallpaper").is_file():
+                    seed = _wallpaper_seed(Path(p) / "settings" / "wallpaper")
+                    break
+        info["tint"] = accent_palette(seed)
         if MOCK and not info["parts"]:
             info = {"id": "20261114-121139", "parts": ["/var/lib/s6migrate/package-20261114-121139-part1", "/run/s6migrate/sde1/S6Migrate/20261114-121139"],
                     "want": 2, "wifi": 4, "apps": 9, "linux": 2, "folders": 7,
                     "folderNames": ["DCIM", "Download", "Documents", "Pictures", "ArtStuff", "Music", "Telegram"],
                     "settings": {"device_name": "Alex's Tab S6", "timezone": "America/Chicago", "locale": "en-US",
                                  "night_mode": "2", "wallpaper": True}}
+            w = os.environ.get("S6_MOCK_ANDROID_WALL")
+            info["tint"] = accent_palette(_wallpaper_seed(w) if w else "#B3261E")
         return json.dumps(info)
+
+    @Slot(result=str)
+    def wallpapers(self):
+        """Backdrops for S6 Setup: Fedora's default wallpaper, and the Android one from the package (shown blurred)."""
+        from PySide6.QtGui import QImageReader
+        ok = {bytes(f).decode() for f in QImageReader.supportedImageFormats()}
+
+        def readable(f):
+            try:
+                return f.is_file() and os.access(f, os.R_OK) and (not f.suffix or f.suffix[1:].lower() in ok)
+            except OSError:
+                return False
+
+        def biggest(files):
+            files = [f for f in files if readable(f)]
+            # prefer formats every Qt build reads, then the largest picture
+            files.sort(key=lambda f: (f.suffix.lower() in (".png", ".jpg", ".jpeg"), f.stat().st_size), reverse=True)
+            return files[0] if files else None
+
+        out = {"default": "", "android": ""}
+        if MOCK and os.environ.get("S6_MOCK_WALL"):
+            out["default"] = QUrl.fromLocalFile(os.environ["S6_MOCK_WALL"]).toString()
+        else:
+            cands = []
+            for pat in ("wallpapers/F[0-9]*/contents/images*/*", "wallpapers/Fedora*/contents/images*/*",
+                        "backgrounds/f[0-9]*/default/*", "backgrounds/default.*", "wallpapers/Next/contents/images*/*"):
+                cands += sorted(Path("/usr/share").glob(pat), reverse=True)
+                if biggest(cands):
+                    break
+            f = biggest(cands)
+            if f:
+                out["default"] = QUrl.fromLocalFile(str(f)).toString()
+        if MOCK and os.environ.get("S6_MOCK_ANDROID_WALL"):
+            out["android"] = QUrl.fromLocalFile(os.environ["S6_MOCK_ANDROID_WALL"]).toString()
+        else:
+            for p in package_parts()["parts"]:
+                f = Path(p) / "settings" / "wallpaper"
+                if readable(f):
+                    out["android"] = QUrl.fromLocalFile(str(f)).toString()
+                    break
+        return json.dumps(out)
 
     @Slot(str, result=str)
     def json(self, path):
@@ -392,6 +497,14 @@ class Backend(QObject):
 
     def _mock(self, task, argv):
         lines = [f"(simulated) {' '.join(shlex.quote(a) for a in argv[:4])}"]
+        if "create-user" in argv:
+            lines = ["useradd: created " + argv[argv.index("create-user") + 1], "groups: wheel, video, input", "home folder ready"]
+        elif "settings" in argv:
+            lines = ["time zone set: " + argv[argv.index("settings") + 1], "language set: " + argv[argv.index("settings") + 2], "device name set"]
+        elif "tune" in argv:
+            lines = ["tune-up " + argv[argv.index("tune") + 1] + ": on"]
+        elif "prepare-look" in argv:
+            lines = ["look and feel: org.s6migrate." + argv[argv.index("prepare-look") + 2], "colours, borders, file manager: set", "prepared"]
         if "find-parts" in argv:
             lines = ["PART|/var/lib/s6migrate/package-20261114-121139-part1|copied", "PART|/run/s6migrate/sde1/S6Migrate/20261114-121139|usb"]
         elif "wifi-list" in argv:

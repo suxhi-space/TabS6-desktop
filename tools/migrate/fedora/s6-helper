@@ -25,7 +25,8 @@
 #   tune-status                      TUNE|name|on/off for each
 #   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
 #   look-extras                      Better Blur DX and Darkly: added at the next restart, before the login screen
-#   prepare-look USER LAYOUT SIZE light|dark EFFECTS   the new account's desktop, before its first login
+#   prepare-look USER LAYOUT SIZE light|dark EFFECTS [#RRGGBB]   the new account's desktop, before its first login
+#                                                     (the colour: your Android accent, applied to KDE)
 #   power restart|recovery|download|off|sleep   restart (also into TWRP or Samsung's Download mode), power off, sleep
 #   power-status                     PLUGGED|yes/no  (powering off while plugged in starts the tablet again)
 #   schedule-linux-apps USER PART    queue the Linux versions of your apps for the restart (before the first login)
@@ -389,7 +390,7 @@ prepare-look)
   u=${1:-}; valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
   hd=$(getent passwd "$u" | cut -d: -f6)
   runuser -u "$u" -- env HOME="$hd" XDG_CONFIG_HOME="$hd/.config" XDG_DATA_HOME="$hd/.local/share" \
-    /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-soft}"
+    /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-soft}" "${6:-}"
   ;;
 
 power-status)

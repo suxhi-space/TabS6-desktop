@@ -189,6 +189,23 @@ for (var i = 0; i < ps.length; i++) {
   } catch (e) { } }
 }' >/dev/null 2>&1
 }
+# Back to Dolphin's own look: undo what S6 set (toolbar layout, stylesheet launcher and service, view settings).
+dolphin_default() {
+  local d="${XDG_DATA_HOME:-$HOME/.local/share}"
+  grep -q 'version="9000"' "$d/kxmlgui5/dolphin/dolphinui.rc" 2>/dev/null && rm -f "$d/kxmlgui5/dolphin/dolphinui.rc"
+  grep -q 's6-dolphin.qss' "$d/applications/org.kde.dolphin.desktop" 2>/dev/null && rm -f "$d/applications/org.kde.dolphin.desktop"
+  grep -q 's6-dolphin.qss' "$d/dbus-1/services/org.freedesktop.FileManager1.service" 2>/dev/null && rm -f "$d/dbus-1/services/org.freedesktop.FileManager1.service"
+  rm -f "$d/dolphin/view_properties/global/.directory"
+  local k
+  for k in General:GlobalViewProps General:ShowSelectionToggle General:EditableUrl General:ShowToolTips General:ShowZoomSlider \
+           General:ShowSpaceInfo General:ShowFullPath IconsMode:IconSize DetailsMode:IconSize MainWindow:MenuBar PlacesPanel:IconSize; do
+    kwriteconfig6 --file dolphinrc --group "${k%%:*}" --key "${k##*:}" --delete 2>/dev/null
+  done
+  kwriteconfig6 --file dolphinrc --group MainWindow --group "Toolbar mainToolBar" --key IconSize --delete 2>/dev/null
+  kwriteconfig6 --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key IconSize --delete 2>/dev/null
+  kwriteconfig6 --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key ToolButtonStyle --delete 2>/dev/null
+  setconf dolphin-default 1
+}
 kwin_reload() { busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 || true; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
   local ids id
@@ -343,7 +360,7 @@ layout)
   if [ "${3:-}" = --print ]; then printf '%s\n%s\n%s\n' "$fj" "$js_common" "$js"; exit 0; fi
   plasma_js "$fj $js_common $js" && setconf layout "$name" && setconf layout-v "$LAYOUT_V" && echo "layout: $name"
   [ "$(getconf splash)" = none ] || kw --file ksplashrc --group KSplash --key Theme "org.s6migrate.$name"
-  bash "$SELF" dolphin "$name"
+  # Dolphin is left as Dolphin made it (S6's file manager tweaks were taken out; "s6-look dolphin touch" still has them)
   apply_borders "$name"
   eff=$(getconf effects); [ -n "$eff" ] && bash "$SELF" effects "$eff" >/dev/null   # new panels get the chosen look too
   # The genie-style minimise suits the dock layout; the others shrink windows into the bar.
@@ -432,6 +449,7 @@ effects)
   kwin_reload; setconf effects "$2"; echo "effects: $2"
   ;;
 dolphin)
+  if [ "${2:-}" = default ]; then dolphin_default; echo "file manager: Dolphin's own settings"; exit 0; fi
   case "${2:-plasma}" in
     touch)       dolphin_style 0 96 true true ;;    # big icons, one tap opens
     centered)    dolphin_style 1 64 false true ;;   # details list, like most taskbar desktops
@@ -512,7 +530,6 @@ prepare)
   kw --file kdeglobals --group KDE --key LookAndFeelPackage "org.s6migrate.$lay"
   if [ "$th" = dark ]; then kw --file kdeglobals --group General --key ColorScheme BreezeDark; kw --file kdeglobals --group Icons --key Theme breeze-dark
   else kw --file kdeglobals --group General --key ColorScheme BreezeLight; kw --file kdeglobals --group Icons --key Theme breeze; fi
-  bash "$SELF" dolphin "$lay" >/dev/null 2>&1
   apply_borders "$lay" >/dev/null 2>&1
   bash "$SELF" effects "$eff" >/dev/null 2>&1   # settings only here; the reload calls simply find no desktop yet
   if [ "$lay" = topdock ]; then kw --file kwinrc --group Plugins --key magiclampEnabled true; kw --file kwinrc --group Plugins --key squashEnabled false
@@ -554,6 +571,7 @@ heal)
   fi
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
   tray_tidy
+  [ "$(getconf dolphin-default)" = 1 ] || dolphin_default   # once: Dolphin back to its own look
   # COSMIC Files arrived since it was chosen: open folders with it and pin it
   if [ "$(getconf files)" = cosmic ] && [ "$(xdg-mime query default inode/directory 2>/dev/null)" != "$(files_desktop)" ]; then
     files_apply; [ "$(files_desktop)" = "$COSMIC_FILES" ] && setconf panels-pending 1

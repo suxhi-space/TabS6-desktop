@@ -89,6 +89,12 @@ def screenshot():
 
 
 def main():
+    # t860-fedora ships its own button daemon (tabs6-powerkeyd) with the same Power + Volume Down screenshot and the
+    # phone-style power button; then this one stays out of the way entirely (two would take two screenshots).
+    if os.environ.get("S6K_DRY") != "1" and (os.path.exists("/usr/local/bin/tabs6-powerkeyd.py") or
+            subprocess.run(["pgrep", "-f", "tabs6-powerkeyd"], capture_output=True).returncode == 0):
+        log("tabs6-powerkeyd handles the buttons on this tablet: nothing to do")
+        return 0
     devs = {}
     for p in sorted(glob.glob("/dev/input/event*")):
         try:

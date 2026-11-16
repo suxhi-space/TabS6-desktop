@@ -1,5 +1,6 @@
 import QtQuick 2.9
 import QtQuick.Controls 2.9
+import MaliitKeyboard 2.0
 import QtQuick.Layouts 1.3
 
 // S6 Migrate: Gboard's top bar. Shown in the suggestion strip while there is nothing to suggest:

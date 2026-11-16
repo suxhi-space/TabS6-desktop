@@ -7,7 +7,7 @@ P="${XDG_DATA_HOME:-$HOME/.local/share}/s6migrate/keyboard"
 clips="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/s6-clips.json"
 stock=$(ls -d /usr/lib*/maliit/keyboard2/qml 2>/dev/null | head -n 1)
 if [ -n "$stock" ] && [ -f "$stock/Keyboard.qml" ] && [ ! -e "$HOME/.config/s6migrate/stock-keyboard" ]; then
-  stamp="$(stat -c '%Y %s' "$stock/Keyboard.qml" "$stock/WordRibbon.qml" 2>/dev/null | tr '\n' ' ')$(cat /usr/local/share/s6migrate/keyboard/*.qml 2>/dev/null | cksum | cut -d' ' -f1) $clips"
+  stamp="$(stat -c '%Y %s' "$stock/Keyboard.qml" "$stock/WordRibbon.qml" 2>/dev/null | tr '\n' ' ')$(cat /usr/local/share/s6migrate/keyboard/*.qml /usr/local/libexec/s6migrate/s6-kbd-build 2>/dev/null | cksum | cut -d' ' -f1) $clips"
   if [ "$(cat "$P/ok" 2>/dev/null)" != "$stamp" ]; then
     mkdir -p "$(dirname "$P")"
     python3 /usr/local/libexec/s6migrate/s6-kbd-build "$stock" "$P" "$clips" "$stamp" > "$P.log" 2>&1 || rm -rf "$P"

@@ -1,5 +1,6 @@
 import QtQuick 2.9
 import QtQuick.Controls 2.9
+import MaliitKeyboard 2.0
 
 // S6 Migrate: a slim strip under the keys, like Android's navigation bar while typing: hide the keyboard on the
 // left, the clipboard on the right.

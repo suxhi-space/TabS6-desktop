@@ -1,5 +1,6 @@
 import QtQuick 2.9
 import QtQuick.Controls 2.9
+import MaliitKeyboard 2.0
 
 // S6 Migrate: clipboard history in the keyboard, like Gboard's. The list comes from KDE's clipboard history
 // (Klipper), kept in a private file by the s6-clips service; tap a clip to type it into the app.

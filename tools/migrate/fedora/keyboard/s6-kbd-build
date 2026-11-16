@@ -16,6 +16,16 @@ new = prefix + ".new"
 shutil.rmtree(new, ignore_errors=True)
 dest = new + os.path.abspath(stock)                # Maliit reads PREFIX + its absolute QML path
 shutil.copytree(stock, dest, symlinks=True)
+# Maliit adds the same PREFIX to its language plugins (the key layouts, next to qml/) and to the spell-check
+# dictionaries: link those back to the real ones, or the keyboard comes up with no keys at all (it did).
+parent = os.path.dirname(os.path.abspath(stock))
+for name in os.listdir(parent):
+    if name != os.path.basename(stock):
+        os.symlink(os.path.join(parent, name), os.path.join(new + parent, name))
+for d in ("/usr/share/hunspell", "/usr/share/myspell"):
+    if os.path.isdir(d):
+        os.makedirs(os.path.dirname(new + d), exist_ok=True)
+        os.symlink(d, new + d)
 
 
 def patch(name, pairs):

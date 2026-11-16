@@ -1,0 +1,17 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-keyboard - the on-screen keyboard KWin starts (S6 Keyboard): Fedora's Maliit with S6's Gboard-style top bar,
+# clipboard history and hide buttons. The additions are built from the installed Maliit (again after Maliit updates);
+# if they can't be, or ~/.config/s6migrate/stock-keyboard exists, the stock Maliit keyboard runs.
+P="${XDG_DATA_HOME:-$HOME/.local/share}/s6migrate/keyboard"
+clips="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/s6-clips.json"
+stock=$(ls -d /usr/lib*/maliit/keyboard2/qml 2>/dev/null | head -n 1)
+if [ -n "$stock" ] && [ -f "$stock/Keyboard.qml" ] && [ ! -e "$HOME/.config/s6migrate/stock-keyboard" ]; then
+  stamp="$(stat -c '%Y %s' "$stock/Keyboard.qml" "$stock/WordRibbon.qml" 2>/dev/null | tr '\n' ' ')$(cat /usr/local/share/s6migrate/keyboard/*.qml 2>/dev/null | cksum | cut -d' ' -f1) $clips"
+  if [ "$(cat "$P/ok" 2>/dev/null)" != "$stamp" ]; then
+    mkdir -p "$(dirname "$P")"
+    python3 /usr/local/libexec/s6migrate/s6-kbd-build "$stock" "$P" "$clips" "$stamp" > "$P.log" 2>&1 || rm -rf "$P"
+  fi
+  [ -f "$P/ok" ] && export KEYBOARD_PREFIX_PATH="$P" QML_XHR_ALLOW_FILE_READ=1
+fi
+exec maliit-keyboard "$@"

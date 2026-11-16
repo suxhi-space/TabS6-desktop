@@ -166,6 +166,8 @@ self)
   for u in s6-selfcheck s6-maint s6-keys; do
     [ -f "/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "/etc/systemd/system/multi-user.target.wants/$u.service"
   done
+  mkdir -p /etc/systemd/user/graphical-session.target.wants
+  ln -sf /etc/systemd/user/s6-clips.service /etc/systemd/user/graphical-session.target.wants/s6-clips.service
   systemctl daemon-reload 2>/dev/null
   systemctl restart s6-keys.service 2>/dev/null
   # What a new version may need beyond its files (the same as S6Migrate-UPDATE.zip does):

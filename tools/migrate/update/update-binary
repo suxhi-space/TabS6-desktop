@@ -60,6 +60,7 @@ printf '%s\n' '[Unit]' 'Description=S6 Migrate maintenance before the login scre
   '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/libexec/s6migrate/s6-maint' 'TimeoutStartSec=infinity' \
   '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-maint.service"
 for u in s6-selfcheck s6-maint s6-keys; do ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"; done
+mkdir -p "$ROOT/etc/systemd/user/graphical-session.target.wants" && ln -sf /etc/systemd/user/s6-clips.service "$ROOT/etc/systemd/user/graphical-session.target.wants/s6-clips.service"
 rm -f "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service" "$ROOT/etc/systemd/system/s6-repair.service" "$S/repair-wanted"
 [ -f "$S/repair.log" ] && [ ! -f "$S/maint.log" ] && cp "$S/repair.log" "$S/maint.log"
 [ -f "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf" ] ||   # keep a choice made in S6 Companion > Tune-ups

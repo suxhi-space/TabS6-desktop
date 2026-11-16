@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""Build S6 Keyboard: a copy of Maliit's own QML (Fedora's maliit-keyboard) with S6's Gboard-style additions:
+the top bar (emoji, clipboard, undo, redo, hide), a strip under the keys with hide and clipboard, and clipboard
+history. Maliit loads it when started with KEYBOARD_PREFIX_PATH (s6-keyboard does that); Fedora's files are never
+changed. Every change point is checked first: if Fedora's Maliit has changed shape, nothing is built and the stock
+keyboard runs.
+
+    s6-kbd-build STOCK_QML_DIR PREFIX CLIPS_FILE STAMP
+"""
+import os, shutil, sys
+
+stock, prefix, clips, stamp = sys.argv[1:5]
+ours = os.environ.get("S6KB_SRC", "/usr/local/share/s6migrate/keyboard")
+new = prefix + ".new"
+shutil.rmtree(new, ignore_errors=True)
+dest = new + os.path.abspath(stock)                # Maliit reads PREFIX + its absolute QML path
+shutil.copytree(stock, dest, symlinks=True)
+
+
+def patch(name, pairs):
+    p = os.path.join(dest, name)
+    s = open(p, encoding="utf-8").read()
+    for a, b in pairs:
+        n = s.count(a)
+        if n != 1:
+            sys.exit("%s: change point found %d times: %r" % (name, n, a[:60]))
+        s = s.replace(a, b)
+    open(p, "w", encoding="utf-8").write(s)
+
+
+patch("Keyboard.qml", [
+    ("    property variant event_handler: MaliitEventHandler\n",
+     "    property variant event_handler: MaliitEventHandler\n"
+     "    property bool s6clips: false                       // S6: clipboard history shown instead of the keys\n"
+     "    readonly property real s6nav: Device.gu(5)         // S6: the strip under the keys\n"),
+    (": Device.keyboardHeightPortrait)\n",
+     ": Device.keyboardHeightPortrait) + fullScreenItem.s6nav\n"),
+    ("                    height: parent.height\n                    width: parent.width\n                    anchors.bottom: parent.bottom\n",
+     "                    height: parent.height - fullScreenItem.s6nav\n                    width: parent.width\n"
+     "                    anchors.bottom: parent.bottom\n                    anchors.bottomMargin: fullScreenItem.s6nav\n"),
+    ("                    LanguageMenu {\n                        id: languageMenu\n",
+     "                    S6Clips { anchors.fill: parent; visible: fullScreenItem.s6clips; z: 5 }\n\n"
+     "                    LanguageMenu {\n                        id: languageMenu\n"),
+    ("                } // keyboardComp\n",
+     "                } // keyboardComp\n\n"
+     "                S6Nav { anchors.bottom: parent.bottom; width: parent.width; height: fullScreenItem.s6nav }\n"),
+])
+patch("WordRibbon.qml", [
+    ("        spacing: Device.gu(2)\n    }\n",
+     "        spacing: Device.gu(2)\n    }\n\n"
+     "    // S6: Gboard's top bar while there is nothing to suggest\n"
+     "    S6Toolbar { anchors.fill: parent; visible: listView.count === 0 }\n"),
+])
+for f in ("S6Toolbar.qml", "S6Nav.qml", "S6Clips.qml"):
+    s = open(os.path.join(ours, f), encoding="utf-8").read().replace("@CLIPS@", clips)
+    open(os.path.join(dest, f), "w", encoding="utf-8").write(s)
+open(os.path.join(new, "ok"), "w").write(stamp)
+shutil.rmtree(prefix, ignore_errors=True)
+os.rename(new, prefix)
+print("S6 Keyboard built from", stock)

@@ -1,0 +1,12 @@
+[Unit]
+Description=S6 Migrate: recent clipboard text for the on-screen keyboard
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/libexec/s6migrate/s6-clips
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

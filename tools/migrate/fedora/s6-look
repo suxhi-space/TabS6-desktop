@@ -97,21 +97,21 @@ polish() { # polish light|dark
     kw --file kdeglobals --group WM --key activeFont "Inter,10,-1,5,600,0,0,0,0,0,0,0,0,0,0,1"
   fi
 }
-# The on-screen keyboard, like Android's: Maliit (it has a real emoji keyboard). With only your language and emoji
-# switched on, its language key becomes the emoji key. Light/dark follows the desktop; key-press vibration and word
-# suggestions on. (Most people use the tablet without a keyboard.)
+# The on-screen keyboard, like Android's: S6 Keyboard (Fedora's Maliit with a Gboard-style top bar, clipboard
+# history and a hide button; see s6-keyboard). With only your language switched on, Maliit's ☻ key opens the emoji
+# keyboard. Key vibration and word suggestions on. (Most people use the tablet without a keyboard.)
 keyboard() { # keyboard light|dark
-  local th=${1:-$(getconf theme)} lang gs
+  local lang gs im=/usr/local/share/applications/s6-keyboard.desktop
   [ -f /usr/share/applications/com.github.maliit.keyboard.desktop ] || return 0
-  kw --file kwinrc --group Wayland --key InputMethod /usr/share/applications/com.github.maliit.keyboard.desktop
+  [ -f "$im" ] || im=/usr/share/applications/com.github.maliit.keyboard.desktop
+  kw --file kwinrc --group Wayland --key InputMethod "$im"
   lang=$(sed -n 's/^LANG=\([a-z][a-z]\).*/\1/p' /etc/locale.conf 2>/dev/null); lang=${lang:-en}
   gs="gsettings"; [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || gs="dbus-run-session gsettings"
-  $gs set org.maliit.keyboard.maliit enabled-languages "['$lang', 'emoji']" 2>/dev/null
+  $gs set org.maliit.keyboard.maliit enabled-languages "['$lang']" 2>/dev/null
   $gs set org.maliit.keyboard.maliit active-language "$lang" 2>/dev/null
-  $gs set org.maliit.keyboard.maliit theme "$([ "$th" = dark ] && echo BreezeDark || echo Breeze)" 2>/dev/null
   $gs set org.maliit.keyboard.maliit key-press-haptic-feedback true 2>/dev/null
-  $gs set org.maliit.keyboard.maliit word-ribbon true 2>/dev/null
   $gs set org.maliit.keyboard.maliit predictive-text true 2>/dev/null
+  $gs set org.maliit.keyboard.maliit device tablet 2>/dev/null
 }
 kwin_reload() { "$(q)" org.kde.KWin /KWin reconfigure >/dev/null 2>&1; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)

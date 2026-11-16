@@ -67,3 +67,11 @@ fedora/system/s6-keys|/usr/local/libexec/s6migrate/s6-keys|755|
 fedora/system/s6-keys.service|/etc/systemd/system/s6-keys.service|644|
 fedora/osd/Osd.qml|/usr/local/share/s6migrate/osd/Osd.qml|644|
 fedora/osd/OsdItem.qml|/usr/local/share/s6migrate/osd/OsdItem.qml|644|
+fedora/system/s6-clips|/usr/local/libexec/s6migrate/s6-clips|755|
+fedora/system/s6-clips.service|/etc/systemd/user/s6-clips.service|644|
+fedora/s6-keyboard|/usr/local/bin/s6-keyboard|755|
+fedora/keyboard/s6-kbd-build|/usr/local/libexec/s6migrate/s6-kbd-build|755|
+fedora/keyboard/s6-keyboard.desktop|/usr/local/share/applications/s6-keyboard.desktop|644|
+fedora/keyboard/S6Toolbar.qml|/usr/local/share/s6migrate/keyboard/S6Toolbar.qml|644|
+fedora/keyboard/S6Nav.qml|/usr/local/share/s6migrate/keyboard/S6Nav.qml|644|
+fedora/keyboard/S6Clips.qml|/usr/local/share/s6migrate/keyboard/S6Clips.qml|644|

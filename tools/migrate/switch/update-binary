@@ -315,6 +315,7 @@ if [ $ROOT_OK = 1 ]; then
   for u in s6-selfcheck s6-maint s6-keys; do
     [ -f "$ROOT/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"
   done
+  mkdir -p "$ROOT/etc/systemd/user/graphical-session.target.wants" && ln -sf /etc/systemd/user/s6-clips.service "$ROOT/etc/systemd/user/graphical-session.target.wants/s6-clips.service"
   # The setup account's desktop: no welcome or update pop-ups over the setup screen.
   H=$ROOT/var/lib/s6migrate/setup-home
   mkdir -p "$H/.config/autostart"

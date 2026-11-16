@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Id": "s6-fit",
+        "Name": "S6 Fit Windows On Rotation",
+        "Description": "When the screen turns, full-screen and maximised windows take the new shape and other windows stay on screen",
+        "Authors": [ { "Name": "S6 Migrate" } ],
+        "License": "GPL-2.0-only",
+        "Version": "1.0",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}

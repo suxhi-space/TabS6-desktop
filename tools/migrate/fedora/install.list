@@ -79,3 +79,5 @@ fedora/dolphin/s6-dolphin.qss|/usr/local/share/s6migrate/dolphin/s6-dolphin.qss|
 fedora/icons/s6-companion.svg|/usr/local/share/icons/hicolor/scalable/apps/s6-companion.svg|644|
 fedora/splash/Splash.qml|/usr/local/share/s6migrate/splash/Splash.qml|644|
 fedora/s6-report|/usr/local/bin/s6-report|755|
+fedora/kwin/s6-fit/metadata.json|/usr/share/kwin/scripts/s6-fit/metadata.json|644|
+fedora/kwin/s6-fit/contents/code/main.js|/usr/share/kwin/scripts/s6-fit/contents/code/main.js|644|

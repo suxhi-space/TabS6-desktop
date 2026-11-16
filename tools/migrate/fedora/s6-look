@@ -112,6 +112,8 @@ s6_icons() { # s6_icons BASE(Papirus|Papirus-Dark) -> prints the theme name to u
 }
 polish() { # polish light|dark
   local th=${1:-$(getconf theme)} ic
+  # windows stay on screen when the tablet turns (KWin script s6-fit)
+  [ -f /usr/share/kwin/scripts/s6-fit/metadata.json ] && kw --file kwinrc --group Plugins --key s6-fitEnabled true
   if [ -d /usr/share/icons/Papirus ]; then [ "$th" = dark ] && ic=Papirus-Dark || ic=Papirus; ic=$(s6_icons "$ic")
   else [ "$th" = dark ] && ic=breeze-dark || ic=breeze; fi
   if [ -x /usr/libexec/plasma-changeicons ] && pgrep -u "$(id -u)" -x plasmashell >/dev/null; then /usr/libexec/plasma-changeicons "$ic" >/dev/null 2>&1

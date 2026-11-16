@@ -17,6 +17,7 @@
 #                   S6Migrate/<date>/               the package made by the app
 # On failure the script stops and stays in TWRP; it only reboots after everything succeeded.
 
+export TMPDIR=/tmp   # TWRP's shell keeps here-documents in TMPDIR (Android default: /data/local/tmp, gone once /data is Fedora)
 umask 022   # TWRP inherits Android's 077: folders made for Fedora would be root-only (this stopped S6 Setup)
 OUTFD=${2:-1}
 ZIP=${3:-}

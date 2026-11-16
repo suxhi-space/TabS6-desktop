@@ -10,6 +10,9 @@
 # Everything it shows is also saved as fix-report.txt next to the ZIP (and in S6Migrate on the card).
 # Test hooks: S6F_TEST=1 (print to stdout), S6F_ROOT (an unpacked Fedora root instead of userdata), S6F_CARD.
 umask 022
+# TWRP's shell keeps here-document text in $TMPDIR (Android: /data/local/tmp). /data is Fedora now, so that folder is
+# gone and every here-document came out EMPTY (fix 4 "restored" empty files). Use /tmp, and check it works.
+export TMPDIR=/tmp
 OUTFD=${2:-1}
 ROOT=${S6F_ROOT:-/tmp/s6fix-root}
 CARD=${S6F_CARD:-/external_sd}
@@ -24,7 +27,12 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 4: why can't anyone log in?"
+ui "S6 Migrate fix 5: why can't anyone log in?"
+HD=$(cat <<'EOT'
+heredoc-ok
+EOT
+)
+if [ "$HD" != heredoc-ok ]; then mkdir -p /tmp/s6fix-tmp; export TMPDIR=/tmp/s6fix-tmp; ui "(text writing switched to /tmp/s6fix-tmp)"; fi
 if [ -z "${S6F_ROOT:-}" ]; then
   DEV=$(readlink -f /dev/block/by-name/userdata)
   mkdir -p "$ROOT"
@@ -106,89 +114,53 @@ done
 #    installed, or includes a file that doesn't exist. Only what is missing is repaired; originals are kept.
 PD=$ROOT/etc/pam.d; LIB=$ROOT/usr/lib64/security; BK=$S/pam.before-fix
 mkdir -p "$BK"
-write_stack() { # write_stack NAME: Fedora's standard local rules (what authselect's "local" profile gives)
-  cat > "$PD/$1" <<'EOP'
-#%PAM-1.0
-# Restored by S6 Migrate fix (the original was missing). Fedora's standard local rules.
-auth        required      pam_env.so
-auth        required      pam_faildelay.so delay=2000000
-auth        sufficient    pam_unix.so nullok
-auth        required      pam_deny.so
-
-account     required      pam_unix.so
-
-password    requisite     pam_pwquality.so
-password    sufficient    pam_unix.so yescrypt shadow nullok use_authtok
-password    required      pam_deny.so
-
-session     optional      pam_keyinit.so revoke
-session     required      pam_limits.so
--session    optional      pam_systemd.so
-session     required      pam_unix.so
-EOP
-  chmod 644 "$PD/$1"
-}
+write_stack() { gen_stack > "$PD/$1"; chmod 644 "$PD/$1"; }
 pam_target() { # where an /etc/pam.d name really lives (follows a symlink inside Fedora)
   t="$PD/$1"; if [ -L "$t" ]; then l=$(readlink "$t"); case "$l" in /*) t="$ROOT$l" ;; *) t="$PD/$l" ;; esac; fi; echo "$t"
 }
 blank() { ! { grep -v '^ *#' "$1" 2>/dev/null | grep -q '[a-z]'; }; }   # missing, empty, or comments only
-gen_stack() { cat <<'EOP'
-# Restored by S6 Migrate fix: this file was empty. Fedora's standard local rules (authselect "local" profile).
-auth        required                                     pam_env.so
-auth        required                                     pam_faildelay.so delay=2000000
-auth        sufficient                                   pam_unix.so nullok
-auth        required                                     pam_deny.so
-
-account     required                                     pam_unix.so
-
-password    requisite                                    pam_pwquality.so
-password    sufficient                                   pam_unix.so yescrypt shadow nullok use_authtok
-password    required                                     pam_deny.so
-
-session     optional                                     pam_keyinit.so revoke
-session     required                                     pam_limits.so
--session    optional                                     pam_systemd.so
-session     [success=1 default=ignore]                   pam_succeed_if.so service in crond quiet use_uid
-session     required                                     pam_unix.so
-EOP
-}
-gen_noauth() { cat <<'EOP'
-# Restored by S6 Migrate fix: this file was empty (no fingerprint or smartcard sign-in).
-auth        required                                     pam_deny.so
-account     required                                     pam_unix.so
-password    required                                     pam_deny.so
-session     optional                                     pam_keyinit.so revoke
-session     required                                     pam_limits.so
--session    optional                                     pam_systemd.so
-session     required                                     pam_unix.so
-EOP
-}
-gen_postlogin() { printf '# Restored by S6 Migrate fix: this file was empty.\nsession     optional                   pam_umask.so silent\n'; }
-gen_nss() { cat <<'EOP'
-# Restored by S6 Migrate fix: this file was empty. Fedora's standard local lookups.
-passwd:     files systemd
-shadow:     files
-group:      files systemd
-hosts:      files myhostname resolve [!UNAVAIL=return] dns
-services:   files
-netgroup:   files
-automount:  files
-aliases:    files
-ethers:     files
-gshadow:    files
-networks:   files dns
-protocols:  files
-publickey:  files
-rpc:        files
-EOP
-}
+gen_stack() { printf '%s\n' \
+'# Restored by S6 Migrate fix: this file was empty. Fedora'"'"'s standard local rules (authselect "local" profile).' \
+'auth        required                                     pam_env.so' \
+'auth        required                                     pam_faildelay.so delay=2000000' \
+'auth        sufficient                                   pam_unix.so nullok' \
+'auth        required                                     pam_deny.so' \
+'' \
+'account     required                                     pam_unix.so' \
+'' \
+'password    requisite                                    pam_pwquality.so' \
+'password    sufficient                                   pam_unix.so yescrypt shadow nullok use_authtok' \
+'password    required                                     pam_deny.so' \
+'' \
+'session     optional                                     pam_keyinit.so revoke' \
+'session     required                                     pam_limits.so' \
+'-session    optional                                     pam_systemd.so' \
+'session     [success=1 default=ignore]                   pam_succeed_if.so service in crond quiet use_uid' \
+'session     required                                     pam_unix.so'; }
+gen_noauth() { printf '%s\n' \
+'# Restored by S6 Migrate fix: this file was empty (no fingerprint or smartcard sign-in).' \
+'auth        required                                     pam_deny.so' \
+'account     required                                     pam_unix.so' \
+'password    required                                     pam_deny.so' \
+'session     optional                                     pam_keyinit.so revoke' \
+'session     required                                     pam_limits.so' \
+'-session    optional                                     pam_systemd.so' \
+'session     required                                     pam_unix.so'; }
+gen_postlogin() { printf '%s\n' '# Restored by S6 Migrate fix: this file was empty.' 'session     optional                   pam_umask.so silent'; }
+gen_nss() { printf '%s\n' \
+'# Restored by S6 Migrate fix: this file was empty. Fedora'"'"'s standard local lookups.' \
+'passwd:     files systemd' 'shadow:     files' 'group:      files systemd' \
+'hosts:      files myhostname resolve [!UNAVAIL=return] dns' \
+'services:   files' 'netgroup:   files' 'automount:  files' 'aliases:    files' 'ethers:     files' \
+'gshadow:    files' 'networks:   files dns' 'protocols:  files' 'publickey:  files' 'rpc:        files'; }
 restore() { # restore PATH-IN-/etc GENERATOR: refill an empty core file in place (keeps authselect's symlink)
   local link="$ROOT$1" t
   t=$link; if [ -L "$link" ]; then l=$(readlink "$link"); case "$l" in /*) t="$ROOT$l" ;; *) t="$(dirname "$link")/$l" ;; esac; fi
   blank "$t" || return 0
   [ -f "$t" ] && cp "$t" "$BK/$(basename "$1").empty" 2>/dev/null
   if [ -d "$(dirname "$t")" ]; then $2 > "$t"; else rm -f "$link"; $2 > "$link"; t=$link; fi
-  chmod 644 "$t"; ui "  restored $1 (it was empty)"; fixedpam=1
+  chmod 644 "$t"
+  if blank "$t"; then ui "  COULD NOT restore $1 (still empty)"; else ui "  restored $1 (it was empty)"; fixedpam=1; fi
 }
 fixedpam=0
 restore /etc/pam.d/system-auth gen_stack

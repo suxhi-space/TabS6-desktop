@@ -167,7 +167,19 @@ self)
     [ -f "/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "/etc/systemd/system/multi-user.target.wants/$u.service"
   done
   systemctl daemon-reload 2>/dev/null
-  say "S6 Migrate updated from ${curv:-?} to $newv ($n files, from $SELF_REPO@$SELF_REF). Reopen S6 Companion."
+  systemctl restart s6-keys.service 2>/dev/null
+  # What a new version may need beyond its files (the same as S6Migrate-UPDATE.zip does):
+  # each S6 layout is applied again at the next login (new sizes, S6 Quick Settings, no hidden panels), and look
+  # extras that aren't installed yet are added at the next start, before the login screen.
+  for c in /home/*/.config/s6migrate/look.conf; do
+    [ -f "$c" ] || continue
+    own=$(stat -c '%u:%g' "$(dirname "$(dirname "$(dirname "$c")")")")
+    { grep -v '^panels-pending=' "$c"; echo "panels-pending=1"; } > "$c.tmp" && mv "$c.tmp" "$c" && chown "$own" "$c"
+  done
+  if ! rpm -q darkly papirus-icon-theme rsms-inter-fonts maliit-keyboard >/dev/null 2>&1; then
+    : > /var/lib/s6migrate/maint/extras; say "Look extras (Darkly, Better Blur DX, Papirus, Inter, keyboard) are added at the next restart."
+  fi
+  say "S6 Migrate updated from ${curv:-?} to $newv ($n files, from $SELF_REPO@$SELF_REF). Your layout is refreshed at your next login. Reopen S6 Companion."
   ;;
 
 *) sed -n '2,13p' "$0"; exit 2 ;;

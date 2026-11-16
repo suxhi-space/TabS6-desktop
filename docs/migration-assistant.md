@@ -340,6 +340,20 @@ The app follows the concept design: a sidebar with six steps on the tablet (a st
 
 Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore on Fedora.
 
+**First real switch (15 Nov 2026) and fixes in app 0.4.6.** The switch got Fedora onto the tablet, but three steps stopped and were finished by hand from TWRP's terminal. Each one is now handled by the app and script:
+
+| What stopped | Why | Now |
+|---|---|---|
+| Step 4 `write-root` when started from `/cache` | The installer must unmount and overwrite the cache partition, and the ZIP it was running from was open there | The app queues `install /external_sd/...` (or `/usb-otg/...`) instead, using the ZIP copy on the drive. Before anything is erased, the script refuses a ZIP on internal storage or the cache, and checks that TWRP can unmount `/sdcard`, `/data` and `/cache` |
+| Step 5: copying the package from the microSD card | The new filesystem is only as big as the image until Fedora's first start grows it | The script checks free space and grows the filesystem with TWRP's `e2fsck` and `resize2fs` if needed. If it still doesn't fit, it doesn't copy at all (a full disk can stop the desktop from starting), removes any half copy, and says to bring the package on a USB stick |
+| Step 6: writing vbmeta (`Read-only file system`) | Samsung write-protects the storage unit (LUN) that holds vbmeta | Step 6 now runs in the script itself. It writes and verifies the cache image as before. It skips vbmeta when verification is already off (flags at byte 120 equal to the new image, or bit 2 set, as on rooted tablets). It then writes and verifies the boot image |
+
+- **Checked before erasing (rehearsal too):** vbmeta. If verification is still on and TWRP can't write vbmeta, the switch stops with "nothing was erased" and explains how to flash a verification-off vbmeta from a computer.
+- **Real reasons on screen:** when the script stops, it shows the installer's own `ERROR:` line. It only says "Android was already replaced" once the installer has actually started writing.
+- **Tested (mocked partitions, mksh, TWRP's basic toolset):**
+  - Rehearsal and switch with verification off, with verification on and writable, and with verification on and read-only.
+  - An installer that can't free `/data`.
+
 ## Fedora side: S6 Setup and S6 Companion (0.4.0)
 
 ### First start (S6 Setup, before any desktop)

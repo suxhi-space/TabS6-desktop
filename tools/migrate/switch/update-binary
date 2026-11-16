@@ -10,7 +10,7 @@
 #   6. finish: write boot, cache and vbmeta; verify; reboot into Fedora
 #
 # Arguments from TWRP: $1 = updater API version, $2 = output fd for messages, $3 = path of this ZIP.
-# Test hooks (never set on a real tablet): S6S_TEST=1, S6S_MOUNTS, S6S_ROOTMNT, S6S_INSTALLER, S6S_PAYLOAD.
+# Test hooks (never set on a real tablet): S6S_TEST=1, S6S_MOUNTS, S6S_ROOTMNT, S6S_INSTALLER, S6S_PAYLOAD, S6S_DEVDIR.
 #
 # The drive holds:  S6Migrate/fedora/s6-download.env  INSTALLER_BUNDLE="<file>"  ROOTFS_PARTS="<file> <file> ..."
 #                   S6Migrate/fedora/SHA256SUMS     checksums of those files (from the release manifest)
@@ -36,6 +36,12 @@ progress() { [ "${S6S_TEST:-0}" = 1 ] || echo "set_progress $1" >> /proc/self/fd
 die() {
   ui " "
   ui "STOPPED: $*"
+  why=$(grep -E '^ERROR:|^dd:|^cmp:|^head:|Cannot|Read-only|No space' "$LOG" 2>/dev/null | tail -n 2)
+  [ -n "$why" ] && printf '%s\n' "$why" | while IFS= read -r l; do ui "   reason: $l"; done
+  # Only say Android is gone if the installer really started writing (it logs this line just before).
+  if [ -n "${STAGE_ERASED:-}" ] && ! grep -q "userdata is being erased" "$LOG" 2>/dev/null && [ "$STAGE_ERASED" = 1 ]; then
+    STAGE_ERASED=""; ui "The installer stopped before writing anything."
+  fi
   if [ -n "${STAGE_ERASED:-}" ]; then
     ui "Android was already replaced. Do NOT reboot yet: see S6Migrate/switch-log.txt on your drive and ask for help."
   else
@@ -157,12 +163,48 @@ if [ -z "${S6S_INSTALLER:-}" ]; then
 fi
 BB="$INST/busybox"; [ -x "$BB" ] || BB=""
 run_inst() { $BB sh "$INST/recovery-install.sh" "$@"; }
+B() { if [ -n "$BB" ]; then "$BB" "$@"; else "$@"; fi; }   # a tool from the installer's busybox
 run_inst prepare >> "$LOG" 2>&1 || die "the installer's checks did not pass (see switch-log.txt on your drive)"
 grep -q PREPARE_PASS "$LOG" || die "the installer's checks did not finish"
 BK="$DRIVE/S6Migrate/android-backup-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BK" && cp "$INST"/android-backup/* "$BK"/ || die "could not save the Android boot backup to the drive"
 ui "   checks passed; Android boot backup saved to ${BK##*/}"
 progress 0.2
+
+# ---------------------------------------------------------------- before anything is erased (rehearsal too)
+# Problems found on a real switch, checked here while nothing has been written yet.
+if [ "${S6S_TEST:-0}" != 1 ] || [ -n "${S6S_DEVDIR:-}" ]; then
+  ZNAME=${ZIP##*/}; [ -n "$ZNAME" ] || ZNAME="the S6Migrate ZIP"
+  # 1. The installer overwrites internal storage and the cache partition, and must be able to unmount them.
+  if [ "${S6S_TEST:-0}" != 1 ]; then
+    case "$ZIP" in /cache/*|/sdcard/*|/data/*)
+      die "this was started from internal storage, which the installer has to overwrite. Install $ZNAME from your card or USB drive instead: Install > Select Storage > microSD card or USB-OTG > S6Migrate" ;;
+    esac
+    for m in /sdcard /data/media /data /cache; do
+      grep -q " $m " /proc/mounts || continue
+      umount "$m" 2>/dev/null
+      grep -q " $m " /proc/mounts && die "TWRP is still using $m. Tap Mount, tap Disable MTP, then install $ZNAME again"
+    done
+  fi
+  # 2. vbmeta. Samsung write-protects the storage unit it lives on, so TWRP often cannot write it. That's fine when
+  #    verification is already off (as on rooted tablets): then it doesn't need writing at all.
+  if [ -n "${S6S_DEVDIR:-}" ]; then VBDEV=$S6S_DEVDIR/vbmeta; else VBDEV=$(readlink -f /dev/block/by-name/vbmeta); fi
+  want=$(B od -A n -t x1 -j 120 -N 4 "$INST/vbmeta.img" | tr -d ' \n')
+  have=$(B od -A n -t x1 -j 120 -N 4 "$VBDEV" | tr -d ' \n')
+  VB_WRITE=1
+  # Flags are a big-endian number at byte 120; bit 2 = verification disabled.
+  case "$have" in "$want"|??????[0-9a-f][2367abef]) VB_WRITE=0 ;; esac
+  if [ $VB_WRITE = 1 ]; then
+    disk=$(basename "$(dirname "$(readlink -f "/sys/class/block/$(basename "$VBDEV")")")")
+    B blockdev --setrw "$VBDEV" 2>/dev/null; [ -b "/dev/block/$disk" ] && B blockdev --setrw "/dev/block/$disk" 2>/dev/null
+    if [ "$(B blockdev --getro "$VBDEV" 2>/dev/null)" = 1 ] || [ ! -w "$VBDEV" ]; then
+      die "this tablet's vbmeta still has verification on (flags ${have:-unknown}) and TWRP cannot write it. Flash a vbmeta with verification disabled from a computer first (as when rooting), then try again"
+    fi
+    ui "   vbmeta: will be updated (verification is still on)"
+  else
+    ui "   vbmeta: verification is already off, nothing to change"
+  fi
+fi
 
 if [ $REHEARSAL = 1 ]; then
   ui " "
@@ -261,13 +303,34 @@ if [ $ROOT_OK = 1 ]; then
     while IFS='|' read -r p dev; do
       k=$((k+1))
       case "$dev" in *mmcblk*|*public:179*) on_card=1 ;; *) on_card=0 ;; esac
+      if [ $on_card = 1 ] && [ -z "${S6S_ROOTMNT:-}" ]; then
+        # The new filesystem is only as big as the image (~19 GB) until it is grown; grow it now if the part won't fit.
+        need=$(( $(du -sk "$p" | cut -f1) + 1048576 ))
+        avail=$(df -Pk "$ROOT" | tail -n 1 | tr -s ' ' | cut -d' ' -f4)
+        if [ "${avail:-0}" -lt "$need" ]; then
+          if command -v resize2fs >/dev/null 2>&1 && command -v e2fsck >/dev/null 2>&1; then
+            ui "   making room: growing Fedora's storage to the full size (a minute)..."
+            sync; umount "$ROOT" && { e2fsck -fy "$USERDATA" >> "$LOG" 2>&1; resize2fs "$USERDATA" >> "$LOG" 2>&1; }
+            grep -q " $ROOT " /proc/mounts || mount -t ext4 "$USERDATA" "$ROOT" || { ROOT_OK=0; warn "could not reopen the new system after growing it"; break; }
+            avail=$(df -Pk "$ROOT" | tail -n 1 | tr -s ' ' | cut -d' ' -f4)
+          fi
+        fi
+        # Never fill Fedora's disk with a half copy: a full disk can stop the desktop from starting.
+        if [ "${avail:-0}" -lt "$need" ]; then
+          on_card=2
+          warn "your package (part $k) doesn't fit into Fedora before its first start; it is still on the card. Copy it to a USB stick (Fedora reads USB) and S6 Setup will find it"
+        fi
+      fi
       if [ $on_card = 1 ]; then
         # Fedora cannot read the microSD slot yet: copy this part into the new system.
         ui "   copying your package${WANT:+ (part $k)} into Fedora (the microSD card is not readable there yet)..."
         cp -a "$p" "$ROOT/var/lib/s6migrate/package-$PKGID-part$k" \
           && chmod -R a+rX "$ROOT/var/lib/s6migrate/package-$PKGID-part$k" \
           && echo "copied=package-$PKGID-part$k" >> "$ROOT/var/lib/s6migrate/package.info" \
-          || warn "copying your package failed; it is still on the card: copy it to Fedora later with a card reader"
+          || { rm -rf "$ROOT/var/lib/s6migrate/package-$PKGID-part$k"
+               warn "copying your package failed; it is still on the card. Copy it to a USB stick (Fedora reads USB) and S6 Setup will find it"; }
+      elif [ $on_card = 2 ]; then
+        :
       else
         echo "$p" >> "$ROOT/var/lib/s6migrate/package-location"
         echo "usb=${p%/S6Migrate/*}" >> "$ROOT/var/lib/s6migrate/package.info"
@@ -276,14 +339,43 @@ if [ $ROOT_OK = 1 ]; then
     done < "$W/parts"
   fi
   sync
-  [ -z "${S6S_ROOTMNT:-}" ] && umount "$ROOT"
+  [ -z "${S6S_ROOTMNT:-}" ] && grep -q " $ROOT " /proc/mounts && umount "$ROOT"
 fi
 progress 0.85
 
 # ---------------------------------------------------------------- 6. finish
 ui "6/6 Writing the new start-up files and checking them..."
-run_inst finish >> "$LOG" 2>&1 || die "the last step failed"
-grep -q INSTALLATION_COMPLETE "$LOG" || die "the last step did not finish"
+STAGE_ERASED=2
+if [ "${S6S_TEST:-0}" = 1 ] && [ -z "${S6S_DEVDIR:-}" ]; then
+  run_inst finish >> "$LOG" 2>&1 || die "the last step failed"
+  grep -q INSTALLATION_COMPLETE "$LOG" || die "the last step did not finish"
+else
+  # The same steps as the installer's "finish", done here so vbmeta is only written when it needs to be
+  # (see the checks before step 4).
+  [ -f "$INST/root-written" ] || die "Fedora was not fully written"
+  . "$INST/manifest.env"
+  if [ -n "${S6S_DEVDIR:-}" ]; then CACHEDEV=$S6S_DEVDIR/cache; VBDEV=$S6S_DEVDIR/vbmeta; BOOTDEV=$S6S_DEVDIR/boot; t=-e
+  else CACHEDEV=$(readlink -f /dev/block/by-name/cache); VBDEV=$(readlink -f /dev/block/by-name/vbmeta); BOOTDEV=$(readlink -f /dev/block/by-name/boot); t=-b; fi
+  [ $t "$CACHEDEV" ] && [ $t "$VBDEV" ] && [ $t "$BOOTDEV" ] || die "could not find the boot partitions"
+  grep -q " /cache " /proc/mounts && umount /cache 2>/dev/null
+  B gunzip -c "$INST/cache.img.gz" | B dd of="$CACHEDEV" bs=1048576 >> "$LOG" 2>&1 || die "could not write the new boot area"
+  sync
+  [ "$(B head -c 419430400 "$CACHEDEV" | B sha256sum | cut -d' ' -f1)" = "$CACHE_RAW_SHA256" ] || die "the new boot area did not verify"
+  ui "   boot area written and verified"
+  if [ "${VB_WRITE:-1}" = 1 ]; then
+    if B dd if="$INST/vbmeta.img" of="$VBDEV" bs=4096 >> "$LOG" 2>&1 && sync \
+       && [ "$(B head -c "$(wc -c < "$INST/vbmeta.img")" "$VBDEV" | B sha256sum | cut -d' ' -f1)" = "$(B sha256sum < "$INST/vbmeta.img" | cut -d' ' -f1)" ]; then
+      ui "   vbmeta written and verified"
+    else
+      die "vbmeta could not be written (flags ${have:-unknown}). Flash a vbmeta with verification disabled from a computer, then boot TWRP and install $ZNAME again"
+    fi
+  fi
+  B dd if="$INST/patch/new-boot.img" of="$BOOTDEV" bs=1048576 >> "$LOG" 2>&1 || die "could not write the new boot image"
+  sync
+  B cmp "$INST/patch/new-boot.img" "$BOOTDEV" >> "$LOG" 2>&1 || die "the new boot image did not verify"
+  : > "$INST/installed"; echo INSTALLATION_COMPLETE >> "$LOG"
+  ui "   boot image written and verified"
+fi
 cp "$LOG" "$DRIVE/S6Migrate/switch-log.txt" 2>/dev/null
 progress 1
 ui " "

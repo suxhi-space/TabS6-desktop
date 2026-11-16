@@ -1246,10 +1246,17 @@ public class MainActivity extends Activity {
                 manualZip = dir + "/" + name;
                 runRoot("mkdir -p " + q(dir) + " && rm -f " + q(dir) + "/S6Migrate-rehearsal.zip " + q(dir) + "/S6Migrate-UPGRADE.zip"
                         + " && cp " + q(zip.getAbsolutePath()) + " " + q(manualZip), l -> { });
+                // TWRP starts the ZIP from the card or drive, never from /cache: the installer overwrites the cache
+                // partition and cannot free it while the ZIP it runs from is open there (this stopped a real switch).
+                String root = dir.substring(0, dir.length() - "/S6Migrate".length()), kind = "";
+                for (Vol vo : vols) if (vo.path.equals(root)) kind = vo.kind;
+                String twrp = "USB".equals(kind) ? "/usb-otg" : "/external_sd";
+                String ors = "mount " + twrp + "\ninstall " + twrp + "/S6Migrate/" + name + "\n";
                 final List<String> out = new ArrayList<>();
                 runRoot("{ mountpoint -q /cache || mount /cache || mount -t ext4 $(readlink -f /dev/block/by-name/cache) /cache; } 2>/dev/null;"
-                        + " mkdir -p /cache/recovery && cp " + q(zip.getAbsolutePath()) + " /cache/recovery/s6migrate-switch.zip"
-                        + " && echo 'install /cache/recovery/s6migrate-switch.zip' > /cache/recovery/openrecoveryscript"
+                        + " mkdir -p /cache/recovery && rm -f /cache/recovery/s6migrate-switch.zip"
+                        + " && printf " + q(ors) + " > /cache/recovery/openrecoveryscript"
+                        + " && cmp -s " + q(zip.getAbsolutePath()) + " " + q(manualZip)
                         + " && sync && echo READY", out::add);
                 if (!out.contains("READY")) err = "could not queue the switch for TWRP (" + String.join(" ", out) + ")";
             } catch (Exception e) {

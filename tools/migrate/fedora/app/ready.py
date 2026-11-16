@@ -135,9 +135,15 @@ class Follower(QObject):
                 QTimer.singleShot(4000, QGuiApplication.quit)
                 return
             self.detail = re.sub(r"\.\.\.$", "", msg)
+            if msg.startswith("Downloading") or "(round" in msg:
+                self.installing = False          # a new download round starts
             if msg.startswith("Waiting for Wi-Fi"):
                 self.detail = "Waiting for Wi-Fi"
+            elif re.match(r"Round \d+ stopped", msg):
+                self.detail = "Connection dropped · trying again in 30 seconds"
         else:
+            if t.startswith("Running transaction"):
+                self.installing = True           # dnf moved from downloading to installing
             c = COUNTER.match(t)
             if c:
                 n, total, rest = int(c.group(1)), max(1, int(c.group(2))), c.group(3)

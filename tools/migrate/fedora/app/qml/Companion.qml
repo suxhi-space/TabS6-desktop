@@ -355,6 +355,12 @@ ApplicationWindow {
                     : "mkdir -p \"$HOME/.config/s6migrate\" && touch \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"], null, null)
             }
             Segmented {
+                width: parent.width; label: "After logging in"; value: lk.cur.SPLASH || "s6"
+                options: [{ id: "s6", label: "Loading bar", sub: "Your wallpaper with a thin progress bar while the desktop starts" },
+                          { id: "none", label: "None", sub: "Straight to the desktop, no loading screen" }]
+                onPicked: (id) => lk.apply(["splash", id])
+            }
+            Segmented {
                 width: parent.width; label: "File manager"; value: lk.cur.FILES || "dolphin"
                 options: [{ id: "dolphin", label: "Dolphin", sub: "KDE's file manager, set up for touch" },
                           { id: "cosmic", label: "COSMIC Files", sub: "From the COSMIC desktop, written in Rust (installed at the next restart)" }]

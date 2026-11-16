@@ -77,3 +77,4 @@ fedora/keyboard/S6Nav.qml|/usr/local/share/s6migrate/keyboard/S6Nav.qml|644|
 fedora/keyboard/S6Clips.qml|/usr/local/share/s6migrate/keyboard/S6Clips.qml|644|
 fedora/dolphin/s6-dolphin.qss|/usr/local/share/s6migrate/dolphin/s6-dolphin.qss|644|
 fedora/icons/s6-companion.svg|/usr/local/share/icons/hicolor/scalable/apps/s6-companion.svg|644|
+fedora/splash/Splash.qml|/usr/local/share/s6migrate/splash/Splash.qml|644|

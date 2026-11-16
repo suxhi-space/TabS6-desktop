@@ -376,6 +376,7 @@ On the first real switch, S6 Companion installed Better Blur DX while the deskto
 **Wi-Fi:**
 - NetworkManager power saving is off (`/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf`). With it on, the tablet's ath10k Wi-Fi was slow enough on a fast network that every mirror timed out.
 - The Wi-Fi country comes from the chosen region (`options cfg80211 ieee80211_regdom=XX`).
+- Saved Android networks come over during the switch: TWRP converts the package's `WifiConfigStore.xml` to NetworkManager keyfiles (root-only, 600), so Fedora connects on its own at the first start, before S6 Setup. It converts WPA/WPA2-personal, WPA3 (SAE) and open networks, hidden ones included. Enterprise networks and networks with hex-encoded names are skipped.
 
 ## Region before installing (app 0.4.7)
 

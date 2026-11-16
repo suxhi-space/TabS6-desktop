@@ -380,6 +380,42 @@ if [ $ROOT_OK = 1 ]; then
       fi
     done < "$W/parts"
   fi
+  # Wi-Fi networks saved on Android, so Fedora connects by itself at the first start (before S6 Setup). Only
+  # WPA/WPA3-personal and open networks; the passwords stay on this tablet (root-only files, as NetworkManager keeps them).
+  WX=""
+  while IFS='|' read -r p dev; do [ -z "$WX" ] && [ -f "$p/wifi/WifiConfigStore.xml" ] && WX="$p/wifi/WifiConfigStore.xml"; done < "$W/parts" 2>/dev/null
+  if [ -n "$WX" ]; then
+    NMD="$ROOT/etc/NetworkManager/system-connections"; mkdir -p "$NMD"; chmod 700 "$NMD"
+    xun() { sed -e 's/&quot;/"/g' -e "s/&apos;/'/g" -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g'; }
+    xval() { sed -e 's/^[^>]*>//' -e 's/<\/string>.*$//' | xun; }
+    nw=0; ssid=""; psk=""; key=""; hid=false
+    while IFS= read -r line; do
+      case "$line" in
+        *'<WifiConfiguration>'*) ssid=""; psk=""; key=""; hid=false ;;
+        *'name="SSID"'*) ssid=$(printf '%s\n' "$line" | xval) ;;
+        *'name="PreSharedKey"'*) psk=$(printf '%s\n' "$line" | xval) ;;
+        *'name="ConfigKey"'*) key=$(printf '%s\n' "$line" | xval) ;;
+        *'name="HiddenSSID"'*) case "$line" in *'value="true"'*) hid=true ;; esac ;;
+        *'</WifiConfiguration>'*)
+          case "$ssid" in \"*\") ssid=${ssid#\"}; ssid=${ssid%\"} ;; *) continue ;; esac   # hex names: skipped
+          case "$ssid" in ''|*\\*|*';'*|' '*|*' ') continue ;; esac
+          case "$key" in *WPA_PSK) km=wpa-psk ;; *SAE) km=sae ;; *NONE) km="" ;; *) continue ;; esac
+          case "$psk" in \"*\") psk=${psk#\"}; psk=${psk%\"} ;; esac
+          [ -n "$km" ] && [ -z "$psk" ] && continue
+          fn=$(printf '%s' "$ssid" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-40)
+          [ -e "$NMD/$fn.nmconnection" ] && continue
+          {
+            printf '[connection]\nid=%s\nuuid=%s\ntype=wifi\nautoconnect=true\n\n[wifi]\nmode=infrastructure\nssid=%s\n' \
+              "$ssid" "$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "5c6d6e6f-0000-4000-8000-$(date +%s%N | cut -c1-12)")" "$ssid"
+            [ "$hid" = true ] && printf 'hidden=true\n'
+            [ -n "$km" ] && printf '\n[wifi-security]\nkey-mgmt=%s\npsk=%s\n' "$km" "$psk"
+            printf '\n[ipv4]\nmethod=auto\n\n[ipv6]\naddr-gen-mode=default\nmethod=auto\n'
+          } > "$NMD/$fn.nmconnection"
+          chmod 600 "$NMD/$fn.nmconnection"; nw=$((nw+1)) ;;
+      esac
+    done < "$WX"
+    [ $nw -gt 0 ] && ui "   added $nw saved Wi-Fi network(s) from Android: Fedora connects by itself at the first start"
+  fi
   # Readable folders even if something above was made with a strict umask (the setup account must reach its home).
   for d in /var/lib/s6migrate /etc/sddm.conf.d /usr/local/libexec/s6migrate /usr/local/share/s6migrate /usr/local/share/applications; do
     [ -d "$ROOT$d" ] && find "$ROOT$d" -type d ! -path "*/setup-home*" -exec chmod 755 {} + 2>/dev/null

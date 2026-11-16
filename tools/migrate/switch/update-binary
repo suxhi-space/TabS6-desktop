@@ -245,6 +245,9 @@ if [ $ROOT_OK = 1 ]; then
   mkdir -p "$ROOT/var/lib/s6migrate"
   # The temporary account that runs S6 Setup on the first start (removed when setup finishes).
   SUID=1990
+  for f in passwd group shadow gshadow; do   # never append onto a last line that has no newline
+    [ -s "$ROOT/etc/$f" ] && [ -n "$(tail -c 1 "$ROOT/etc/$f")" ] && echo >> "$ROOT/etc/$f"
+  done
   if ! grep -q '^s6setup:' "$ROOT/etc/passwd"; then
     while cut -d: -f3 "$ROOT/etc/passwd" | grep -qx "$SUID" || cut -d: -f3 "$ROOT/etc/group" | grep -qx "$SUID"; do SUID=$((SUID+1)); done
     echo "s6setup:x:$SUID:$SUID:Setting up your tablet:/var/lib/s6migrate/setup-home:/bin/bash" >> "$ROOT/etc/passwd"
@@ -293,7 +296,9 @@ if [ $ROOT_OK = 1 ]; then
   fi
   # SELinux: files written from TWRP have no Fedora security labels. If SELinux is on, let Fedora relabel
   # once on the first start (Fedora's own mechanism; adds a few minutes and one automatic restart).
-  if grep -Eq '^SELINUX=(enforcing|permissive)' "$ROOT/etc/selinux/config" 2>/dev/null; then
+  # t860-fedora boots with selinux=0: then a relabel only adds a long, silent first start.
+  if grep -Eq '^SELINUX=(enforcing|permissive)' "$ROOT/etc/selinux/config" 2>/dev/null \
+     && ! { B gunzip -c "$INST/cache.img.gz" 2>/dev/null | grep -q 'selinux=0'; }; then
     : > "$ROOT/.autorelabel"
     ui "   SELinux is on: the first start checks file labels once (a few extra minutes, one restart)"
   fi

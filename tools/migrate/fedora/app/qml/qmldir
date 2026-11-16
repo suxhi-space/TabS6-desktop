@@ -12,3 +12,4 @@ LayoutPreview 1.0 LayoutPreview.qml
 LayoutPicker 1.0 LayoutPicker.qml
 Picker 1.0 Picker.qml
 SetupFrame 1.0 SetupFrame.qml
+Segmented 1.0 Segmented.qml

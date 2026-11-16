@@ -508,7 +508,8 @@ class Backend(QObject):
         if "find-parts" in argv:
             lines = ["PART|/var/lib/s6migrate/package-20261114-121139-part1|copied", "PART|/run/s6migrate/sde1/S6Migrate/20261114-121139|usb"]
         elif "wifi-list" in argv:
-            lines = ["NET|Home WiFi|78|WPA2|yes", "NET|Neighbor 5G|54|WPA2|no", "NET|CoffeeShop|31||no"]
+            lines = ["NET|Home WiFi|78|WPA2|yes", "NET|Neighbor 5G|54|WPA2|no", "NET|CoffeeShop|31||no",
+                     "NET|Library Guest|44||no", "NET|DIRECT-printer|22|WPA2|no", "NET|Upstairs|61|WPA2|no"]
         elif any("s6-android" in x for x in argv) and "status" in argv:
             lines = ["Android: running, using about 820 MB", "Open Android app windows: 1"]
         elif "get-updates" in argv:

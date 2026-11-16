@@ -35,6 +35,7 @@ Item {
     readonly property bool roomy: contentWidth >= 600
     readonly property bool wide: card.width >= 820
     readonly property int pad: 48
+    readonly property real room: flick.height - 16      // height a page can use without scrolling
 
     // ---- backdrop: a soft gradient with three blurred colour fields (like a macOS wallpaper)
     Rectangle {
@@ -117,16 +118,16 @@ Item {
         Column {
             id: head
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 44; width: f.contentWidth; spacing: 8
+            y: 42; width: f.contentWidth; spacing: 6
             Rectangle {
                 visible: f.icon !== ""
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: 60; height: 60; radius: 16
+                width: 56; height: 56; radius: 15
                 gradient: Gradient {
                     GradientStop { position: 0; color: Qt.lighter(Theme.accent, 1.18) }
                     GradientStop { position: 1; color: Theme.dark ? Qt.darker(Theme.accent, 1.35) : Qt.darker(Theme.accent, 1.12) }
                 }
-                Glyph { anchors.centerIn: parent; kind: f.icon; tint: "#FFFFFF"; width: f.icon === "tablet" ? 38 : 30; height: width }
+                Glyph { anchors.centerIn: parent; kind: f.icon; tint: "#FFFFFF"; width: f.icon === "tablet" ? 36 : 28; height: width }
             }
             Item { width: 1; height: 2 }
             Label2 {
@@ -162,7 +163,7 @@ Item {
         Flickable {
             id: flick
             objectName: "flick"
-            anchors { top: head.bottom; topMargin: 18; left: parent.left; right: parent.right; bottom: term.visible ? term.top : foot.top; bottomMargin: 10 }
+            anchors { top: head.bottom; topMargin: 16; left: parent.left; right: parent.right; bottom: term.visible ? term.top : foot.top; bottomMargin: 10 }
             contentHeight: body.implicitHeight + 16
             clip: true
             boundsBehavior: Flickable.StopAtBounds

@@ -9,12 +9,13 @@ Grid {
     signal picked(string id)
     readonly property var options: [
         { id: "touch", name: "Touch", sub: "One big floating bar, made for fingers" },
-        { id: "centered", name: "Centered taskbar", sub: "App icons in the middle of the bottom bar" },
-        { id: "traditional", name: "Traditional", sub: "Menu on the left, window names in the bar" },
-        { id: "topdock", name: "Top bar and dock", sub: "Menu and clock on top, a dock below" },
-        { id: "plasma", name: "Plasma default", sub: "KDE's standard desktop" }]
-    columns: width >= 640 ? 3 : 2
-    columnSpacing: 14; rowSpacing: 14
+        { id: "centered", name: "Centered", sub: "App icons in the middle of the bar" },
+        { id: "traditional", name: "Traditional", sub: "Menu on the left, window names" },
+        { id: "topdock", name: "Top bar & dock", sub: "Menu and clock on top, a dock below" },
+        { id: "plasma", name: "Plasma", sub: "KDE's standard desktop" }]
+    readonly property bool row: width >= 800        // all five side by side
+    columns: row ? 5 : (width >= 640 ? 3 : 2)
+    columnSpacing: row ? 12 : 14; rowSpacing: 14
     readonly property real cw: (width - columnSpacing * (columns - 1)) / columns
     Repeater {
         model: lp.options
@@ -29,12 +30,12 @@ Grid {
                 x: 12; y: 12; width: parent.width - 24; spacing: 10
                 LayoutPreview { layout: modelData.id; effects: lp.effects; width: parent.width; height: width * 0.5 }
                 Row {
-                    spacing: 10; width: parent.width
-                    Glyph { kind: lp.value === modelData.id ? "radioOn" : "radio"; width: 20; height: 20; y: 2 }
+                    spacing: lp.row ? 8 : 10; width: parent.width
+                    Glyph { kind: lp.value === modelData.id ? "radioOn" : "radio"; width: lp.row ? 18 : 20; height: width; y: 2 }
                     Column {
-                        width: parent.width - 30
-                        Label2 { text: modelData.name; strong: true; width: parent.width }
-                        Label2 { text: modelData.sub; font.pixelSize: 14; color: Theme.muted; width: parent.width }
+                        width: parent.width - (lp.row ? 26 : 30)
+                        Label2 { text: modelData.name; strong: true; width: parent.width; font.pixelSize: lp.row ? 15 : 16; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                        Label2 { text: modelData.sub; font.pixelSize: lp.row ? 12 : 14; color: Theme.muted; width: parent.width; maximumLineCount: lp.row ? 2 : 3; elide: Text.ElideRight }
                     }
                 }
             }

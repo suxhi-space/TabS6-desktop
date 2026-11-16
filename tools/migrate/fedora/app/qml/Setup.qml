@@ -88,7 +88,7 @@ ApplicationWindow {
     }
 
     // pages that don't show progress or a terminal
-    function plainFrame() { frame.progress = -1; frame.detailsAvailable = false; frame.detailsShown = false; frame.details = "" }
+    function plainFrame() { frame.wideContent = false; frame.progress = -1; frame.detailsAvailable = false; frame.detailsShown = false; frame.details = "" }
 
     SetupFrame {
         id: frame
@@ -161,6 +161,7 @@ ApplicationWindow {
         id: wifiPage
         Column {
             id: wp
+            objectName: "wifiPage"
             width: parent.width; spacing: 16
             property var nets: []
             property bool scanning: false
@@ -177,7 +178,7 @@ ApplicationWindow {
                 scanning = true
                 var queue = win.parts.slice()
                 function nextImport() {
-                    if (queue.length === 0) { scan(); return }
+                    if (queue.length === 0) { wp.status = ""; scan(); return }
                     win.run("wifi-import", win.h(["wifi-import", queue.shift()]), function (l) { wp.status = l }, nextImport)
                 }
                 nextImport()
@@ -193,8 +194,11 @@ ApplicationWindow {
                     win.online = win.connectedTo !== ""
                 })
             }
+            // every network, strongest first; the list scrolls inside its panel so the page itself stays put
+            readonly property var shown: nets.slice().sort(function (x, y) { return (y.on - x.on) || (y.signal - x.signal) })
             Card {
-                width: parent.width
+                id: netCard
+                width: parent.width; spacing: 0; pad: 14
                 Item {
                     width: parent.width; height: 44
                     Glyph { id: wg; anchors.verticalCenter: parent.verticalCenter; kind: win.online ? "ok" : (wp.scanning ? "spin" : "wifi"); tint: win.online ? Theme.ok : Theme.accent; width: 24; height: 24 }
@@ -202,36 +206,52 @@ ApplicationWindow {
                         anchors { left: wg.right; leftMargin: 12; right: rb.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
                         strong: true; text: win.online ? "Connected to " + win.connectedTo : (wp.scanning ? "Looking for networks..." : "Not connected")
                     }
-                    Btn { id: rb; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: "Refresh"; enabled: !wp.scanning; onClicked: wp.scan() }
+                    Label2 {
+                        id: rb; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        text: wp.scanning ? "" : "Refresh"; strong: true; color: Theme.accentText; font.pixelSize: 15; wrapMode: Text.NoWrap
+                        MouseArea { anchors.fill: parent; anchors.margins: -12; enabled: !wp.scanning; onClicked: wp.scan() }
+                    }
                 }
-            }
-            Repeater {
-                model: wp.nets
-                delegate: Choice {
-                    width: wp.width
-                    title: modelData.ssid
-                    sub: (modelData.on ? "Connected" : (modelData.sec ? "Secured" : "Open")) + " · signal " + modelData.signal + "%"
-                    on: wp.picked === modelData.ssid || modelData.on
-                    onPicked: { wp.picked = modelData.ssid; pw.text = "" }
-                }
-            }
-            Card {
-                width: parent.width
-                visible: wp.picked !== "" && !(win.online && win.connectedTo === wp.picked)
-                Field { id: pw; width: parent.width; label: "Password for " + wp.picked; echoMode: TextInput.Password }
-                Row {
-                    spacing: 12
-                    Btn {
-                        text: "Connect"; primary: true
-                        onClicked: {
-                            wp.status = "Connecting..."
-                            win.run("wifi-connect", win.h(["wifi-connect", wp.picked]), function (l) { wp.status = l }, function (code) {
-                                wp.status = code === 0 ? "" : "Couldn't connect. Check the password and try again."
-                                wp.scan()
-                            }, pw.text + "\n")
+                ListView {
+                    id: netList
+                    width: parent.width
+                    model: wp.shown
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    readonly property real fits: frame.room - 44 - 2 * netCard.pad - (pwRow.visible ? pwRow.height + wp.spacing : 0)
+                    height: Math.max(53 * 2, Math.min(contentHeight, fits))
+                    ScrollBar.vertical: ScrollBar { policy: netList.contentHeight > netList.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+                    delegate: Column {
+                        required property var modelData
+                        width: netList.width
+                        Rectangle { width: parent.width; height: 1; color: Theme.hair }
+                        Item {
+                            width: parent.width; height: 52
+                            Glyph { id: ng; anchors.verticalCenter: parent.verticalCenter; kind: modelData.on || wp.picked === modelData.ssid ? "radioOn" : "radio"; width: 20; height: 20 }
+                            Label2 { anchors { left: ng.right; leftMargin: 12; verticalCenter: parent.verticalCenter; right: meta.left; rightMargin: 12 }
+                                     text: modelData.ssid; strong: modelData.on; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                            Label2 { id: meta; anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter; wrapMode: Text.NoWrap
+                                     text: (modelData.on ? "Connected · " : (modelData.sec ? "Secured · " : "Open · ")) + modelData.signal + "%"; font.pixelSize: 13; color: Theme.muted }
+                            MouseArea { anchors.fill: parent; onClicked: { wp.picked = modelData.ssid; pw.text = "" } }
                         }
                     }
-                    Label2 { anchors.verticalCenter: parent.verticalCenter; text: wp.status; color: Theme.muted; font.pixelSize: 14 }
+                }
+            }
+            Row {
+                id: pwRow
+                width: parent.width; spacing: 12
+                visible: wp.picked !== "" && !(win.online && win.connectedTo === wp.picked)
+                Field { id: pw; width: parent.width - cb.width - 12; label: "Password for " + wp.picked; echoMode: TextInput.Password; hint: wp.status }
+                Btn {
+                    id: cb; y: 26
+                    text: "Connect"; primary: true
+                    onClicked: {
+                        wp.status = "Connecting..."
+                        win.run("wifi-connect", win.h(["wifi-connect", wp.picked]), function (l) { wp.status = l }, function (code) {
+                            wp.status = code === 0 ? "" : "Couldn't connect. Check the password and try again."
+                            wp.scan()
+                        }, pw.text + "\n")
+                    }
                 }
             }
         }
@@ -299,22 +319,23 @@ ApplicationWindow {
                 win.page = 4
             }
             Component.onCompleted: {
-                win.plainFrame(); frame.eyebrow = ""; frame.title = "Your tablet"
+                win.plainFrame(); frame.wideContent = true
+                frame.eyebrow = ""; frame.title = "Your tablet"
                 frame.subtitle = "Filled in from your Android settings. Change anything you like."
                 frame.primary = "Continue"; frame.secondary = "Back"; frame.note = ""
             }
             Grid {
-                width: parent.width; columns: frame.roomy ? 2 : 1; columnSpacing: 20; rowSpacing: 16
-                property real cw: frame.roomy ? (width - 20) / 2 : width
-                Field { id: dn; width: parent.cw; label: "Device name"; text: win.deviceName; hint: "How it shows up on Bluetooth and your network." }
+                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 16; rowSpacing: 16
+                property real cw: frame.roomy ? (width - 32) / 3 : width
+                Field { id: dn; width: parent.cw; label: "Device name"; text: win.deviceName; hint: "Shown on Bluetooth and Wi-Fi" }
                 Picker {
                     id: tz; width: parent.cw; label: "Time zone"; value: win.timeZone
                     options: backend.timeZones(); searchHint: "Search by city or country"
-                    hint: "From Android. Tap to choose another; search by city or country."
+                    hint: "Search by city or country"
                 }
                 Picker {
                     id: lang; width: parent.cw; label: "Language and region"; value: win.loc; searchHint: "Search by language or country"
-                    hint: "From Android. Used for the menus, dates and numbers."
+                    hint: "Menus, dates and numbers"
                     Component.onCompleted: {
                         var o = [], codes = backend.languages()
                         for (var i = 0; i < codes.length; i++) {
@@ -328,20 +349,23 @@ ApplicationWindow {
                 }
             }
             Card {
-                width: parent.width
-                Label2 { text: "Your wallpaper comes over from Android too and appears after you log in."; font.pixelSize: 14; color: Theme.muted; width: parent.width }
-                Rectangle { width: parent.width; height: 1; color: Theme.hair }
+                width: parent.width; spacing: 0; pad: 14
                 Toggle {
-                    width: parent.width; title: "Set up Android app support"
-                    sub: win.migrate && win.info.apps > 0 ? "Needed for the " + win.info.apps + " Android apps you're bringing. Downloads about 1 GB after you log in." : "Run Android apps in their own windows (Waydroid). Downloads about 1 GB after you log in."
+                    width: parent.width; title: "Android app support"
+                    sub: win.migrate && win.info.apps > 0 ? "Needed for the " + win.info.apps + " Android apps you're bringing. About 1 GB, after you log in." : "Run Android apps in their own windows (Waydroid). About 1 GB, after you log in."
                     checked: win.android; onCheckedChanged: win.android = checked
                 }
+                Rectangle { visible: win.android; width: parent.width; height: 1; color: Theme.hair }
                 Toggle {
                     visible: win.android
-                    width: parent.width; title: "Add Google Play to Android apps"
-                    sub: "Most apps from the Play Store need it (notifications, sign-in). You sign in to Google after setup."
+                    width: parent.width; title: "Google Play for Android apps"
+                    sub: "Most Play Store apps need it for sign-in and notifications."
                     checked: win.gapps; onCheckedChanged: win.gapps = checked
                 }
+                Rectangle { width: parent.width; height: 1; color: Theme.hair }
+                Toggle { width: parent.width; title: "Tune Fedora for this tablet"; sub: "Recommended. Smoother memory, faster shutdown and updates, fewer background jobs."; checked: win.tune; onCheckedChanged: win.tune = checked }
+                Rectangle { width: parent.width; height: 1; color: Theme.hair }
+                Toggle { width: parent.width; title: "Media codecs"; sub: "Plays every common video and music format (RPM Fusion, needs Wi-Fi)."; checked: win.codecs; onCheckedChanged: win.codecs = checked }
             }
         }
     }
@@ -350,48 +374,60 @@ ApplicationWindow {
     Component {
         id: lookPage
         Column {
-            width: parent.width; spacing: 18
+            width: parent.width; spacing: 20
             function next() { win.page = 5 }
             Component.onCompleted: {
-                win.plainFrame(); frame.eyebrow = ""; frame.title = "Look and feel"
-                frame.subtitle = "Pick a layout, size and effects. The file manager matches the layout. Change any of it later in S6 Companion."
+                win.plainFrame(); frame.wideContent = true
+                frame.eyebrow = ""; frame.title = "Look and feel"
+                frame.subtitle = "Pick a layout and how it looks. You can change all of it later in S6 Companion."
                 frame.primary = win.migrate ? "Move my stuff in" : "Set it up"; frame.secondary = "Back"; frame.note = "Nothing on your drives is changed or erased."
             }
             LayoutPicker { width: parent.width; value: win.layout; effects: win.effects; onPicked: (id) => win.layout = id }
-            Label2 { text: "Size"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
-                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
-                property real cw: frame.roomy ? (width - 28) / 3 : width
-                Choice { width: parent.cw; title: "Standard"; sub: "The tablet's original size"; on: win.size === "standard"; onPicked: win.size = "standard" }
-                Choice { width: parent.cw; title: "Larger"; sub: "Recommended for touch"; on: win.size === "larger"; onPicked: win.size = "larger" }
-                Choice { width: parent.cw; title: "Largest"; sub: "Easiest to tap and read"; on: win.size === "largest"; onPicked: win.size = "largest" }
-            }
-            Label2 { text: "Effects"; strong: true; color: Theme.sub; font.pixelSize: 15 }
-            Grid {
-                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
-                property real cw: frame.roomy ? (width - 28) / 3 : width
-                Choice { width: parent.cw; title: "Off"; sub: "Solid and simple; saves battery"; on: win.effects === "off"; onPicked: win.effects = "off" }
-                Choice { width: parent.cw; title: "Soft"; sub: "Frosted panels and menus (recommended)"; on: win.effects === "soft"; onPicked: win.effects = "soft" }
-                Choice { width: parent.cw; title: "Glassy"; sub: "See-through panels, menus and background windows"; on: win.effects === "glassy"; onPicked: win.effects = "glassy" }
-            }
-            Label2 { text: "Appearance"; strong: true; color: Theme.sub; font.pixelSize: 15 }
-            Grid {
-                width: parent.width; columns: 2; columnSpacing: 14
-                Choice { width: (parent.width - 14) / 2; title: "Light"; sub: "Bright Fedora look"; on: !win.dark; onPicked: win.dark = false }
-                Choice { width: (parent.width - 14) / 2; title: "Dark"; sub: win.set.night_mode === "2" ? "Like your Android" : "Easy on the eyes"; on: win.dark; onPicked: win.dark = true }
-            }
-            Card {
-                width: parent.width
-                Toggle {
-                    visible: !!win.info.tint && win.migrate && win.parts.length > 0
-                    width: parent.width; title: "Your colour from Android"
-                    sub: "The accent colour of your Android (Material You) for buttons, highlights and the whole KDE desktop."
-                    checked: win.useAccent; onCheckedChanged: win.useAccent = checked
+                width: parent.width; columns: frame.roomy ? 2 : 1; columnSpacing: 28; rowSpacing: 18
+                property real cw: frame.roomy ? (width - 28) / 2 : width
+                Segmented {
+                    width: parent.cw; label: "Size"; value: win.size; onPicked: (id) => win.size = id
+                    options: [{ id: "standard", label: "Standard", sub: "The tablet's original size" },
+                              { id: "larger", label: "Larger", sub: "Recommended for touch" },
+                              { id: "largest", label: "Largest", sub: "Easiest to tap and read" }]
                 }
-                Rectangle { visible: !!win.info.tint && win.migrate && win.parts.length > 0; width: parent.width; height: 1; color: Theme.hair }
-                Toggle { width: parent.width; title: "Tune Fedora for this tablet (recommended)"; sub: "Smoother memory use, a smaller system log, faster shutdown and updates, fewer background jobs, and the tablet's own parts protected from updates."; checked: win.tune; onCheckedChanged: win.tune = checked }
-                Rectangle { width: parent.width; height: 1; color: Theme.hair }
-                Toggle { width: parent.width; title: "Media codecs"; sub: "Plays every common video and music format (from RPM Fusion; needs Wi-Fi)."; checked: win.codecs; onCheckedChanged: win.codecs = checked }
+                Segmented {
+                    width: parent.cw; label: "Effects"; value: win.effects; onPicked: (id) => win.effects = id
+                    options: [{ id: "off", label: "Off", sub: "Solid and simple; saves battery" },
+                              { id: "soft", label: "Soft", sub: "Frosted panels and menus (recommended)" },
+                              { id: "glassy", label: "Glassy", sub: "See-through panels, menus and windows" }]
+                }
+                Segmented {
+                    width: parent.cw; label: "Appearance"; value: win.dark ? "dark" : "light"; onPicked: (id) => win.dark = id === "dark"
+                    options: [{ id: "light", label: "Light", sub: win.set.night_mode === "2" ? "Bright Fedora look" : "Bright Fedora look, like your Android" },
+                              { id: "dark", label: "Dark", sub: win.set.night_mode === "2" ? "Like your Android" : "Easy on the eyes" }]
+                }
+                Column {
+                    width: parent.cw; spacing: 8
+                    visible: !!win.info.tint && win.migrate && win.parts.length > 0
+                    Label2 { text: "Accent colour"; strong: true; color: Theme.sub; font.pixelSize: 14; width: parent.width }
+                    Row {
+                        spacing: 10
+                        Repeater {
+                            model: [{ on: true, c: win.info.tint ? win.info.tint[win.dark ? "dark" : "light"].accent : "#3C6EB4", name: "From Android" },
+                                    { on: false, c: win.dark ? "#51A2DA" : "#3C6EB4", name: "Fedora blue" }]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: 150; height: 44; radius: 22
+                                color: win.useAccent === modelData.on ? Theme.sel : Theme.track
+                                border.width: win.useAccent === modelData.on ? 2 : 0; border.color: Theme.accent
+                                Row {
+                                    anchors.centerIn: parent; spacing: 8
+                                    Rectangle { width: 20; height: 20; radius: 10; color: modelData.c; anchors.verticalCenter: parent.verticalCenter }
+                                    Label2 { text: modelData.name; font.pixelSize: 14; strong: win.useAccent === modelData.on; wrapMode: Text.NoWrap; anchors.verticalCenter: parent.verticalCenter }
+                                }
+                                MouseArea { anchors.fill: parent; onClicked: win.useAccent = modelData.on }
+                            }
+                        }
+                    }
+                    Label2 { text: "Your Material You colour, for Setup and the whole KDE desktop"; font.pixelSize: 13; color: Theme.muted; width: parent.width; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                }
             }
         }
     }

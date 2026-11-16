@@ -9,14 +9,16 @@
 # Everything is downloaded first (in rounds, keeping what's done, patient with slow Wi-Fi), then installed from
 # the downloaded files only, so a Wi-Fi drop can't interrupt installing. Kernel packages are never touched (this
 # tablet boots its own kernel); neither are the parts t860-fedora customises. Progress is shown on the screen.
-ST=/var/lib/s6migrate; M=$ST/maint; L=$ST/maint.log
-ls "$M"/repair "$M"/update "$M"/extras "$M"/codecs >/dev/null 2>&1 || exit 0
+ST=${S6M_STATE:-/var/lib/s6migrate}; M=$ST/maint; L=$ST/maint.log; TTY=${S6M_TTY:-/dev/tty1}   # S6M_*: test hooks
+# Any job waiting? (One check per job: listing them all at once failed whenever one was missing, so nothing ran.)
+any=0; for j in repair update extras codecs; do [ -f "$M/$j" ] && any=1; done
+[ $any = 1 ] || exit 0
 chvt 1 2>/dev/null
-exec > >(tee -a "$L" > /dev/tty1) 2>&1
+exec > >(tee -a "$L" > "$TTY") 2>&1
 say() { echo; echo "== $(date '+%F %T') $*"; }
 X='--setopt=excludepkgs=kernel*,sddm,iio-sensor-proxy'
 NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
-jobs=$(cd "$M" && ls repair update extras codecs 2>/dev/null | tr '\n' ' ')
+jobs=""; for j in repair update extras codecs; do [ -f "$M/$j" ] && jobs="$jobs$j "; done
 say "S6 Migrate is finishing work before the login screen: $jobs"
 say "Keep the tablet plugged in. On slow Wi-Fi this can take a while; it never installs anything half-downloaded."
 
@@ -55,7 +57,7 @@ if [ -f "$M/repair" ]; then
   pk=$(xargs -r rpm -qf --qf '%{NAME}\n' < /tmp/s6-damaged 2>/dev/null | grep -v -E '^(kernel|file |error)' | sort -u | tr '\n' ' ')
   say "Damaged files: $(wc -l < /tmp/s6-damaged); packages to reinstall: ${pk:-none}"
   if [ -n "$pk" ] && rounds "Downloading packages to reinstall" reinstall $pk; then dnf -y -C "$X" reinstall $pk || fail=1; fi
-  if ldd /usr/bin/kwin_wayland 2>&1 | grep -q -E 'not found|too short'; then fail=1; say "The desktop still has a problem."; fi
+  if ldd -r /usr/bin/kwin_wayland 2>&1 | grep -q -E 'not found|too short|undefined symbol'; then fail=1; say "The desktop still has a problem."; fi
   [ $fail = 0 ] && rm -f "$M/repair"
 fi
 if [ -f "$M/update" ] && [ $fail = 0 ]; then

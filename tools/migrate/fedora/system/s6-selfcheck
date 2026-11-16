@@ -5,7 +5,7 @@
 #   - empty login-rule files (every login then fails with "Permission denied"): regenerated with authselect;
 #   - a desktop whose files were cut short, or packages left half-installed: maintenance is scheduled (s6-maint),
 #     which finishes the update over Wi-Fi before the login screen.
-ST=/var/lib/s6migrate; M=$ST/maint; L=$ST/selfcheck.log
+ST=${S6M_STATE:-/var/lib/s6migrate}; M=$ST/maint; L=$ST/selfcheck.log   # S6M_STATE: test hook
 mkdir -p "$M"
 # Say something on the screen: without it, the start looks frozen at a blinking cursor.
 echo "S6 Migrate: checking the system before the login screen..." > /dev/tty1 2>/dev/null
@@ -26,13 +26,15 @@ if [ -n "$broken" ]; then
 fi
 
 # 2. The desktop's own program must be able to load its libraries.
-if [ -x /usr/bin/kwin_wayland ] && ldd /usr/bin/kwin_wayland 2>&1 | grep -q -E 'not found|too short|not a dynamic|invalid ELF'; then
-  log "desktop libraries damaged: $(ldd /usr/bin/kwin_wayland 2>&1 | grep -E 'not found|too short' | head -n 3 | tr '\n' ' ')"
+# ldd -r also resolves every symbol: a desktop half-updated to a new version loads, but misses symbols.
+if [ -x /usr/bin/kwin_wayland ] && timeout 60 ldd -r /usr/bin/kwin_wayland 2>&1 | grep -q -E 'not found|too short|not a dynamic|invalid ELF|undefined symbol'; then
+  log "desktop libraries damaged: $(timeout 60 ldd -r /usr/bin/kwin_wayland 2>&1 | grep -E 'not found|too short|undefined symbol' | head -n 3 | tr '\n' ' ')"
   date > "$M/repair"
 fi
 
-# 3. Packages left half-installed (two copies of the same package; signing keys are always listed several times).
-d=$(timeout 60 rpm -qa --qf '%{NAME}\n' 2>/dev/null | sort | uniq -d | grep -v '^gpg-pubkey$' | head -n 5 | tr '\n' ' ')
+# 3. Packages left half-installed (two copies of the same package). Signing keys and kernels are normally there
+#    several times (Fedora keeps more than one kernel on purpose).
+d=$(timeout 60 rpm -qa --qf '%{NAME}\n' 2>/dev/null | sort | uniq -d | grep -v -E '^(gpg-pubkey|kernel(-.*)?)$' | head -n 5 | tr '\n' ' ')
 [ -n "$d" ] && { log "half-installed: $d"; date > "$M/repair"; }
 # 3b. A "restart into TWRP" request that Fedora started through instead (bootloader ignored it): clear it, so a later
 #     restart doesn't unexpectedly open TWRP.

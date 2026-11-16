@@ -404,7 +404,7 @@ sync; umount /tmp/r; reboot
 - rewrites the automatic-login file and removes stale blockers (`/etc/nologin`, `.autorelabel`)
 - keeps logs on disk
 - runs Fedora's own login checks (PAM) inside Fedora from TWRP, the way SDDM does, for the setup and fedora accounts; when one fails it tests each rule alone and names the one that refuses (`s6pamtest.py`)
-- checks packages: two copies of one package, or desktop parts at different versions, mean an update was cut off (a freeze or forced restart). It then schedules `s6-repair` for the next start, before the login screen: wait for Wi-Fi, `dnf remove --duplicates`, `dnf distro-sync` with kernel packages excluded (this tablet boots its own kernel), progress shown on screen, log in `/var/lib/s6migrate/repair.log`
+- checks packages: two copies of one package, or desktop parts at different versions, mean an update was cut off (a freeze or forced restart). It then schedules `s6-repair` for the next start, before the login screen: wait for Wi-Fi, clock set from the internet, `dnf remove --duplicates`, `dnf distro-sync` with kernel packages excluded, downloaded first in up to 30 resumable rounds with patient settings and only then installed from the cache (a Wi-Fi drop can never interrupt installing), missing desktop packages put back, packages with damaged files (`rpm -Va`) reinstalled, no time limit (this tablet boots its own kernel), progress shown on screen, log in `/var/lib/s6migrate/repair.log`
 - adds a boot check that, 90 seconds after the login screen starts, writes a report and retries automatic login once if logins are still blocked
 
 Everything it shows is saved as `fix-report.txt` next to the ZIP.

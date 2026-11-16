@@ -1,0 +1,12 @@
+[Unit]
+Description=S6 Migrate maintenance before the login screen (repair, updates, extras)
+After=s6-selfcheck.service NetworkManager.service tabs6-wifi.service
+Before=display-manager.service sddm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/s6migrate/s6-maint
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

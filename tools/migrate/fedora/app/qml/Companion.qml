@@ -60,7 +60,8 @@ ApplicationWindow {
             if (migrate) for (var i = 0; i < found.length; i++)
                 t.push({ title: "Your wallpaper and settings from Android" + (found.length > 1 ? " (part " + (i + 1) + ")" : ""), argv: ["/usr/local/bin/s6-restore", "--settings-only", "--skip-verify", "--yes", found[i]] })
             var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "soft"
-            if (eff !== "off") t.push({ title: "Better blur and the Darkly style (optional, needs Wi-Fi)", argv: h(["look-extras"]), optional: true })
+            // Queued for the next restart (added before the login screen), never installed under the running desktop.
+            if (eff !== "off" && !backend.exists("/var/lib/s6migrate/last-update")) t.push({ title: "Better blur and the Darkly style: added at the next restart", argv: h(["look-extras"]), optional: true })
             t.push({ title: "Your layout, size and effects (" + layoutName(lay) + ", " + size + ", " + eff + ")",
                      argv: sh("s6-look theme " + theme + "; s6-look effects " + eff + "; s6-look layout " + lay + "; s6-look size " + size + "; s6-look install-themes") })
             if (android) {
@@ -328,13 +329,21 @@ ApplicationWindow {
                 width: parent.width
                 property bool bb: (lk.extras.BBDX || [""])[0] === "installed"
                 property bool dk: (lk.extras.DARKLY || [""])[0] === "installed"
+                property bool queued: backend.exists("/var/lib/s6migrate/maint/extras")
                 Row { spacing: 10
                       Glyph { kind: exCard.bb && exCard.dk ? "ok" : "clock"; tint: exCard.bb && exCard.dk ? Theme.ok : Theme.muted; width: 22; height: 22 }
                       Label2 { text: "Better Blur DX and Darkly"; strong: true } }
                 Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
                          text: (exCard.bb ? ((lk.extras.BBDX || [])[1] === "loaded" ? "Better Blur DX is on. " : "Better Blur DX is installed; Plasma's blur is used until it matches this Plasma version. ") : "Better Blur DX isn't installed (Plasma's own blur is used). ")
                                + (exCard.dk ? "Darkly gives apps rounded, frosted surfaces." : "Darkly isn't installed (Breeze is used).") }
-                Btn { visible: !(exCard.bb && exCard.dk); text: "Install them"; onClicked: { lk.out = "Installing..."; win.run("extrasi", win.h(["look-extras"]), function (l) { lk.out = l }, function () { lk.loadExtras(); lk.apply(["effects", lk.cur.EFFECTS || "soft"]) }) } }
+                Flow {
+                    width: parent.width; spacing: 10; visible: !(exCard.bb && exCard.dk)
+                    Btn { text: exCard.queued ? "Added at the next restart" : "Add them at the next restart"; enabled: !exCard.queued
+                          onClicked: win.run("extrasi", win.h(["look-extras"]), function (l) { lk.out = l }, function () { exCard.queued = true }) }
+                    Btn { visible: exCard.queued; text: "Restart now"; primary: true; onClicked: backend.detach("systemctl reboot") }
+                }
+                Label2 { width: parent.width; font.pixelSize: 13; color: Theme.muted; visible: !(exCard.bb && exCard.dk)
+                         text: "They're added while the tablet restarts, before the login screen, never while your desktop is running." }
             }
             Label2 { text: "Appearance"; strong: true; color: Theme.sub; font.pixelSize: 15 }
             Grid {
@@ -457,19 +466,23 @@ ApplicationWindow {
             width: parent.width; spacing: 16
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Updates"
-                frame.subtitle = "Fedora, your Linux apps and Android for apps. Updates install with Discover, KDE's software center, so the tablet restarts safely when needed."
+                frame.subtitle = "Fedora, your Linux apps and Android for apps. Fedora updates install while the tablet restarts, before the login screen, so the desktop is never changed while it runs."
                 frame.primary = ""; frame.secondary = ""; frame.note = ""
                 if (win.updates < 0 && !win.checkingUpdates) win.checkUpdates()
             }
             Card {
+                id: updCard
                 width: parent.width
+                property bool queued: backend.exists("/var/lib/s6migrate/maint/update")
                 Row { spacing: 12; Glyph { kind: win.checkingUpdates ? "spin" : (win.updates === 0 ? "ok" : "clock"); tint: win.updates === 0 ? Theme.ok : Theme.accent; width: 24; height: 24 }
                       Label2 { strong: true; text: win.checkingUpdates ? "Checking for updates..." : win.updates === 0 ? "Everything is up to date" : win.updates + " update(s) ready" } }
                 Repeater { model: win.updateList.slice(0, 8); delegate: Label2 { text: "• " + modelData; font.pixelSize: 14; color: Theme.sub; width: parent.width } }
                 Label2 { visible: win.updateList.length > 8; text: "and " + (win.updateList.length - 8) + " more"; font.pixelSize: 14; color: Theme.muted }
                 Flow {
                     width: parent.width; spacing: 10
-                    Btn { text: "Install updates"; primary: true; enabled: win.updates > 0; onClicked: backend.detach("plasma-discover --mode update") }
+                    Btn { text: updCard.queued ? "Updates at the next restart" : "Update at the next restart"; primary: !updCard.queued; enabled: win.updates > 0 && !updCard.queued
+                          onClicked: win.run("updq", win.h(["schedule", "update"]), null, function () { updCard.queued = true }) }
+                    Btn { visible: updCard.queued; text: "Restart now"; primary: true; onClicked: backend.detach("systemctl reboot") }
                     Btn { text: "Check again"; enabled: !win.checkingUpdates; onClicked: win.checkUpdates() }
                     Btn { text: "Linux apps from Flathub"; onClicked: win.run("flat", win.sh("flatpak update --user -y --noninteractive"), null, null) }
                 }
@@ -529,7 +542,7 @@ ApplicationWindow {
             Card {
                 width: parent.width; warn: true
                 Label2 { text: "Two kinds of updates"; strong: true; color: Theme.warn; width: parent.width }
-                Label2 { text: "Fedora and your apps update through Discover. The tablet's own kernel and drivers come from the t860-fedora project; S6 Companion checks those above."; color: Theme.warnText; width: parent.width }
+                Label2 { text: "Fedora and your apps update at restart, without Fedora's own kernel packages: this tablet runs its own kernel and drivers from the t860-fedora project, which S6 Companion checks above."; color: Theme.warnText; width: parent.width }
             }
         }
     }

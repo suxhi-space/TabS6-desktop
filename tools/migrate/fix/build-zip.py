@@ -9,6 +9,10 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     ub = (here / "update-binary").read_text()
     py = (here / "s6pamtest.py").read_text()
     assert "EOPY" not in py and "# @PAMTEST@" in ub
-    z.writestr(i, ub.replace("# @PAMTEST@\n", py))
+    fed = here.parent / "fedora" / "system"
+    sc, mt = (fed / "s6-selfcheck").read_text(), (fed / "s6-maint").read_text()
+    assert "EOSC" not in sc and "EOMT" not in mt and "# @S6SELFCHECK@" in ub and "# @S6MAINT@" in ub
+    ub = ub.replace("# @PAMTEST@\n", py).replace("# @S6SELFCHECK@\n", sc).replace("# @S6MAINT@\n", mt)
+    z.writestr(i, ub)
     z.writestr("META-INF/com/google/android/updater-script", "# S6 Migrate fix: the work is done by update-binary\n")
 print(out)

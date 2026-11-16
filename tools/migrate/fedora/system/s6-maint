@@ -1,0 +1,85 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# S6 Migrate maintenance before the login screen. Runs only when a job is waiting in /var/lib/s6migrate/maint:
+#   repair   finish an update a freeze or forced restart cut off (from s6-selfcheck or S6Migrate-FIX.zip)
+#   update   bring Fedora up to date (S6 Setup's first update, or "Update at restart" in S6 Companion)
+#   extras   Better Blur DX and Darkly
+# Desktop packages are never changed under a running desktop: that froze the tablet once and cut a library short.
+# Everything is downloaded first (in rounds, keeping what's done, patient with slow Wi-Fi), then installed from
+# the downloaded files only, so a Wi-Fi drop can't interrupt installing. Kernel packages are never touched (this
+# tablet boots its own kernel); neither are the parts t860-fedora customises. Progress is shown on the screen.
+ST=/var/lib/s6migrate; M=$ST/maint; L=$ST/maint.log
+ls "$M"/repair "$M"/update "$M"/extras >/dev/null 2>&1 || exit 0
+chvt 1 2>/dev/null
+exec > >(tee -a "$L" > /dev/tty1) 2>&1
+say() { echo; echo "== $(date '+%F %T') $*"; }
+X='--setopt=excludepkgs=kernel*,sddm,iio-sensor-proxy'
+NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
+jobs=$(cd "$M" && ls repair update extras 2>/dev/null | tr '\n' ' ')
+say "S6 Migrate is finishing work before the login screen: $jobs"
+say "Keep the tablet plugged in. On slow Wi-Fi this can take a while; it never installs anything half-downloaded."
+
+online=0
+for i in $(seq 1 60); do
+  curl -fsI --max-time 8 http://fedoraproject.org >/dev/null 2>&1 && { online=1; break; }
+  [ $i = 1 ] && say "Waiting for Wi-Fi..."
+  sleep 5
+done
+if [ $online = 0 ]; then say "No internet: this waits for the next start."; exit 0; fi
+d=$(curl -sI --max-time 15 http://fedoraproject.org 2>/dev/null | sed -n 's/^[Dd]ate: //p' | tr -d '\r')
+[ -n "$d" ] && date -s "$d" >/dev/null 2>&1 && say "Clock checked: $(date)"
+
+rounds() { # rounds WHAT DNF-ARGS...: a download-only dnf command, repeated until it succeeds (30 rounds at most)
+  local what=$1; shift
+  for r in $(seq 1 30); do
+    say "$what (round $r)..."
+    dnf -y $NET "$X" --downloadonly "$@" && return 0
+    say "Round $r stopped (Wi-Fi?). Keeping what's downloaded; next round in 30 seconds."
+    sleep 30
+  done
+  return 1
+}
+fail=0
+if [ -f "$M/repair" ]; then
+  say "Repair 1/4: removing old copies of half-updated packages..."
+  dnf -y remove --duplicates "$X" || true
+  say "Repair 2/4: bringing every package to the same, current version..."
+  if rounds "Downloading" --refresh distro-sync; then dnf -y -C "$X" distro-sync || fail=1; else fail=1; fi
+  say "Repair 3/4: putting back desktop packages missing from the package list..."
+  DESK="kwin kwin-libs kwin-common plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma plasma-desktop plasma-workspace-wayland"
+  if rounds "Downloading desktop packages" install $DESK; then dnf -y -C "$X" install $DESK || true; fi
+  say "Repair 4/4: checking every installed file (slow), reinstalling packages with damaged files..."
+  rpm -Va --nomtime --nouser --nogroup --nomode --nordev --nolinkto --nocaps 2>/dev/null \
+    | grep -E '^(..5|.S)' | grep -v ' c /' | awk '{print $NF}' > /tmp/s6-damaged || true
+  pk=$(xargs -r rpm -qf --qf '%{NAME}\n' < /tmp/s6-damaged 2>/dev/null | grep -v -E '^(kernel|file |error)' | sort -u | tr '\n' ' ')
+  say "Damaged files: $(wc -l < /tmp/s6-damaged); packages to reinstall: ${pk:-none}"
+  if [ -n "$pk" ] && rounds "Downloading packages to reinstall" reinstall $pk; then dnf -y -C "$X" reinstall $pk || fail=1; fi
+  if ldd /usr/bin/kwin_wayland 2>&1 | grep -q -E 'not found|too short'; then fail=1; say "The desktop still has a problem."; fi
+  [ $fail = 0 ] && rm -f "$M/repair"
+fi
+if [ -f "$M/update" ] && [ $fail = 0 ]; then
+  say "Updating Fedora..."
+  if rounds "Downloading updates" --refresh upgrade; then
+    if dnf -y -C "$X" upgrade; then rm -f "$M/update"; date '+%F %T' > "$ST/last-update"; else fail=1; fi
+  else fail=1; fi
+fi
+if [ -f "$M/extras" ] && [ $fail = 0 ]; then
+  say "Adding Better Blur DX and Darkly..."
+  dnf -y copr enable infinality/kwin-effects-better-blur-dx >/dev/null 2>&1
+  dnf -y copr enable deltacopy/darkly >/dev/null 2>&1
+  got=""
+  for p in kwin-effects-better-blur-dx darkly; do
+    if rounds "Downloading $p" --refresh install "$p" && dnf -y -C "$X" install "$p"; then got="$got $p"; fi
+  done
+  [ -n "$got" ] && say "Added:$got" || say "Not available for this Plasma right now: the standard blur and Breeze are used."
+  rm -f "$M/extras"
+fi
+n=$(cat "$M/attempts" 2>/dev/null || echo 0)
+if [ $fail = 1 ]; then
+  echo $((n+1)) > "$M/attempts"
+  say "Not finished this time (attempt $((n+1))); it continues on the next start. Log: $L"
+else
+  rm -f "$M/attempts"
+  say "All done. Starting the login screen."
+fi
+exit 0

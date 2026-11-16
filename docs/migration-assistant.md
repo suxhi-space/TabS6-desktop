@@ -354,6 +354,29 @@ Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore 
   - Rehearsal and switch with verification off, with verification on and writable, and with verification on and read-only.
   - An installer that can't free `/data`.
 
+## Never change the desktop while it runs (0.4.7)
+
+On the first real switch, S6 Companion installed Better Blur DX while the desktop was running. That pulled in a whole Plasma update (6.7.5 to 6.8.3) under the running session. The tablet froze, the forced restart cut `libkwin.so.6` short, and the login screen could no longer start. Two Fedora-side services now prevent and repair this. The switch installs both, and S6Migrate-FIX.zip installs them on tablets switched earlier.
+
+**`s6-selfcheck`** runs at every start, before the login screen, in a few seconds and without internet:
+- empty login-rule files are regenerated with `authselect`
+- a `kwin_wayland` whose libraries don't load, or packages left with two copies, queue a repair
+
+**`s6-maint`** runs before the login screen when a job is waiting in `/var/lib/s6migrate/maint`:
+- the jobs are `repair`, `update` and `extras`
+- it downloads everything first, in up to 30 resumable rounds, then installs from the downloaded files only
+- kernel packages, `sddm` and `iio-sensor-proxy` are never touched
+- progress shows on the screen, the log is in `/var/lib/s6migrate/maint.log`, and an unfinished job continues at the next start
+
+**What schedules a job:**
+- **S6 Setup**, when online, queues `update` (plus `extras` if effects are on) as it finishes. The restart then brings Fedora up to date before the first login, so the first desktop is complete.
+- **S6 Companion's** "Update at the next restart" and "Add them at the next restart" buttons do the same, with a **Restart now** button. Fedora updates no longer go through Discover, which could also install Fedora's own kernel packages, and this tablet boots its own kernel.
+- **The "protect" tune-up** now holds back `sddm`, `iio-sensor-proxy` and `kernel*`. It no longer holds back `sddm-wayland-plasma`, which has to match the installed Plasma.
+
+**Wi-Fi:**
+- NetworkManager power saving is off (`/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf`). With it on, the tablet's ath10k Wi-Fi was slow enough on a fast network that every mirror timed out.
+- The Wi-Fi country comes from the chosen region (`options cfg80211 ieee80211_regdom=XX`).
+
 ## Region before installing (app 0.4.7)
 
 Like other installers (PikaOS's asks before it installs), the app's last page before the switch has a **Your region** card:

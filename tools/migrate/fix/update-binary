@@ -27,7 +27,7 @@ save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
 }
 stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
 
-ui "S6 Migrate fix 8: why won't Fedora start?"
+ui "S6 Migrate fix 9: why won't Fedora start?"
 HD=$(cat <<'EOT'
 heredoc-ok
 EOT
@@ -50,9 +50,10 @@ if [ -f "$S/boot-report.txt" ]; then
 else
   ui "No boot check yet (it is added now and runs on the next start)."
 fi
-if [ -f "$S/repair.log" ]; then
-  ui "Last repair:"; grep -E '^== ' "$S/repair.log" | tail -n 4 | cut -c1-100 | while IFS= read -r l; do ui "  $l"; done
-  note "----- repair log (last 80 lines) -----"; tail -n 80 "$S/repair.log" >> "$REP"
+LOGF="$S/maint.log"; [ -f "$LOGF" ] || LOGF="$S/repair.log"
+if [ -f "$LOGF" ]; then
+  ui "Last repair:"; grep -E '^== ' "$LOGF" | tail -n 4 | cut -c1-100 | while IFS= read -r l; do ui "  $l"; done
+  note "----- repair log (last 80 lines) -----"; tail -n 80 "$LOGF" >> "$REP"
 fi
 J=$(ls "$ROOT"/var/log/journal/*/system.journal 2>/dev/null | head -n 1)
 if [ -n "$J" ]; then
@@ -221,6 +222,33 @@ check_pam() { # check_pam NAME (recursive through include/substack)
 for n in sddm sddm-autologin sddm-greeter; do [ -e "$PD/$n" ] || [ -L "$PD/$n" ] && check_pam "$n"; done
 [ $fixedpam = 0 ] && ui "  login rules: all files and parts present"
 note "pam files: $(ls -l "$PD" 2>&1 | grep -E 'sddm|system-auth|password-auth|postlogin' | tr -s ' ' | cut -d' ' -f1,9- | tr '\n' ';')"
+# 4b. The same self-check and maintenance services the switch installs (S6 Migrate 0.4.7+), and Wi-Fi settings.
+mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/multi-user.target.wants" "$S/maint" "$ROOT/etc/NetworkManager/conf.d"
+cat > "$ROOT/usr/local/libexec/s6migrate/s6-selfcheck" <<'EOSC'
+# @S6SELFCHECK@
+EOSC
+cat > "$ROOT/usr/local/libexec/s6migrate/s6-maint" <<'EOMT'
+# @S6MAINT@
+EOMT
+chmod 755 "$ROOT/usr/local/libexec/s6migrate/s6-selfcheck" "$ROOT/usr/local/libexec/s6migrate/s6-maint"
+printf '%s\n' '[Unit]' 'Description=S6 Migrate self-check (login rules, damaged desktop files)' 'After=local-fs.target' \
+  'Before=display-manager.service sddm.service s6-maint.service' '' '[Service]' 'Type=oneshot' \
+  'ExecStart=/usr/local/libexec/s6migrate/s6-selfcheck' 'TimeoutStartSec=5min' '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-selfcheck.service"
+printf '%s\n' '[Unit]' 'Description=S6 Migrate maintenance before the login screen (repair, updates, extras)' \
+  'After=s6-selfcheck.service NetworkManager.service tabs6-wifi.service' 'Before=display-manager.service sddm.service' \
+  '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/libexec/s6migrate/s6-maint' 'TimeoutStartSec=infinity' \
+  '' '[Install]' 'WantedBy=multi-user.target' > "$ROOT/etc/systemd/system/s6-maint.service"
+for u in s6-selfcheck s6-maint; do ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"; done
+rm -f "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service" "$ROOT/etc/systemd/system/s6-repair.service" "$S/repair-wanted"
+[ -f "$S/repair.log" ] && [ ! -f "$S/maint.log" ] && cp "$S/repair.log" "$S/maint.log"
+printf '%s\n' '# S6 Migrate: Wi-Fi power saving off (it makes the Tab S6 Wi-Fi slow and drops downloads).' '[connection]' 'wifi.powersave = 2' > "$ROOT/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf"
+cc=$(sed -n 's/^LANG=[a-z]*_\([A-Z][A-Z]\).*/\1/p' "$ROOT/etc/locale.conf" 2>/dev/null)
+[ -n "$cc" ] && mkdir -p "$ROOT/etc/modprobe.d" && printf 'options cfg80211 ieee80211_regdom=%s\n' "$cc" > "$ROOT/etc/modprobe.d/s6migrate-wifi-country.conf"
+if [ "$(grep -c . "$ROOT/usr/local/libexec/s6migrate/s6-maint")" -gt 50 ]; then
+  ui "  self-check and maintenance installed; Wi-Fi power saving off${cc:+, Wi-Fi country $cc}"
+else
+  ui "  COULD NOT write the maintenance service"
+fi
 # 5. Packages: an update cut off by a freeze leaves old and new copies, or a desktop of mixed versions; then the
 #    login screen can't start. Repair needs the internet, so it is scheduled for the next start, before the login screen.
 ui " "
@@ -243,87 +271,9 @@ nm=$(grep -c -E 'package (kwin|kwin-libs|plasma-workspace|libplasma|sddm-wayland
 [ "$nm" -gt 0 ] && ui "  desktop packages missing from Fedora's package list: $nm (the cut-off update)"
 grep -q 'libkwin.so.6: file too short\|file too short' /tmp/s6fix-j.txt 2>/dev/null && ui "  a desktop file was cut short by the freeze (libkwin.so.6)"
 if [ "$nd" -gt 0 ] || [ "$nv" -gt 1 ] || [ "$nm" -gt 0 ] || grep -q 'file too short' /tmp/s6fix-j.txt 2>/dev/null; then
-  mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/multi-user.target.wants"
-  cat > "$ROOT/usr/local/libexec/s6migrate/s6-repair" <<'EOR'
-#!/usr/bin/bash
-# S6 Migrate: finish an update that a freeze cut off. Runs once at start-up, before the login screen, and shows
-# its progress on the screen. Kernel packages are never touched (this tablet boots its own kernel).
-L=/var/lib/s6migrate/repair.log
-chvt 1 2>/dev/null
-exec > >(tee -a "$L" > /dev/tty1) 2>&1
-say() { echo; echo "== $(date '+%F %T') $*"; }
-say "S6 Migrate is repairing Fedora after an interrupted update. Keep the tablet plugged in. This can take 10-40 minutes."
-online=0
-for i in $(seq 1 60); do
-  curl -fsI --max-time 8 https://mirrors.fedoraproject.org >/dev/null 2>&1 && { online=1; break; }
-  [ $i = 1 ] && say "Waiting for Wi-Fi..."
-  sleep 5
-done
-if [ $online = 0 ]; then say "No internet: repair skipped this time (it tries again on the next start)."; exit 0; fi
-# Slow or dropping Wi-Fi: patient download settings, and download everything first (in rounds, keeping what's done),
-# then install from the downloaded files only, so a Wi-Fi drop can never interrupt the installing step.
-X='--setopt=excludepkgs=kernel*'
-NET='--setopt=minrate=1 --setopt=timeout=120 --setopt=retries=20 --setopt=max_parallel_downloads=3'
-say "Setting the clock from the internet (it was wrong at start-up)..."
-d=$(curl -sI --max-time 15 http://fedoraproject.org 2>/dev/null | sed -n 's/^[Dd]ate: //p' | tr -d '\r')
-[ -n "$d" ] && date -s "$d" >/dev/null 2>&1 && say "Clock set: $(date)"
-rounds() { # rounds DESCRIPTION DNF-ARGS...: repeat a download-only dnf command until it succeeds (up to 30 rounds)
-  local what=$1; shift
-  for r in $(seq 1 30); do
-    say "$what (round $r)..."
-    if dnf -y $NET "$X" --downloadonly "$@"; then return 0; fi
-    say "Download round $r stopped (weak Wi-Fi?). Keeping what's downloaded; trying again in 30 seconds."
-    sleep 30
-  done
-  return 1
-}
-say "Step 1 of 4: removing old copies of half-updated packages..."
-dnf -y remove --duplicates "$X" || say "(no old copies removed)"
-say "Step 2 of 4: bringing every package to the same, current version (kernel left alone)."
-say "Downloading first (about 1 GB; on slow Wi-Fi this can take a few hours, leave it plugged in near the router)."
-if rounds "Downloading updates" --refresh distro-sync; then
-  say "All updates downloaded. Installing them now (no internet needed for this part)..."
-  dnf -y -C "$X" distro-sync || say "(installing reported a problem; continuing)"
-else
-  say "Could not download everything after 30 rounds (it tries again on the next start)."
-fi
-say "Step 3 of 4: putting back desktop packages missing from the package list..."
-DESK="kwin kwin-libs kwin-common plasma-workspace plasma-workspace-libs libplasma sddm-wayland-plasma plasma-desktop plasma-workspace-wayland"
-if rounds "Downloading desktop packages" install $DESK; then
-  dnf -y -C "$X" install $DESK || say "(some desktop packages could not be installed)"
-fi
-say "Step 4 of 4: checking every installed file and reinstalling packages with damaged files (this takes a while)..."
-rpm -Va --nomtime --nouser --nogroup --nomode --nordev --nolinkto --nocaps 2>/dev/null \
-  | grep -E '^(..5|.S)' | grep -v ' c /' | awk '{print $NF}' > /tmp/s6-damaged || true
-pk=$(xargs -r rpm -qf --qf '%{NAME}\n' < /tmp/s6-damaged 2>/dev/null | grep -v -E '^(kernel|file |error)' | sort -u | tr '\n' ' ')
-say "Damaged files: $(wc -l < /tmp/s6-damaged); packages to reinstall: ${pk:-none}"
-if [ -n "$pk" ] && rounds "Downloading packages to reinstall" reinstall $pk; then
-  dnf -y -C "$X" reinstall $pk || say "(some packages could not be reinstalled)"
-fi
-if [ -x /usr/bin/kwin_wayland ] && ldd /usr/bin/kwin_wayland 2>&1 | grep -q -v 'not found\|too short' \
-   && ! ldd /usr/bin/kwin_wayland 2>&1 | grep -q 'not found\|too short'; then
-  rm -f /var/lib/s6migrate/repair-wanted
-  say "Repair finished: the desktop's files check out. Starting the login screen."
-else
-  say "The desktop still has a problem (it tries again on the next start). Details: /var/lib/s6migrate/repair.log"
-fi
-chvt 7 2>/dev/null
-exit 0
-EOR
-  chmod 755 "$ROOT/usr/local/libexec/s6migrate/s6-repair"
-  printf '%s\n' '[Unit]' 'Description=S6 Migrate: finish an interrupted update' 'Wants=network-online.target' \
-    'After=network-online.target NetworkManager.service' 'Before=display-manager.service sddm.service' \
-    'ConditionPathExists=/var/lib/s6migrate/repair-wanted' '' '[Service]' 'Type=oneshot' \
-    'ExecStart=/usr/local/libexec/s6migrate/s6-repair' 'TimeoutStartSec=infinity' '' '[Install]' 'WantedBy=multi-user.target' \
-    > "$ROOT/etc/systemd/system/s6-repair.service"
-  ln -sf /etc/systemd/system/s6-repair.service "$ROOT/etc/systemd/system/multi-user.target.wants/s6-repair.service"
-  date > "$S/repair-wanted"
-  if [ "$(grep -c . "$ROOT/usr/local/libexec/s6migrate/s6-repair")" -gt 20 ]; then
-    ui "  REPAIR SCHEDULED: on the next start Fedora finishes the update over Wi-Fi (kernel untouched),"
-    ui "  showing its progress on screen, then opens the login screen."
-  else
-    ui "  COULD NOT write the repair script"
-  fi
+  date > "$S/maint/repair"
+  ui "  REPAIR SCHEDULED: on the next start, before the login screen, Fedora finishes the update over Wi-Fi"
+  ui "  (downloaded in rounds first, then installed; kernel untouched), showing its progress on screen."
 else
   ui "  packages look consistent"
 fi

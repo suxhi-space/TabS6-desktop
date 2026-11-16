@@ -14,7 +14,7 @@
 #   settings TZ LOCALE "DEVICE NAME" USER light|dark
 #   restore-files USER PART          your folders from one part of the package, as USER
 #   linux-apps USER PART             Linux versions of your apps, as USER
-#   finish USER AUTOLOGIN(0|1) REMOVE_FEDORA(0|1) GAPPS(0|1) light|dark
+#   finish USER AUTOLOGIN(0|1) REMOVE_FEDORA(0|1) GAPPS(0|1) light|dark [JOBS]   JOBS: e.g. update,extras (before 1st login)
 #   post-finish                      (internal) restart the login screen into your account, remove the setup account
 #   fallback                         (internal) setup could not start: back to the "fedora" account and the text assistant
 #   end-firstrun USER                remove the temporary first-run permissions (S6 Companion, when done)
@@ -24,7 +24,9 @@
 #   tune NAME on|off                 tune-ups: memory logs shutdown downloads background protect codecs indexing
 #   tune-status                      TUNE|name|on/off for each
 #   update-system [TAG] | update-keep | update-rollback | update-self   (see s6-update)
-#   look-extras                      install Better Blur DX and Darkly (COPR); optional, falls back to Plasma defaults
+#   look-extras                      Better Blur DX and Darkly: added at the next restart, before the login screen
+#   schedule repair|update|extras    queue maintenance for the next restart (s6-maint runs it before the login screen)
+#   unschedule repair|update|extras  take a queued job back
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ST=${S6H_STATE:-/var/lib/s6migrate}
@@ -197,6 +199,11 @@ settings)
     l=${loc%%-*}; c=${loc#*-}; [ "$c" = "$loc" ] && c=""
     lc="${l}${c:+_$c}.UTF-8"
     localectl set-locale "LANG=$lc" 2>/dev/null && echo "language set: $lc"
+    if [[ "$c" =~ ^[A-Z]{2}$ ]]; then   # Wi-Fi country follows the region (allowed channels and power)
+      mkdir -p "$ETC/modprobe.d"
+      printf '# S6 Migrate: Wi-Fi country from your region\noptions cfg80211 ieee80211_regdom=%s\n' "$c" > "$ETC/modprobe.d/s6migrate-wifi-country.conf"
+      iw reg set "$c" 2>/dev/null && echo "Wi-Fi country set: $c"
+    fi
     kv locale "$lc"
   fi
   if [ -n "$dn" ] && [ ${#dn} -le 64 ]; then
@@ -227,7 +234,7 @@ linux-apps)
   ;;
 
 finish)
-  u=${1:-}; auto=${2:-1}; rmf=${3:-0}; gapps=${4:-1}; theme=${5:-light}
+  u=${1:-}; auto=${2:-1}; rmf=${3:-0}; gapps=${4:-1}; theme=${5:-light}; jobs=${6:-}
   valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
   [ "$(cat "$ST/created-user" 2>/dev/null)" = "$u" ] || die "this account was not made by S6 Setup"
   kv gapps "$gapps"; kv autologin "$auto"; kv theme "$theme"
@@ -236,6 +243,9 @@ finish)
     loginctl terminate-user fedora 2>/dev/null
     userdel -r fedora 2>/dev/null && echo "removed the default fedora account" || echo "could not remove the fedora account (it stays)"
   fi
+  # Jobs done at the restart below, before the first login, so the first desktop is up to date and complete.
+  mkdir -p "$ST/maint"
+  for j in ${jobs//,/ }; do case "$j" in update|extras) date > "$ST/maint/$j"; echo "before your first login: $j" ;; esac; done
   date '+%F %T' > "$ST/setup-done"
   echo "Restarting into $u's account..."
   systemd-run --unit=s6migrate-handover --on-active=2 --quiet "$SELF" post-finish \
@@ -332,7 +342,8 @@ tune)
       else rm -f "$ETC/dnf/libdnf5.conf.d/90-s6migrate.conf"; fi
       echo "faster downloads: $onoff" ;;
     protect)  # the tablet's patched login screen and sensor service must not be replaced by stock Fedora builds
-      if [ "$onoff" = on ]; then put "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf" '# S6 Migrate: parts customised for the SM-T860 by t860-fedora\n[main]\nexcludepkgs=sddm,sddm-wayland-plasma,iio-sensor-proxy\n'
+      # sddm-wayland-plasma is NOT held back: it must match the installed Plasma, or a Plasma update breaks the login screen.
+      if [ "$onoff" = on ]; then put "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf" '# S6 Migrate: parts customised for the SM-T860 by t860-fedora\n[main]\nexcludepkgs=sddm,iio-sensor-proxy,kernel*\n'
       else rm -f "$ETC/dnf/libdnf5.conf.d/91-s6migrate-protect.conf"; fi
       echo "protect tablet parts from updates: $onoff" ;;
     background) # crash reporting and hourly package-list downloads cost battery on a tablet
@@ -357,20 +368,17 @@ tune)
   ;;
 
 look-extras)
-  # Better Blur DX (xarblu) and Darkly (Bali10050) from their Fedora COPR repositories. Without them, Plasma's own
-  # blur and Breeze are used, so a failure here changes nothing.
-  ok=0
-  if dnf copr enable -y infinality/kwin-effects-better-blur-dx >/dev/null 2>&1 && dnf install -y kwin-effects-better-blur-dx; then
-    echo "Better Blur DX installed"; ok=$((ok+1))
-  else
-    echo "Better Blur DX isn't available for this tablet right now (Plasma's own blur is used)"
-  fi
-  if dnf copr enable -y deltacopy/darkly >/dev/null 2>&1 && { dnf install -y darkly || dnf install -y darkly-qt6; }; then
-    echo "Darkly installed"; ok=$((ok+1))
-  else
-    echo "Darkly isn't available for this tablet right now (Breeze is used)"
-  fi
-  [ $ok -gt 0 ] || exit 3
+  # Never while the desktop runs: installing these pulled a whole Plasma update under the running session once,
+  # froze the tablet and cut a library short. They are added at the next restart instead, before the login screen.
+  mkdir -p "$ST/maint"; date > "$ST/maint/extras"
+  echo "Better Blur DX and Darkly are added at the next restart, before the login screen."
+  ;;
+
+schedule|unschedule)
+  job=${1:-}
+  case "$job" in repair|update|extras) ;; *) die "unknown job: $job" ;; esac
+  mkdir -p "$ST/maint"
+  if [ "$act" = schedule ]; then date > "$ST/maint/$job"; echo "$job: at the next restart"; else rm -f "$ST/maint/$job"; echo "$job: not queued"; fi
   ;;
 
 update-system) /usr/local/bin/s6-update system "${1:-}" ;;

@@ -461,14 +461,18 @@ ApplicationWindow {
             function next() {
                 if (leaving) return
                 leaving = true; frame.primaryEnabled = false; frame.primary = "Restarting..."
-                win.run("finish", win.h(["finish", win.userName, win.autoLogin ? "1" : "0", win.removeFedora ? "1" : "0", win.gapps ? "1" : "0", win.dark ? "dark" : "light"]),
+                // With Wi-Fi, the restart brings Fedora up to date (and adds the blur/Darkly extras) before the first login,
+                // so the first desktop is complete; offline, S6 Companion offers it later.
+                var jobs = win.online ? ("update" + (win.effects !== "off" ? ",extras" : "")) : ""
+                win.run("finish", win.h(["finish", win.userName, win.autoLogin ? "1" : "0", win.removeFedora ? "1" : "0", win.gapps ? "1" : "0", win.dark ? "dark" : "light", jobs]),
                         null, function (code) {
                     if (code !== 0) { leaving = false; frame.primaryEnabled = true; frame.primary = "Try again"; frame.subtitle = "Something went wrong handing over to your account. Tap Try again." }
                 })
             }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "All set, " + win.firstName() + "!"
-                frame.subtitle = "Your tablet is ready. It restarts once (about a minute) into your own account, then S6 Companion finishes your Android apps and shows you around."
+                frame.subtitle = win.online ? "Your tablet is ready. While it restarts it brings Fedora up to date (this can take a while; the progress is shown), then opens your own account, all set up."
+                                            : "Your tablet is ready. It restarts once (about a minute) into your own account, then S6 Companion finishes your Android apps and shows you around."
                 frame.primary = "Restart into my account"; frame.secondary = ""; frame.primaryEnabled = true; frame.note = ""
             }
             Card {

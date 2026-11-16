@@ -278,6 +278,12 @@ if [ $ROOT_OK = 1 ]; then
   else
     warn "this switch package has no file list (update the S6 Migrate app)"
   fi
+  # Self-check and maintenance before the login screen, from the first start on (repairs what a forced restart
+  # can leave behind; updates and extras are only ever installed there, never under a running desktop).
+  mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" "$ROOT/var/lib/s6migrate/maint"
+  for u in s6-selfcheck s6-maint; do
+    [ -f "$ROOT/etc/systemd/system/$u.service" ] && ln -sf "/etc/systemd/system/$u.service" "$ROOT/etc/systemd/system/multi-user.target.wants/$u.service"
+  done
   # The setup account's desktop: no welcome or update pop-ups over the setup screen.
   H=$ROOT/var/lib/s6migrate/setup-home
   mkdir -p "$H/.config/autostart"
@@ -316,6 +322,11 @@ if [ $ROOT_OK = 1 ]; then
       B touch -t "$S6_TIME" "$f" 2>/dev/null || toybox touch -t "$S6_TIME" "$f" 2>/dev/null || touch -t "$S6_TIME" "$f" 2>/dev/null ) \
       || warn "could not set the clock hint (Fedora corrects its clock once online)"
   fi
+  # Wi-Fi country (channels and power the tablet may use) from the chosen region; unknown leaves the driver default.
+  cc=${S6_LANG#*-}
+  case "$cc" in [A-Z][A-Z]) mkdir -p "$ROOT/etc/modprobe.d"
+    printf '# S6 Migrate: Wi-Fi country from the region chosen before installing\noptions cfg80211 ieee80211_regdom=%s\n' "$cc" > "$ROOT/etc/modprobe.d/s6migrate-wifi-country.conf" ;;
+  esac
   printf 'tz=%s\nlang=%s\nname=%s\n' "${S6_TZ:-}" "${S6_LANG:-}" "${S6_NAME:-}" > "$ROOT/var/lib/s6migrate/region.env"
   [ -n "${S6_TZ:-}" ] && ui "   region: ${S6_TZ}, ${S6_LANG:-}, \"${S6_NAME:-}\""
   # SELinux: files written from TWRP have no Fedora security labels. If SELinux is on, let Fedora relabel

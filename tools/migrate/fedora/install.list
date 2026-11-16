@@ -44,3 +44,8 @@ fedora/previews/centered.png|/usr/local/share/s6migrate/previews/centered.png.b6
 fedora/previews/traditional.png|/usr/local/share/s6migrate/previews/traditional.png.b64|644|
 fedora/previews/topdock.png|/usr/local/share/s6migrate/previews/topdock.png.b64|644|
 fedora/previews/plasma.png|/usr/local/share/s6migrate/previews/plasma.png.b64|644|
+fedora/system/60-s6migrate-wifi.conf|/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf|644|
+fedora/system/s6-selfcheck|/usr/local/libexec/s6migrate/s6-selfcheck|755|
+fedora/system/s6-maint|/usr/local/libexec/s6migrate/s6-maint|755|
+fedora/system/s6-selfcheck.service|/etc/systemd/system/s6-selfcheck.service|644|
+fedora/system/s6-maint.service|/etc/systemd/system/s6-maint.service|644|

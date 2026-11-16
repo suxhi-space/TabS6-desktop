@@ -1,0 +1,3 @@
+# S6 Migrate: the tablet's own storage (Android's modem, efs, vendor, persist... partitions on the internal UFS chip)
+# never shows up as drives in Dolphin or the device list. USB sticks and cards aren't on the UFS chip, so they still do.
+SUBSYSTEM=="block", DEVPATH=="*.ufshc/*", ENV{UDISKS_IGNORE}="1"

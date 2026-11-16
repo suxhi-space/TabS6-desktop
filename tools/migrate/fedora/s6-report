@@ -36,6 +36,9 @@ run() { printf '$ %s\n' "$*"; timeout 25 "$@" 2>&1; }
   sec "Desktop tools"
   run sh -c 'for c in qdbus6 qdbus-qt6 qdbus busctl kscreen-doctor plasma-apply-colorscheme kwriteconfig6 maliit-keyboard; do printf "%s: %s\n" "$c" "$(command -v $c || echo missing)"; done'
   run sh -c 'tail -20 "$HOME/.config/s6migrate/look.conf" 2>/dev/null'
+  sec "On-screen keyboard"
+  run sh -c 'kreadconfig6 --file kwinrc --group Wayland --key InputMethod; cat "$HOME/.local/share/s6migrate/keyboard.log" 2>/dev/null; ls "$HOME/.local/share/s6migrate/keyboard" 2>/dev/null | head -3; ls "$HOME/.config/s6migrate/stock-keyboard" 2>/dev/null'
+  run sh -c 'journalctl --user -b --no-pager -o cat 2>/dev/null | grep -i -E "maliit|qml|S6Toolbar|S6Clips|S6Nav" | tail -30'
   sec "USB and microSD"
   run sh -c 'ls /sys/class/udc 2>/dev/null; cat /sys/class/typec/*/data_role 2>/dev/null; ls /dev/mmcblk* 2>/dev/null'
 } > "$out" 2>&1

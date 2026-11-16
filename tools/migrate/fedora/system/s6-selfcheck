@@ -63,4 +63,14 @@ if [ -n "$tail" ]; then
     ls -1t "$R"/*.txt 2>/dev/null | tail -n +6 | xargs -r rm -f
   fi
 fi
+
+# Sound: a PipeWire setting that can't open its device stops PipeWire entirely (no sound at all, no screen sharing).
+# t860-fedora's microphone node (51-tabs6-mic.conf) fails when the card's capture route isn't up, so let it fail
+# alone: "flags = [ nofail ]" on each adapter object in /etc's drop-ins that lacks it.
+for f in /etc/pipewire/pipewire.conf.d/*.conf; do
+  [ -f "$f" ] && grep -q 'factory *= *adapter' "$f" && ! grep -q 'nofail' "$f" || continue
+  cp -n "$f" "$f.s6orig" 2>/dev/null
+  sed -i 's/^\([[:space:]]*{[[:space:]]*factory[[:space:]]*=[[:space:]]*adapter\)[[:space:]]*$/\1\n        flags = [ nofail ]/' "$f"
+  grep -q nofail "$f" && log "PipeWire: $(basename "$f") may now fail without stopping all sound"
+done
 exit 0

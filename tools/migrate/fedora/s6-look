@@ -68,13 +68,14 @@ use_style() { # use_style darkly|breeze: app style and window borders
   fi
 }
 # Window borders per layout: buttons (M menu, I minimise, A maximise, X close), button size, title, roundness.
-layout_borders() { # layout_borders NAME -> "left|right|size|title|radius"
+layout_borders() { # layout_borders NAME -> "left|right|size|title|radius"  (radius 5, large buttons, title left:
+  # the settings picked on the tablet itself; the top bar + dock layout keeps a centred title, like a Mac)
   case "$1" in
-    touch)       echo "|IAX|ButtonLarge|AlignCenter|12" ;;
-    centered)    echo "|IAX|ButtonDefault|AlignLeft|10" ;;
-    traditional) echo "M|IAX|ButtonDefault|AlignLeft|8" ;;
-    topdock)     echo "XIA||ButtonDefault|AlignCenter|12" ;;
-    *)           echo "MS|HIAX|ButtonDefault|AlignLeft|8" ;;
+    touch)       echo "|IAX|ButtonLarge|AlignLeft|5" ;;
+    centered)    echo "|IAX|ButtonLarge|AlignLeft|5" ;;
+    traditional) echo "M|IAX|ButtonLarge|AlignLeft|5" ;;
+    topdock)     echo "XIA||ButtonLarge|AlignCenter|5" ;;
+    *)           echo "M|IAX|ButtonLarge|AlignLeft|5" ;;
   esac
 }
 apply_borders() {
@@ -86,6 +87,12 @@ apply_borders() {
     kw --file "$f" --group Windeco --key TitleAlignment "$ta"
   done
   kw --file darklyrc --group Common --key CornerRadius "$cr"
+  # no line between the title bar and the window, no gradient, a circle round the close button
+  for f in darklyrc breezerc; do
+    kw --file "$f" --group Windeco --key DrawTitleBarSeparator false
+    kw --file "$f" --group Windeco --key DrawBackgroundGradient false
+    kw --file "$f" --group Windeco --key OutlineCloseButton true
+  done
 }
 # Clean, modern look when the extras are in (Papirus icons, the Inter font; both from Fedora's own repositories):
 # applied on top of the colours, never replacing the layout or the window style.
@@ -156,6 +163,32 @@ files_desktop() {
   if [ "$(getconf files)" = cosmic ] && [ -f "/usr/share/applications/$COSMIC_FILES" ]; then echo "$COSMIC_FILES"; else echo org.kde.dolphin.desktop; fi
 }
 files_apply() { xdg-mime default "$(files_desktop)" inode/directory 2>/dev/null; }
+# Tray tidy (every login): where S6 Quick Settings is in a panel, the tray's own Wi-Fi, sound, battery, Bluetooth,
+# brightness and keyboard icons are switched off (not just tucked away), so nothing shows twice.
+LAYOUT_V=3   # raise when the layouts change: each S6 layout is applied again at the next login (pinned apps kept)
+tray_tidy() {
+  plasma_js '
+var QS = "org.s6migrate.quicksettings";
+var OFF = ["org.kde.plasma.networkmanagement", "org.kde.plasma.volume", "org.kde.plasma.battery", "org.kde.plasma.bluetooth",
+           "org.kde.plasma.brightness", "org.kde.plasma.keyboardindicator", "org.kde.plasma.manage-inputmethod"];
+function list(v) { return typeof v === "string" ? (v ? v.split(",") : []) : (v || []); }
+var ps = panels();
+for (var i = 0; i < ps.length; i++) {
+  if (ps[i].widgets(QS).length == 0) continue;
+  var sts = ps[i].widgets("org.kde.plasma.systemtray");
+  for (var j = 0; j < sts.length; j++) { try {
+    var c = desktopById(sts[j].readConfig("SystrayContainmentId"));
+    c.currentConfigGroup = ["General"];
+    var extra = list(c.readConfig("extraItems")).filter(function (x) { return OFF.indexOf(x) < 0; });
+    if (extra.length) c.writeConfig("extraItems", extra);
+    var hid = list(c.readConfig("hiddenItems"));
+    for (var k = 0; k < OFF.length; k++) if (hid.indexOf(OFF[k]) < 0) hid.push(OFF[k]);
+    c.writeConfig("hiddenItems", hid);
+    var shown = list(c.readConfig("shownItems")).filter(function (x) { return OFF.indexOf(x) < 0; });
+    c.writeConfig("shownItems", shown);
+  } catch (e) { } }
+}' >/dev/null 2>&1
+}
 kwin_reload() { busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 || true; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
   local ids id
@@ -240,12 +273,25 @@ XML
 }
 
 js_common='
+// Your pinned apps carry over to the new layout (read before the old panels go). The file manager entry follows
+// the chosen one (Dolphin or COSMIC Files).
+var KEEP = [];
+(function () { try { var ps = panels(); for (var i = 0; i < ps.length; i++) { var ws = ps[i].widgets();
+  for (var j = 0; j < ws.length; j++) { var w = ws[j];
+    if (w.type == "org.kde.plasma.icontasks" || w.type == "org.kde.plasma.taskmanager") {
+      w.currentConfigGroup = ["General"]; var l = w.readConfig("launchers");
+      if (typeof l === "string") l = l ? l.split(",") : [];
+      if (l && l.length) KEEP = l; } } } } catch (e) { } })();
 function clear() { var ps = panels(); for (var i = 0; i < ps.length; i++) ps[i].remove(); }
 function setp(p, k, v) { try { p[k] = v; } catch (e) { } }
 function tasks(p, plain) {
   var t = p.addWidget(plain ? "org.kde.plasma.taskmanager" : "org.kde.plasma.icontasks");
   t.currentConfigGroup = ["General"];
-  t.writeConfig("launchers", ["applications:" + (typeof FILES !== "undefined" ? FILES : "org.kde.dolphin.desktop"), "applications:firefox.desktop", "applications:org.kde.discover.desktop", "applications:s6-companion.desktop"]);
+  var fm = "applications:" + (typeof FILES !== "undefined" ? FILES : "org.kde.dolphin.desktop");
+  var l = KEEP.length ? KEEP.slice() : [fm, "applications:firefox.desktop", "applications:org.kde.discover.desktop", "applications:s6-companion.desktop"];
+  for (var i = 0; i < l.length; i++)
+    if (l[i] == "applications:org.kde.dolphin.desktop" || l[i] == "applications:com.system76.CosmicFiles.desktop") l[i] = fm;
+  t.writeConfig("launchers", l);
   return t;
 }
 // The status icons (Wi-Fi, sound, battery, Bluetooth, brightness) live in S6 Quick Settings, an Android-style panel
@@ -253,7 +299,14 @@ function tasks(p, plain) {
 var QS = "org.s6migrate.quicksettings";
 var HIDE = ["org.kde.plasma.networkmanagement", "org.kde.plasma.volume", "org.kde.plasma.battery", "org.kde.plasma.bluetooth",
             "org.kde.plasma.brightness", "org.kde.plasma.keyboardindicator", "org.kde.plasma.manage-inputmethod"];
-function tray(p) {
+// The clock like Windows 11: time with the date under it (beside it on a thin top bar)
+function clock(p, beside) {
+  var c = p.addWidget("org.kde.plasma.digitalclock");
+  try { c.currentConfigGroup = ["Appearance"];
+        c.writeConfig("showDate", true); c.writeConfig("dateDisplayFormat", beside ? "BesideTime" : "BelowTime");
+        c.writeConfig("dateFormat", "shortDate"); c.writeConfig("showSeconds", "Never"); } catch (e) { }
+}
+function tray(p, beside) {
   var st = p.addWidget("org.kde.plasma.systemtray");
   var qs = null;
   if (knownWidgetTypes.indexOf(QS) >= 0) qs = p.addWidget(QS);
@@ -262,7 +315,7 @@ function tray(p) {
     c.currentConfigGroup = ["General"];
     c.writeConfig("hiddenItems", HIDE);
   } catch (e) { }
-  p.addWidget("org.kde.plasma.digitalclock");
+  clock(p, beside);
 }
 '
 
@@ -271,22 +324,24 @@ layout)
   name=${2:-touch}
   case "$name" in
     touch) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 52; setp(p, "floating", false);
-      p.addWidget("org.kde.plasma.kickoff"); tasks(p, false); p.addWidget("org.kde.plasma.marginsseparator"); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
+      p.addWidget("org.kde.plasma.kickoff"); tasks(p, false); p.addWidget("org.kde.plasma.marginsseparator"); tray(p);' ;;
     centered) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 48; setp(p, "floating", false);
       p.addWidget("org.kde.plasma.panelspacer"); p.addWidget("org.kde.plasma.kickoff"); tasks(p, false);
       p.addWidget("org.kde.plasma.panelspacer"); tray(p);' ;;
     traditional) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 44; setp(p, "floating", false);
-      p.addWidget("org.kde.plasma.kickoff"); tasks(p, true); tray(p); p.addWidget("org.kde.plasma.showdesktop");' ;;
+      p.addWidget("org.kde.plasma.kickoff"); tasks(p, true); tray(p);' ;;
     topdock) js='clear(); var top = new Panel; top.location = "top"; top.height = 26; setp(top, "floating", false);
-      top.addWidget("org.kde.plasma.kickoff"); top.addWidget("org.kde.plasma.appmenu"); top.addWidget("org.kde.plasma.panelspacer"); tray(top);
+      top.addWidget("org.kde.plasma.kickoff"); top.addWidget("org.kde.plasma.appmenu"); top.addWidget("org.kde.plasma.panelspacer"); tray(top, true);
       var d = new Panel; d.location = "bottom"; d.height = 56; setp(d, "floating", true); setp(d, "lengthMode", "fit");
       setp(d, "alignment", "center"); tasks(d, false);' ;;
-    plasma) js='clear(); loadTemplate("org.kde.plasma.desktop.defaultPanel");' ;;
+    plasma) js='clear(); var p = new Panel; p.location = "bottom"; p.height = 44; setp(p, "floating", false);
+      p.addWidget("org.kde.plasma.kickoff"); p.addWidget("org.kde.plasma.pager"); tasks(p, false);
+      p.addWidget("org.kde.plasma.marginsseparator"); tray(p);' ;;
     *) echo "unknown layout: $name"; exit 2 ;;
   esac
   fj="var FILES = \"$(files_desktop)\";"
   if [ "${3:-}" = --print ]; then printf '%s\n%s\n%s\n' "$fj" "$js_common" "$js"; exit 0; fi
-  plasma_js "$fj $js_common $js" && setconf layout "$name" && echo "layout: $name"
+  plasma_js "$fj $js_common $js" && setconf layout "$name" && setconf layout-v "$LAYOUT_V" && echo "layout: $name"
   [ "$(getconf splash)" = none ] || kw --file ksplashrc --group KSplash --key Theme "org.s6migrate.$name"
   bash "$SELF" dolphin "$name"
   apply_borders "$name"
@@ -368,7 +423,7 @@ effects)
     else
       for k in MenuOpacity:90 MenuBarOpacity:100 ToolBarOpacity:100 TabBarOpacity:100 DolphinSidebarOpacity:100; do darkly --group Style --key "${k%%:*}" "${k##*:}"; done
       kw --file kwinrc --group Plugins --key translucencyEnabled false
-      panel_opacity 0
+      panel_opacity 2   # translucent panels (the dock too)
     fi
     darkly --group Style --key TransparentDolphinView false   # file list stays solid and readable
     kw --file kdeglobals --group KDE --key AnimationDurationFactor 0.75
@@ -482,20 +537,23 @@ heal)
   # The parts of "prepare" that need the running desktop, once, right at the first login.
   sz=$(getconf size-pending)
   if [ -n "$sz" ]; then sleep 3; bash "$SELF" size "$sz" >/dev/null 2>&1 && setconf size-pending ""; fi
-  if [ "$(getconf panels-pending)" = 1 ]; then
+  if [ "$(getconf panels-pending)" = 1 ] || { [ -n "$(getconf layout)" ] && [ "$(getconf layout-v)" != "$LAYOUT_V" ]; }; then
     bash "$SELF" install-themes >/dev/null 2>&1   # the S6 Global Themes (layouts, the rounded volume slider) up to date
     sleep 2
     # Check that the first desktop came up with the prepared layout (Plasma builds it from the Global Theme);
     # if not, apply the layout now.
     lay=$(getconf layout)
     case "$lay" in touch) want="bottom:52" ;; centered) want="bottom:48" ;; traditional) want="bottom:44" ;;
-                   topdock) want="bottom:56,top:26" ;; *) want="" ;; esac
+                   topdock) want="bottom:56,top:26" ;; plasma) want="bottom:44" ;; *) want="" ;; esac
     have=$(plasma_js 'print(panels().map(function (p) { return p.location + ":" + p.height }).sort().join(","))' 2>/dev/null)
-    [ -n "$want" ] && [ -n "$have" ] && [ "$have" != "$want" ] && bash "$SELF" layout "$lay" >/dev/null 2>&1
-    case "$(getconf effects)" in glassy) panel_opacity 2 ;; off) panel_opacity 1 ;; *) panel_opacity 0 ;; esac
+    if [ -n "$want" ] && [ -n "$have" ] && [ "$have" != "$want" ] || { [ -n "$lay" ] && [ "$(getconf layout-v)" != "$LAYOUT_V" ]; }; then
+      bash "$SELF" layout "$lay" >/dev/null 2>&1   # pinned apps are kept
+    fi
+    case "$(getconf effects)" in off) panel_opacity 1 ;; *) panel_opacity 2 ;; esac   # translucent panels
     setconf panels-pending 0
   fi
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
+  tray_tidy
   # COSMIC Files arrived since it was chosen: open folders with it and pin it
   if [ "$(getconf files)" = cosmic ] && [ "$(xdg-mime query default inode/directory 2>/dev/null)" != "$(files_desktop)" ]; then
     files_apply; [ "$(files_desktop)" = "$COSMIC_FILES" ] && setconf panels-pending 1

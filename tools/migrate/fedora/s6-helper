@@ -28,6 +28,7 @@
 #   prepare-look USER LAYOUT SIZE light|dark EFFECTS [#RRGGBB]   the new account's desktop, before its first login
 #                                                     (the colour: your Android accent, applied to KDE)
 #   power restart|recovery|download|off|sleep   restart (also into TWRP or Samsung's Download mode), power off, sleep
+#   wifi-band bg|a|auto|status       2.4 GHz, 5 GHz or either band, for the saved Wi-Fi networks
 #   boot-screen quiet|verbose|status the start-up screen: S6's (Fedora logo + bar) or the scrolling text
 #   power-status                     PLUGGED|yes/no  (powering off while plugged in starts the tablet again)
 #   storage                          COPY|PATH|KB|ORIGINAL (yes/no: the original on the card/drive is still there)
@@ -416,6 +417,21 @@ free-copy)
   [ -d "$d" ] && [ -f "$d/plan.txt" ] || die "not a package copy: $d"
   rm -rf -- "$d" && sed -i "\|$(basename "$d")|d" "$ST/package.info" 2>/dev/null
   echo "Removed $d"
+  ;;
+
+wifi-band)
+  # The Tab S6's Wi-Fi chip runs generic radio data: on 5 GHz with a middling signal it connects but barely sends
+  # ("!" in the Wi-Fi icon). 2.4 GHz reaches further. bg = 2.4 GHz for every saved Wi-Fi network, auto = either.
+  b=${1:-status}
+  case "$b" in bg|a|auto) ;; status) cat "$ST/wifi-band" 2>/dev/null || echo auto; exit 0 ;; *) die "bg, a or auto" ;; esac
+  case "$b" in bg) nb=bg; nm="2.4 GHz" ;; a) nb=a; nm="5 GHz" ;; *) nb=""; nm=automatic ;; esac
+  nmcli -t -f NAME,TYPE connection show | while IFS=: read -r name type; do
+    [ "$type" = 802-11-wireless ] || continue
+    nmcli connection modify "$name" 802-11-wireless.band "$nb" && echo "  $name: $nm"
+  done
+  echo "$b" > "$ST/wifi-band"
+  a=$(nmcli -t -f NAME,TYPE connection show --active | sed -n 's/:802-11-wireless$//p' | head -n 1)
+  [ -n "$a" ] && nmcli connection up "$a" >/dev/null 2>&1 && echo "Reconnected to $a"
   ;;
 
 boot-screen)

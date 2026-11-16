@@ -288,6 +288,18 @@ ApplicationWindow {
             // Like the power menu on Android builds: restart into TWRP or Download mode without holding buttons.
             Card {
                 width: parent.width
+                Label2 { text: "Wi-Fi band"; display: true; font.pixelSize: 19; width: parent.width }
+                Segmented {
+                    width: parent.width
+                    value: (backend.read("/var/lib/s6migrate/wifi-band") || "auto").trim()
+                    options: [{ id: "bg", label: "2.4 GHz", sub: "Recommended on this tablet: reaches further, and its Wi-Fi chip sends much better on it" },
+                              { id: "a", label: "5 GHz", sub: "Faster close to the router; on this tablet it can show \"!\" with no internet further away" },
+                  { id: "auto", label: "Automatic", sub: "2.4 or 5 GHz, whichever the router offers" }]
+                    onPicked: (id) => win.run("wifiband", win.h(["wifi-band", id]), null, null)
+                }
+            }
+            Card {
+                width: parent.width
                 Label2 { text: "Start-up screen"; display: true; font.pixelSize: 19; width: parent.width }
                 Segmented {
                     width: parent.width

@@ -45,7 +45,7 @@ STAMP=$(date +%Y%m%d-%H%M 2>/dev/null || echo now)
 OUT=/tmp/s6-report-$STAMP; rm -rf "$OUT"; mkdir -p "$OUT"
 cp_if() { [ -e "$1" ] && cp -r "$1" "$OUT/$2" 2>/dev/null; }
 n=0
-for f in "$ROOT"/home/*/S6-report-*.txt "$ROOT"/home/*/S6-look-settings-*.tar.gz "$ROOT"/home/*/S6Migrate-restore-*.log; do
+for f in "$ROOT"/home/*/S6-report-*.txt "$ROOT"/home/*/S6-look-settings-*.tar.gz "$ROOT"/home/*/S6Migrate-restore-*.log "$ROOT"/home/*/.local/share/s6migrate/keyboard.log; do
   [ -f "$f" ] && cp "$f" "$OUT/" && n=$((n+1))
 done
 ui "  your reports and restore logs: $n"
@@ -77,7 +77,8 @@ done
 for h in "$ROOT"/home/*; do
   for d in .config/pipewire .config/wireplumber; do [ -d "$h/$d" ] && cp -r "$h/$d" "$OUT/sound/$(basename "$h")_$(basename "$d")" 2>/dev/null; done
 done
-ls -laR "$ROOT"/usr/share/alsa/ucm2 2>/dev/null | head -400 > "$OUT/sound/ucm2-listing.txt"
+ls -la "$ROOT"/usr/share/alsa/ucm2/conf.d "$ROOT"/usr/share/alsa/ucm2/Qualcomm "$ROOT"/usr/share/alsa/ucm2/Qualcomm/* > "$OUT/sound/ucm2-listing.txt" 2>&1
+for d in "$ROOT"/usr/share/alsa/ucm2/conf.d/*; do case "$(basename "$d")" in *[Tt]860*|*[Ss][Mm]8150*|*[Tt]ab*|*gts6*) cp -r "$d" "$OUT/sound/ucm-$(basename "$d")" 2>/dev/null ;; esac; done
 ls -la "$ROOT"/usr/share/pipewire "$ROOT"/usr/share/pipewire/pipewire.conf.d > "$OUT/sound/pipewire-listing.txt" 2>&1
 # t860-fedora's own tablet helpers (power button, screenshots, rotation): to work with them, not against them
 mkdir -p "$OUT/tabs6"

@@ -1,0 +1,155 @@
+#!/sbin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# S6Migrate-FIX.zip: run from TWRP (Install) when Fedora shows a login screen instead of S6 Setup.
+# It erases nothing. It:
+#   1. shows why logins fail (from Fedora's logs, and from the report its boot check wrote last time);
+#   2. gives the two temporary accounts (s6setup, fedora) the password 123456 (S6 Setup removes both);
+#   3. makes sure automatic login names the Plasma session, removes stale blockers, keeps logs;
+#   4. adds a boot check: 90 s after start it writes a report and, if logins are still blocked,
+#      unblocks them and retries automatic login once.
+# Everything it shows is also saved as fix-report.txt next to the ZIP (and in S6Migrate on the card).
+# Test hooks: S6F_TEST=1 (print to stdout), S6F_ROOT (an unpacked Fedora root instead of userdata), S6F_CARD.
+umask 022
+OUTFD=${2:-1}
+ROOT=${S6F_ROOT:-/tmp/s6fix-root}
+CARD=${S6F_CARD:-/external_sd}
+REP=/tmp/s6fix-report.txt
+: > "$REP"
+ui() { if [ "${S6F_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; fi; echo "$*" >> "$REP"; }
+note() { echo "$*" >> "$REP"; }   # report only (too long for the screen)
+ZIPDIR=$(dirname "${3:-/nonexistent/x}")
+save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
+  [ -d "$ZIPDIR" ] && cp "$REP" "$ZIPDIR/fix-report.txt" 2>/dev/null
+  [ -d "$CARD/S6Migrate" ] && cp "$REP" "$CARD/S6Migrate/fix-report.txt" 2>/dev/null
+}
+stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
+
+ui "S6 Migrate fix: why can't anyone log in?"
+if [ -z "${S6F_ROOT:-}" ]; then
+  DEV=$(readlink -f /dev/block/by-name/userdata)
+  mkdir -p "$ROOT"
+  grep -q " $ROOT " /proc/mounts || mount -t ext4 "$DEV" "$ROOT" || stop "could not open Fedora's storage"
+fi
+[ -f "$ROOT/etc/os-release" ] && grep -q -i fedora "$ROOT/etc/os-release" || stop "Fedora was not found on this tablet"
+S=$ROOT/var/lib/s6migrate
+
+# ---------------------------------------------------------------- what happened last time
+ui " "
+if [ -f "$S/boot-report.txt" ]; then
+  ui "Boot check from the last start:"
+  grep -E '^(RESULT|nologin|jobs-waiting|failed-units|s6setup-session|autologin):' "$S/boot-report.txt" | while IFS= read -r l; do ui "  $l"; done
+  note "----- full boot report -----"; cat "$S/boot-report.txt" >> "$REP"; note "-----"
+else
+  ui "No boot check yet (it is added now and runs on the next start)."
+fi
+J=$(ls "$ROOT"/var/log/journal/*/system.journal 2>/dev/null | head -n 1)
+if [ -n "$J" ]; then
+  ui "Fedora's log, latest login lines:"
+  PAT='pam_[a-z_]*\(sddm|nologin|utologin|faillock|sddm-helper|user-sessions|session entry|Authentication|A start job|Dependency failed'
+  for jf in $(ls -tr "$ROOT"/var/log/journal/*/*.journal 2>/dev/null | tail -n 3); do
+    tr '\000-\037\177-\377' '\n' < "$jf" 2>/dev/null | grep -E "$PAT"
+  done | tail -n 40 > /tmp/s6fix-j.txt
+  [ -s /tmp/s6fix-j.txt ] || tr -c '[:print:]' '\n' < "$J" 2>/dev/null | grep -E "$PAT" | tail -n 40 > /tmp/s6fix-j.txt
+  tail -n 10 /tmp/s6fix-j.txt | cut -c1-110 | while IFS= read -r l; do ui "  ${l#MESSAGE=}"; done
+  note "----- journal lines -----"; cat /tmp/s6fix-j.txt >> "$REP"; note "-----"
+else
+  ui "Fedora keeps no log on disk yet (switched on now)."
+fi
+
+# ---------------------------------------------------------------- facts that block logins
+ui " "
+ui "Checks:"
+[ -e "$ROOT/etc/nologin" ] && ui "  /etc/nologin exists: it blocks every login (removed)" && rm -f "$ROOT/etc/nologin"
+for u in s6setup fedora; do
+  f=$(grep "^$u:" "$ROOT/etc/shadow" | cut -d: -f2 | cut -c1-3)
+  ui "  $u: $(grep -q "^$u:" "$ROOT/etc/passwd" && echo account ok || echo NO ACCOUNT), password type '${f:-none}'"
+done
+ui "  login rules: $(head -n 1 "$ROOT/etc/authselect/authselect.conf" 2>/dev/null || echo 'no authselect')"
+note "----- /etc/pam.d/sddm -----"; cat "$ROOT/etc/pam.d/sddm" >> "$REP" 2>&1
+note "----- /etc/pam.d/sddm-autologin -----"; cat "$ROOT/etc/pam.d/sddm-autologin" >> "$REP" 2>&1
+note "----- sddm settings -----"; grep -H -E '^\[|User=|Session=|Relogin=|DisplayServer=|Current=' "$ROOT"/etc/sddm.conf.d/*.conf "$ROOT"/usr/lib/sddm/sddm.conf.d/*.conf >> "$REP" 2>&1
+note "----- setup home -----"; ls -la "$S/setup-home" >> "$REP" 2>&1
+
+# ---------------------------------------------------------------- fixes (nothing is erased)
+ui " "
+ui "Fixes:"
+# 1. Temporary password 123456 for the two temporary accounts (numbers: the on-screen keyboard can't capitalise them).
+H='$6$s6fixA1$noQeRixSI4F5C9yckNfQpUg/MJifToq6KB4Qor9rpl5u4oq/U0XdsEJhmB0kgawXYPq05AvRQn8BdmXzzVyuV1'
+[ -n "$(tail -c 1 "$ROOT/etc/shadow")" ] && echo >> "$ROOT/etc/shadow"
+cp "$ROOT/etc/shadow" "$S/shadow.before-fix" && chmod 600 "$S/shadow.before-fix"
+while IFS= read -r line; do
+  case "$line" in
+    s6setup:*|fedora:*) u=${line%%:*}; rest=${line#*:}; rest=${rest#*:}; printf '%s:%s:%s\n' "$u" "$H" "$rest" ;;
+    *) printf '%s\n' "$line" ;;
+  esac
+done < "$ROOT/etc/shadow" > /tmp/s6fix-shadow
+if [ "$(wc -l < /tmp/s6fix-shadow)" = "$(wc -l < "$ROOT/etc/shadow")" ] && grep -q '^root:' /tmp/s6fix-shadow; then
+  cat /tmp/s6fix-shadow > "$ROOT/etc/shadow"; ui "  temporary password 123456 for 'Setting up your tablet' and 'fedora'"
+else
+  ui "  could not set the temporary password (left as it was)"
+fi
+rm -f /tmp/s6fix-shadow
+# 2. Automatic login into the setup account, with the session named.
+C=$ROOT/etc/sddm.conf.d/zz-s6migrate.conf
+if [ ! -f "$S/setup-done" ]; then
+  mkdir -p "$ROOT/etc/sddm.conf.d"
+  printf '# S6 Migrate: the first start logs into the temporary setup account, which runs S6 Setup.\n# S6 Setup replaces this file with your own account when it finishes.\n[General]\nInputMethod=qtvirtualkeyboard\n[Autologin]\nUser=s6setup\nSession=plasma.desktop\n' > "$C"
+  chmod 644 "$C"; ui "  automatic login: setup account, Plasma session"
+fi
+# 3. Stale first-start blockers; logs kept on disk from now on; readable folders.
+rm -f "$ROOT/.autorelabel" "$ROOT"/var/run/faillock/* "$ROOT"/var/lib/faillock/* 2>/dev/null
+mkdir -p "$ROOT/var/log/journal"
+for d in /var/lib/s6migrate /usr/local/libexec/s6migrate /usr/local/share/s6migrate /etc/sddm.conf.d; do
+  [ -d "$ROOT$d" ] && find "$ROOT$d" -type d ! -path "*/setup-home*" -exec chmod 755 {} + 2>/dev/null
+done
+# 4. Boot check (runs 90 s after the login screen starts; writes the report this ZIP shows next time).
+mkdir -p "$ROOT/usr/local/libexec/s6migrate" "$ROOT/etc/systemd/system/sddm.service.wants"
+cat > "$ROOT/usr/local/libexec/s6migrate/s6-bootcheck" <<'EOF'
+#!/usr/bin/bash
+# S6 Migrate boot check: report why logins fail, and unblock them once if they are still blocked.
+R=/var/lib/s6migrate/boot-report.txt
+sleep 90
+s6=$(loginctl list-sessions --no-legend 2>/dev/null | grep -c ' s6setup ')
+{
+  echo "date: $(date '+%F %T')  uptime: $(cut -d' ' -f1 /proc/uptime)s"
+  echo "nologin: $(ls /run/nologin /etc/nologin 2>/dev/null | tr '\n' ' ')"
+  echo "jobs-waiting: $(systemctl list-jobs --no-legend 2>/dev/null | wc -l) $(systemctl list-jobs --no-legend 2>/dev/null | awk '{print $2}' | head -n 4 | tr '\n' ' ')"
+  echo "failed-units: $(systemctl --failed --no-legend 2>/dev/null | awk '{print $2}' | head -n 6 | tr '\n' ' ')"
+  echo "s6setup-session: $s6"
+  echo "autologin: $(grep -h -E '^(User|Session)=' /etc/sddm.conf.d/*.conf 2>/dev/null | tr '\n' ' ')"
+  echo "----- sessions"; loginctl list-sessions --no-pager 2>&1
+  echo "----- jobs"; systemctl list-jobs --no-pager 2>&1 | head -n 30
+  echo "----- failed"; systemctl --failed --no-pager 2>&1 | head -n 30
+  echo "----- authselect"; authselect current 2>&1 | head -n 6
+  echo "----- faillock"; faillock 2>&1 | head -n 20
+  echo "----- sddm"; journalctl -b -u sddm --no-pager 2>&1 | tail -n 60
+  echo "----- login lines"; journalctl -b --no-pager 2>&1 | grep -i -E 'pam_|nologin|autolog|faillock|sddm-helper|user-sessions' | tail -n 60
+} > "$R.new" 2>&1
+if [ "$s6" = 0 ] && [ ! -f /var/lib/s6migrate/setup-done ]; then
+  echo "RESULT: setup account not logged in after 90 s; unblocking logins and retrying automatic login" >> "$R.new"
+  rm -f /run/nologin
+  faillock --user s6setup --reset 2>/dev/null; faillock --user fedora --reset 2>/dev/null
+  systemctl restart sddm
+  sleep 60
+  echo "after-retry s6setup-session: $(loginctl list-sessions --no-legend 2>/dev/null | grep -c ' s6setup ')" >> "$R.new"
+  journalctl -b -u sddm --no-pager 2>&1 | tail -n 30 >> "$R.new"
+else
+  echo "RESULT: ok (setup account session: $s6, setup done: $([ -f /var/lib/s6migrate/setup-done ] && echo yes || echo no))" >> "$R.new"
+fi
+mv "$R.new" "$R"
+EOF
+chmod 755 "$ROOT/usr/local/libexec/s6migrate/s6-bootcheck"
+printf '[Unit]\nDescription=S6 Migrate boot check (first start)\nAfter=sddm.service\nConditionPathExists=!/var/lib/s6migrate/setup-done\n\n[Service]\nType=simple\nExecStart=/usr/local/libexec/s6migrate/s6-bootcheck\n' \
+  > "$ROOT/etc/systemd/system/s6-bootcheck.service"
+ln -sf /etc/systemd/system/s6-bootcheck.service "$ROOT/etc/systemd/system/sddm.service.wants/s6-bootcheck.service"
+ui "  boot check added (report shown the next time you run this ZIP)"
+
+sync
+[ -z "${S6F_ROOT:-}" ] && umount "$ROOT"
+save
+ui " "
+ui "Done. Report saved as fix-report.txt next to this ZIP."
+ui "Take a photo of this screen, then tap Reboot System."
+ui "Wait 3 minutes. If the login screen stays: tap"
+ui "'Setting up your tablet' and type 123456."
+exit 0

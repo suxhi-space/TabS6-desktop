@@ -396,6 +396,15 @@ sync; umount /tmp/r; reboot
 - The two counts must match before you reboot.
 - S6 Setup finds the package in `/var/lib/s6migrate`.
 
+**S6Migrate-FIX.zip** (`tools/migrate/fix/`, build with `build-zip.py`). For a tablet that shows a login screen instead of S6 Setup: put the ZIP on a USB stick or the card and install it from TWRP. It erases nothing. It:
+- shows why logins fail: from Fedora's log, and from its own boot check's report on the next run
+- gives the temporary `s6setup` and `fedora` accounts the password 123456 (S6 Setup removes both)
+- rewrites the automatic-login file and removes stale blockers (`/etc/nologin`, `.autorelabel`)
+- keeps logs on disk
+- adds a boot check that, 90 seconds after the login screen starts, writes a report and retries automatic login once if logins are still blocked
+
+Everything it shows is saved as `fix-report.txt` next to the ZIP.
+
 ### How PikaOS does first setup (and how S6 Setup compares)
 
 PikaOS's first-setup app is [pika-first-setup](https://github.com/PikaOS-Linux/pkg-pika-first-setup) (Rust, GTK4 and libadwaita; the repository is archived, so the current release may differ). Its source shows this flow:

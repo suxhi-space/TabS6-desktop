@@ -1,0 +1,98 @@
+#!/sbin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# S6Migrate-REPORT.zip: run from TWRP (Install) to take Fedora's reports and logs off the tablet when Fedora can't
+# (no USB power, no microSD, slow Wi-Fi). It changes nothing in Fedora. It copies, to the microSD card
+# (S6Migrate/report-DATE/) and next to the ZIP:
+#   your s6-report files, S6 Migrate's logs (maintenance, update screen, setup, restore), freeze reports,
+#   Fedora's network and boot settings (never the saved Wi-Fi passwords), and the newest system log (journal),
+#   which has the Wi-Fi driver's messages.
+# Test hooks: S6F_TEST=1 (print to stdout), S6F_ROOT (an unpacked Fedora root instead of userdata), S6F_CARD.
+umask 022
+# TWRP's shell keeps here-document text in $TMPDIR (Android: /data/local/tmp). /data is Fedora now, so that folder is
+# gone and every here-document came out EMPTY (fix 4 "restored" empty files). Use /tmp, and check it works.
+export TMPDIR=/tmp
+OUTFD=${2:-1}
+ROOT=${S6F_ROOT:-/tmp/s6fix-root}
+CARD=${S6F_CARD:-/external_sd}
+REP=/tmp/s6report-zip-log.txt
+: > "$REP"
+ui() { if [ "${S6F_TEST:-0}" = 1 ]; then echo "$*"; else echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; fi; echo "$*" >> "$REP"; }
+note() { echo "$*" >> "$REP"; }   # report only (too long for the screen)
+ZIPDIR=$(dirname "${3:-/nonexistent/x}")
+save() { # next to the ZIP (USB stick or card), and in S6Migrate on the card
+  [ -d "$ZIPDIR" ] && cp "$REP" "$ZIPDIR/report-zip-log.txt" 2>/dev/null
+  [ -d "$CARD/S6Migrate" ] && cp "$REP" "$CARD/S6Migrate/report-zip-log.txt" 2>/dev/null
+}
+stop() { ui " "; ui "STOPPED: $*"; ui "Nothing was changed."; save; exit 1; }
+
+
+ui "S6 Migrate: take the reports off the tablet"
+HD=$(cat <<'EOT'
+heredoc-ok
+EOT
+)
+if [ "$HD" != heredoc-ok ]; then mkdir -p /tmp/s6report-tmp; export TMPDIR=/tmp/s6report-tmp; ui "(text writing switched to /tmp/s6report-tmp)"; fi
+if [ -z "${S6F_ROOT:-}" ]; then
+  DEV=$(readlink -f /dev/block/by-name/userdata)
+  mkdir -p "$ROOT"
+  grep -q " $ROOT " /proc/mounts || mount -t ext4 "$DEV" "$ROOT" || stop "could not open Fedora's storage"
+fi
+[ -f "$ROOT/etc/os-release" ] && grep -q -i fedora "$ROOT/etc/os-release" || stop "Fedora was not found on this tablet"
+S=$ROOT/var/lib/s6migrate
+
+
+STAMP=$(date +%Y%m%d-%H%M 2>/dev/null || echo now)
+OUT=/tmp/s6-report-$STAMP; rm -rf "$OUT"; mkdir -p "$OUT"
+cp_if() { [ -e "$1" ] && cp -r "$1" "$OUT/$2" 2>/dev/null; }
+n=0
+for f in "$ROOT"/home/*/S6-report-*.txt "$ROOT"/home/*/S6-look-settings-*.tar.gz "$ROOT"/home/*/S6Migrate-restore-*.log; do
+  [ -f "$f" ] && cp "$f" "$OUT/" && n=$((n+1))
+done
+ui "  your reports and restore logs: $n"
+mkdir -p "$OUT/s6migrate"
+for f in maint.log ready.log selfcheck.log repair.log setup.json package.info region.env last-update attempts; do cp_if "$S/$f" "s6migrate/$f"; done
+cp_if "$S/freeze-reports" "s6migrate/freeze-reports"
+cp_if "$S/setup-home/s6-setup.log" "s6migrate/s6-setup.log"
+ls -la "$S" > "$OUT/s6migrate/listing.txt" 2>&1; ls -la "$S/maint" >> "$OUT/s6migrate/listing.txt" 2>&1
+mkdir -p "$OUT/etc"
+cp_if "$ROOT/etc/NetworkManager/conf.d" "etc/NetworkManager-conf.d"
+cp_if "$ROOT/etc/NetworkManager/NetworkManager.conf" "etc/NetworkManager.conf"
+cp_if "$ROOT/etc/modprobe.d" "etc/modprobe.d"
+cp_if "$ROOT/etc/resolv.conf" "etc/resolv.conf"
+cp_if "$ROOT/etc/systemd/resolved.conf" "etc/resolved.conf"
+cp_if "$ROOT/etc/kernel" "etc/kernel"
+cp_if "$ROOT/etc/t860-release" "etc/t860-release"
+cp_if "$ROOT/etc/os-release" "etc/os-release"
+cp_if "$ROOT/etc/default/grub" "etc/grub"
+# the saved networks: names and settings only, never the passwords
+mkdir -p "$OUT/etc/system-connections"
+for c in "$ROOT"/etc/NetworkManager/system-connections/*; do
+  [ -f "$c" ] && grep -v -i -E '^(psk|password|wep-key[0-9]*|private-key-password|pin)=' "$c" > "$OUT/etc/system-connections/$(basename "$c")"
+done
+mkdir -p "$OUT/boot"
+ls -laR "$ROOT/boot" > "$OUT/boot/listing.txt" 2>&1
+cp_if "$ROOT/boot/loader" "boot/loader"
+for f in "$ROOT"/boot/grub2/grub.cfg "$ROOT"/boot/grub2/grubenv "$ROOT"/boot/efi/EFI/fedora/grub.cfg; do [ -f "$f" ] && cp "$f" "$OUT/boot/"; done
+# the newest system log (binary journal; read with journalctl --file); at most about 40 MB
+mkdir -p "$OUT/journal"; tot=0
+for j in $(ls -t "$ROOT"/var/log/journal/*/system*.journal "$ROOT"/var/log/journal/*/user-*.journal 2>/dev/null); do
+  sz=$(( $(stat -c %s "$j" 2>/dev/null || echo 0) / 1048576 ))
+  [ $((tot + sz)) -gt 40 ] && [ $tot -gt 0 ] && continue
+  cp "$j" "$OUT/journal/" && tot=$((tot + sz))
+done
+ui "  system log: $(ls "$OUT/journal" | wc -l) file(s), about $tot MB"
+saved=""
+for dest in "$CARD/S6Migrate" "$ZIPDIR"; do
+  [ -d "$dest" ] || continue
+  rm -rf "$dest/report-$STAMP"; cp -r "$OUT" "$dest/report-$STAMP" 2>/dev/null && saved="$saved $dest/report-$STAMP"
+done
+rm -rf "$OUT"
+if [ -n "$saved" ]; then
+  ui " "; ui "Saved to:"; for s in $saved; do ui "  $s"; done
+  ui "Move the microSD card (or USB stick) to a computer or phone and send the report folder."
+else
+  ui " "; ui "COULD NOT SAVE: no microSD card or USB stick found. Insert the card and run this again."
+fi
+ui " "; ui "Fedora was not changed. Reboot to System."
+save
+exit 0

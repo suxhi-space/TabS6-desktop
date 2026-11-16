@@ -308,7 +308,10 @@ if [ $ROOT_OK = 1 ]; then
     while IFS='|' read -r p dev; do
       k=$((k+1))
       case "$dev" in *mmcblk*|*public:179*) on_card=1 ;; *) on_card=0 ;; esac
-      if [ $on_card = 1 ] && [ -z "${S6S_ROOTMNT:-}" ]; then
+      # Copy every part into Fedora: it can't read the microSD slot, and its USB-C port gives no power to a
+      # bus-powered USB stick (that needs a powered hub). Only a part that doesn't fit stays on its drive.
+      copy=1
+      if [ -z "${S6S_ROOTMNT:-}" ]; then
         # The new filesystem is only as big as the image (~19 GB) until it is grown; grow it now if the part won't fit.
         need=$(( $(du -sk "$p" | cut -f1) + 1048576 ))
         avail=$(df -Pk "$ROOT" | tail -n 1 | tr -s ' ' | cut -d' ' -f4)
@@ -321,25 +324,24 @@ if [ $ROOT_OK = 1 ]; then
           fi
         fi
         # Never fill Fedora's disk with a half copy: a full disk can stop the desktop from starting.
-        if [ "${avail:-0}" -lt "$need" ]; then
-          on_card=2
-          warn "your package (part $k) doesn't fit into Fedora before its first start; it is still on the card. Copy it to a USB stick (Fedora reads USB) and S6 Setup will find it"
-        fi
+        [ "${avail:-0}" -lt "$need" ] && copy=0
       fi
-      if [ $on_card = 1 ]; then
-        # Fedora cannot read the microSD slot yet: copy this part into the new system.
-        ui "   copying your package${WANT:+ (part $k)} into Fedora (the microSD card is not readable there yet)..."
+      if [ $copy = 1 ]; then
+        ui "   copying your package${WANT:+ (part $k)} into Fedora (a few minutes per GB)..."
         cp -a "$p" "$ROOT/var/lib/s6migrate/package-$PKGID-part$k" \
           && chmod -R a+rX "$ROOT/var/lib/s6migrate/package-$PKGID-part$k" \
           && echo "copied=package-$PKGID-part$k" >> "$ROOT/var/lib/s6migrate/package.info" \
-          || { rm -rf "$ROOT/var/lib/s6migrate/package-$PKGID-part$k"
-               warn "copying your package failed; it is still on the card. Copy it to a USB stick (Fedora reads USB) and S6 Setup will find it"; }
-      elif [ $on_card = 2 ]; then
-        :
-      else
+          || { rm -rf "$ROOT/var/lib/s6migrate/package-$PKGID-part$k"; copy=0; }
+      fi
+      if [ $copy = 0 ]; then
         echo "$p" >> "$ROOT/var/lib/s6migrate/package-location"
-        echo "usb=${p%/S6Migrate/*}" >> "$ROOT/var/lib/s6migrate/package.info"
-        ui "   your package${WANT:+ (part $k)} stays on the USB drive; keep it plugged in for the first start"
+        if [ $on_card = 1 ]; then
+          warn "your package${WANT:+ (part $k)} could not be copied into Fedora; it is still on the microSD card. See 'Package left on the card' in docs/migration-assistant.md"
+        else
+          echo "usb=${p%/S6Migrate/*}" >> "$ROOT/var/lib/s6migrate/package.info"
+          ON_USB=1
+          warn "your package${WANT:+ (part $k)} could not be copied into Fedora and stays on the USB drive: connect it through a powered USB-C hub for S6 Setup"
+        fi
       fi
     done < "$W/parts"
   fi
@@ -387,7 +389,7 @@ ui " "
 ui "Done. Fedora is installed."
 [ -n "$WARN" ] && ui "Some extras need attention (details in S6Migrate/switch-log.txt):$WARN"
 ui "The tablet restarts into Fedora, and S6 Setup welcomes you: Wi-Fi, your own account and your stuff."
-ui "Keep the USB drive plugged in until S6 Companion says your Android apps are done."
+[ -n "${ON_USB:-}" ] && ui "Keep the USB drive connected (through a powered hub) until S6 Companion says your Android apps are done."
 clear_bcb
 ui "Restarting in 15 seconds..."
 if [ "${S6S_TEST:-0}" != 1 ]; then sleep 15; reboot; fi

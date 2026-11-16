@@ -25,7 +25,7 @@ projects below. Thank you.
 | [Better Blur DX](https://github.com/xarblu/kwin-effects-better-blur-dx) by **xarblu** (continuing Better Blur by taj-ny, with DaddelZeit and iGerman00; GPL-3.0), Fedora COPR by Infinality | Frosted blur for panels, menus and chosen apps (optional, installed at first login) |
 | [Darkly](https://github.com/Bali10050/Darkly) by **Bali10050** (a Lightly fork; GPL), Fedora COPR by deltacopy | Rounded app style and window borders with see-through menus, toolbars and Dolphin sidebar (optional) |
 | [KDE Plasma](https://kde.org) scripting, kscreen-doctor, Discover | Layouts, screen size, and Fedora updates in S6 Companion |
-| [PikaOS](https://pika-os.com), [Nobara](https://nobaraproject.org), [Zorin OS](https://zorin.com) | Inspiration for the welcome app, tune-ups and layout picker (no code or artwork used) |
+| [PikaOS](https://pika-os.com), [Nobara](https://nobaraproject.org), [Zorin OS](https://zorin.com) | Inspiration for the welcome app, tune-ups and layout picker; S6 Setup follows the same first-start design as PikaOS's [pika-first-setup](https://github.com/PikaOS-Linux/pkg-pika-first-setup) (temporary account, then a restart into yours). No code or artwork used |
 
 ## Android apps on Fedora
 

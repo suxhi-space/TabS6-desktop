@@ -138,7 +138,7 @@ ApplicationWindow {
                 width: parent.width; warn: true
                 visible: win.parts.length < win.want || (win.parts.length === 0 && !win.lookingForParts)
                 Label2 { text: win.parts.length === 0 ? "Your package wasn't found yet" : "Part of your package is missing"; strong: true; color: Theme.warn; width: parent.width }
-                Label2 { text: "Plug in the USB drive that holds your S6Migrate folder (with a USB-C adapter if needed), then tap Check again. You can also continue and bring your stuff over later from S6 Companion."; color: Theme.warnText; width: parent.width }
+                Label2 { text: "Connect the USB drive that holds your S6Migrate folder through a powered USB-C hub (this tablet's port can't power a USB stick by itself), then tap Check again. You can also continue and bring your stuff over later from S6 Companion."; color: Theme.warnText; width: parent.width }
                 Btn { text: win.lookingForParts ? "Looking..." : "Check again"; enabled: !win.lookingForParts; onClicked: win.findParts() }
             }
         }
@@ -258,7 +258,7 @@ ApplicationWindow {
                     input.onTextChanged: { win.fullName = input.text; if (!win.userEdited) win.userName = backend.suggestUser(input.text) }
                 }
                 Field {
-                    width: parent.cw; label: "User name"; text: win.userName; hint: "Used for your home folder: /home/" + (win.userName || "...")
+                    width: parent.cw; label: "User name"; lower: true; text: win.userName; hint: "Used for your home folder: /home/" + (win.userName || "...")
                     input.onTextEdited: { win.userEdited = true; win.userName = input.text.toLowerCase() }
                 }
                 Field { id: pass1; width: parent.cw; label: "Password"; echoMode: TextInput.Password; hint: text.length > 0 && text.length < 8 ? "Tip: 8 or more characters is safer." : "" }
@@ -446,7 +446,7 @@ ApplicationWindow {
             property bool leaving: false
             function next() {
                 if (leaving) return
-                leaving = true; frame.primaryEnabled = false; frame.primary = "Starting your desktop..."
+                leaving = true; frame.primaryEnabled = false; frame.primary = "Restarting..."
                 win.run("finish", win.h(["finish", win.userName, win.autoLogin ? "1" : "0", win.removeFedora ? "1" : "0", win.gapps ? "1" : "0", win.dark ? "dark" : "light"]),
                         null, function (code) {
                     if (code !== 0) { leaving = false; frame.primaryEnabled = true; frame.primary = "Try again"; frame.subtitle = "Something went wrong handing over to your account. Tap Try again." }
@@ -454,8 +454,8 @@ ApplicationWindow {
             }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "All set, " + win.firstName() + "!"
-                frame.subtitle = "Your tablet is ready. After you log in, S6 Companion finishes your Android apps and shows you around."
-                frame.primary = "Start using Fedora"; frame.secondary = ""; frame.primaryEnabled = true; frame.note = ""
+                frame.subtitle = "Your tablet is ready. It restarts once (about a minute) into your own account, then S6 Companion finishes your Android apps and shows you around."
+                frame.primary = "Restart into my account"; frame.secondary = ""; frame.primaryEnabled = true; frame.note = ""
             }
             Card {
                 width: parent.width
@@ -468,7 +468,7 @@ ApplicationWindow {
             Card {
                 width: parent.width; warn: true
                 visible: win.want > 1 || win.parts.some(function (p) { return p.indexOf("/run/") === 0 })
-                Label2 { text: "Keep your USB drive plugged in until S6 Companion says your Android apps are done."; color: Theme.warnText; width: parent.width }
+                Label2 { text: "Keep your USB drive connected (through the powered hub) until S6 Companion says your Android apps are done."; color: Theme.warnText; width: parent.width }
             }
         }
     }

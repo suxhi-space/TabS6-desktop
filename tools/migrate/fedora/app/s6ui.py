@@ -262,7 +262,7 @@ class Backend(QObject):
             info = {"id": "20261114-121139", "parts": ["/var/lib/s6migrate/package-20261114-121139-part1", "/run/s6migrate/sde1/S6Migrate/20261114-121139"],
                     "want": 2, "wifi": 4, "apps": 9, "linux": 2, "folders": 7,
                     "folderNames": ["DCIM", "Download", "Documents", "Pictures", "ArtStuff", "Music", "Telegram"],
-                    "settings": {"device_name": "Jake's Tab S6", "timezone": "America/Chicago", "locale": "en-US",
+                    "settings": {"device_name": "Alex's Tab S6", "timezone": "America/Chicago", "locale": "en-US",
                                  "night_mode": "2", "wallpaper": True}}
         return json.dumps(info)
 

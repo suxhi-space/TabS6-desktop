@@ -354,6 +354,64 @@ Not covered by a rehearsal: `write-root`, `finish`, first boot, and the restore 
   - Rehearsal and switch with verification off, with verification on and writable, and with verification on and read-only.
   - An installer that can't free `/data`.
 
+## Recovering by hand: what the first real switch taught us
+
+These facts about the tablet under t860-fedora cost an evening to learn. The scripts now avoid every problem listed below. Keep this page for anyone who still ends up recovering by hand.
+
+**Buttons and boot**
+- **Power off restarts the tablet.** Under this Fedora, shutting down restarts it.
+- **Force restart:** hold Power + Volume Down for about 10 seconds. This is the hardware reset and works even when Fedora is frozen. Let go as soon as the screen goes black. If Volume Down is still held while the tablet starts, the UEFI boot menu opens ("Power off", Device Info, "Device State - unlocked"). The Power button doesn't select anything there, so force-restart again.
+- **TWRP:** connect a USB cable first; with this Samsung bootloader, the recovery combination only works with a cable plugged in. Hold Power + Volume Down until the screen goes black. Keep holding Power, slide the other finger to Volume Up, and hold both until TWRP appears.
+- **A black screen with a static `_` cursor** means the login screen never took over the display. Common causes: a long first-start job (such as an SELinux relabel, now skipped because t860-fedora boots with `selinux=0`), or the desktop failing to start.
+
+**Logging in**
+- **The image's own account is `fedora` / `fedora`.** S6 Setup removes it by default.
+- **The on-screen keyboard capitalises the first letter** in SDDM's built-in theme, so "fedora" can fail. S6 Setup's own fields now ask the keyboard not to capitalise or predict passwords and user names. A proper S6 login theme is planned.
+- **USB-C under Fedora gives no power** to a bus-powered device: the SM5705 VBUS boost has no driver (see the note in t860-fedora's device tree). USB keyboards and USB sticks only work through a **powered** USB-C hub. That's why the switch now copies every part of the package into Fedora.
+
+**Fixing the setup start from TWRP** (Advanced > Terminal). The first lines open Fedora's disk and add the line that was missing from the automatic-login file before 0.4.6:
+```
+mkdir -p /tmp/r
+mount -t ext4 /dev/block/by-name/userdata /tmp/r
+echo Session=plasma.desktop >> /tmp/r/etc/sddm.conf.d/zz-s6migrate.conf
+rm -f /tmp/r/.autorelabel
+cat /tmp/r/etc/sddm.conf.d/zz-s6migrate.conf
+grep -n '^s6setup:' /tmp/r/etc/shadow
+df -h /tmp/r
+```
+- The `cat` line should end with `User=s6setup` and `Session=plasma.desktop`.
+- `grep` should print the setup account on a line of its own.
+- `df` shows whether Fedora's disk has grown to its full size (about 108 GB).
+
+<a id="package-left-on-the-card"></a>**Package left on the card.** If the switch couldn't copy the package into Fedora, copy it from TWRP with the disk opened as above. Use your package's folder name in place of `ID`:
+```
+P=/tmp/r/var/lib/s6migrate/package-ID-part1
+rm -rf $P
+cp -a /external_sd/S6Migrate/ID $P
+find /external_sd/S6Migrate/ID -type f | wc -l
+find $P -type f | wc -l
+chmod -R a+rX $P
+sync; umount /tmp/r; reboot
+```
+- The two counts must match before you reboot.
+- S6 Setup finds the package in `/var/lib/s6migrate`.
+
+### How PikaOS does first setup (and how S6 Setup compares)
+
+PikaOS's first-setup app is [pika-first-setup](https://github.com/PikaOS-Linux/pkg-pika-first-setup) (Rust, GTK4 and libadwaita; the repository is archived, so the current release may differ). Its source shows this flow:
+
+1. **Temporary account:** the installer creates `pikaos` and logs it in automatically through `/etc/sddm.conf.d/zautologin.conf`.
+2. **First setup starts:** an autostart entry starts first setup, and the app refuses to run as any other user.
+3. **Pages:** welcome, internet, user (full name, user name, password and host name: `adduser`, groups, `chpasswd`, removes the auto-login file, `hostnamectl`), updates, codecs, drivers, gaming tools, then finish.
+4. **Finish:** removes the temporary account and restarts the tablet (`userdel -r -f pikaos; reboot`). You arrive at the login screen with your own account, and the welcome app takes over.
+
+S6 Setup uses the same design: a temporary `s6setup` account, automatic login, a full-screen assistant, your own account, then the temporary account removed. As of 0.4.6 it also ends the same way: a full restart into your account, instead of restarting the login manager under a running session.
+
+What S6 Setup does differently:
+- **Root actions:** a polkit rule for a single root helper, not a fixed sudo password like PikaOS's `pika-sudo.sh`.
+- **Moving in:** moving in from Android is part of setup.
+- **The `fedora` account** is removed by default.
+
 ## Fedora side: S6 Setup and S6 Companion (0.4.0)
 
 ### First start (S6 Setup, before any desktop)

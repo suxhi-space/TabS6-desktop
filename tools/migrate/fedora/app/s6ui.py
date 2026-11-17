@@ -31,7 +31,7 @@ SHARE = Path(os.environ.get("S6_SHARE", "/usr/local/share/s6migrate"))
 HELPER = os.environ.get("S6_HELPER", "/usr/local/libexec/s6migrate/s6-helper")
 STATE = Path(os.environ.get("S6_STATE", "/var/lib/s6migrate"))
 MOCK = os.environ.get("S6_MOCK") == "1"
-VERSION = "0.4.21"
+VERSION = "0.4.22"
 
 
 def load_fonts():
@@ -531,6 +531,8 @@ class Backend(QObject):
 def build(mode, qml_name):
     if mode == "setup":
         os.environ.setdefault("QT_IM_MODULE", "qtvirtualkeyboard")   # our own touch keyboard, before any desktop
+    if mode == "looks":   # a KDE app: Plasma's own control style and colours (Kirigami)
+        os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "org.kde.desktop")
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QGuiApplication.instance() or QGuiApplication(sys.argv)
     app.setApplicationName({"setup": "S6 Migrate", "looks": "S6 Looks"}.get(mode, "S6 Companion"))

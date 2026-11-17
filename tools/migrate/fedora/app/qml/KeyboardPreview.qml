@@ -9,6 +9,7 @@ Item {
     property bool hints: true
     property string kbheight: "normal"
     property string mode: "docked"
+    property bool numrow: true
     implicitWidth: 640
     implicitHeight: pv.height
 
@@ -34,7 +35,7 @@ Item {
         width: ks.mode === "floating" ? parent.width * 0.62 : parent.width; anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         readonly property real kh: (ks.kbheight === "short" ? 30 : ks.kbheight === "tall" ? 40 : 35)
-        height: 34 + 4 * (kh + 8) + 10; radius: 18; color: ks.bg
+        height: 34 + (ks.numrow ? 5 : 4) * (kh + 8) + 10; radius: 18; color: ks.bg
         Behavior on color { ColorAnimation { duration: 150 } }
         Row {   // the top bar
             x: 14; y: 8; spacing: 18; height: 22
@@ -45,12 +46,13 @@ Item {
         Column {
             x: 8; y: 34; width: pv.width - 16; spacing: 8
             Repeater {
-                model: [
-                    [["q", "1"], ["w", "2"], ["e", "3"], ["r", "4"], ["t", "5"], ["y", "6"], ["u", "7"], ["i", "8"], ["o", "9"], ["p", "0"]],
-                    [["a", "@"], ["s", "#"], ["d", "$"], ["f", "%"], ["g", "&"], ["h", "-"], ["j", "+"], ["k", "("], ["l", ")"]],
-                    [["⇧", "", "fn", 1.5], ["z", ""], ["x", ""], ["c", ""], ["v", ""], ["b", ""], ["n", ""], ["m", ""], ["⌫", "", "fn", 1.5]],
-                    [["?123", "", "fn", 1.5], ["☻", "", "fn"], [",", ""], ["", "", "space", 4], [".", ""], ["⏎", "", "enter", 1.5]]
-                ]
+                // Gboard's English layout, as S6 Keyboard has it (S6Gboard_en.qml): hints are the long-press characters
+                model: (ks.numrow ? [[["1", ""], ["2", ""], ["3", ""], ["4", ""], ["5", ""], ["6", ""], ["7", ""], ["8", ""], ["9", ""], ["0", ""]]] : []).concat([
+                    [["q", "%"], ["w", "\\"], ["e", "|"], ["r", "="], ["t", "["], ["y", "]"], ["u", "<"], ["i", ">"], ["o", "{"], ["p", "}"]],
+                    [["a", "@"], ["s", "#"], ["d", "$"], ["f", "_"], ["g", "&"], ["h", "-"], ["j", "+"], ["k", "("], ["l", ")"]],
+                    [["⇧", "", "fn", 1.5], ["z", "*"], ["x", "\""], ["c", "'"], ["v", ":"], ["b", ";"], ["n", "!"], ["m", "?"], ["⌫", "", "fn", 1.5]],
+                    [["?123", "", "fn", 1.5], [",", ""], ["☻", "", "fn"], ["", "", "space", 4], [".", ""], ["⏎", "", "enter", 1.5]]
+                ])
                 delegate: Row {
                     required property var modelData
                     spacing: 6; anchors.horizontalCenter: parent.horizontalCenter

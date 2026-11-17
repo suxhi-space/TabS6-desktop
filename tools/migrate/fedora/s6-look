@@ -129,9 +129,10 @@ polish() { # polish light|dark
   # windows stay on screen when the tablet turns (KWin script s6-fit)
   [ -f /usr/share/kwin/scripts/s6-fit/metadata.json ] && kw --file kwinrc --group Plugins --key s6-fitEnabled true
   # the on-screen keyboard sits over the taskbar while it's open, like on a phone (KWin script s6-kbd)
-  if [ -f /usr/share/kwin/scripts/s6-kbd/metadata.json ] && [ "$(getconf kbd-over)" != off ] \
-     && [ "$(kreadconfig6 --file kwinrc --group Plugins --key s6-kbdEnabled 2>/dev/null)" != true ]; then
-    kw --file kwinrc --group Plugins --key s6-kbdEnabled true; kwin_reload
+  # Off unless switched on in S6 Looks (an earlier version of it froze the tablet)
+  local kbo=false; [ -f /usr/share/kwin/scripts/s6-kbd/metadata.json ] && [ "$(getconf kbd-over)" = on ] && kbo=true
+  if [ "$(kreadconfig6 --file kwinrc --group Plugins --key s6-kbdEnabled 2>/dev/null)" != "$kbo" ]; then
+    kw --file kwinrc --group Plugins --key s6-kbdEnabled "$kbo"; kwin_reload
   fi
   if [ -d /usr/share/icons/Papirus ]; then [ "$th" = dark ] && ic=Papirus-Dark || ic=Papirus; ic=$(s6_icons "$ic")
   else [ "$th" = dark ] && ic=breeze-dark || ic=breeze; fi
@@ -715,6 +716,10 @@ heal)
   fi
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
   tray_tidy
+  # a taskbar left in "windows go below" (the keyboard script, if the session ended while the keyboard was open)
+  if [ "$(getconf kbd-over)" != on ] && grep -q '^panelVisibility=3' "${XDG_CONFIG_HOME:-$HOME/.config}/plasmashellrc" 2>/dev/null; then
+    plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null 2>&1
+  fi
   darkly_glass   # Darkly's Plasma style, see-through like Breeze
   touch_menus    # menus with rows for fingers
   [ "$(getconf dolphin-default)" = 2 ] || dolphin_default   # once: Dolphin back to its own look

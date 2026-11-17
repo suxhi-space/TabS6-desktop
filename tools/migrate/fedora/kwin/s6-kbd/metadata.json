@@ -6,7 +6,7 @@
         "Authors": [ { "Name": "S6 Migrate" } ],
         "License": "GPL-2.0-only",
         "Version": "1.0",
-        "EnabledByDefault": true
+        "EnabledByDefault": false
     },
     "X-Plasma-API": "javascript",
     "X-Plasma-MainScript": "code/main.js",

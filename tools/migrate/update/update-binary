@@ -81,6 +81,13 @@ ui "  S6 Migrate updated to $S6_FIX_VERSION ($n_s6 files: S6 Companion, S6 Setup
 [ -s "$S/self-source" ] || { echo "suxhi-space/TabS6-desktop@claude/android-tablet-desktop-ui-755uqh" > "$S/self-source"
   ui "  next time: S6 Companion > Updates > Update S6 Migrate updates it without TWRP"; }
 
+# The "keyboard over the taskbar" script of 0.4.18-0.4.20 could freeze the tablet: off in every account (S6 Looks can
+# switch the fixed one on again)
+for hd in "$ROOT"/home/*; do
+  k="$hd/.config/kwinrc"; [ -f "$k" ] && grep -q '^s6-kbdEnabled=true' "$k" && sed -i 's/^s6-kbdEnabled=true/s6-kbdEnabled=false/' "$k"
+  c="$hd/.config/s6migrate/look.conf"; [ -f "$c" ] && sed -i '/^kbd-over=/d' "$c"
+done
+
 ui " "
 ui "2/4 Taskbar"
 n=0

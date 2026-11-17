@@ -154,9 +154,9 @@ ApplicationWindow {
             }
             Toggle {
                 width: parent.width; title: "Keyboard over the taskbar"
-                sub: "Like on a phone: the keyboard sits at the bottom of the screen, over the taskbar or dock, while it's open."
-                checked: (win.cur.KBDOVER || "on") !== "off"
-                onCheckedChanged: if (((win.cur.KBDOVER || "on") !== "off") !== checked) win.apply(["kbd-over", checked ? "on" : "off"])
+                sub: "Like on a phone: the keyboard sits at the bottom of the screen, over the taskbar or dock, while it's open. New: try it, and switch it off if the keyboard jumps."
+                checked: win.cur.KBDOVER === "on"
+                onCheckedChanged: if ((win.cur.KBDOVER === "on") !== checked) win.apply(["kbd-over", checked ? "on" : "off"])
             }
             KeyboardStyle {
                 width: parent.width

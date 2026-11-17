@@ -13,6 +13,8 @@ fedora/s6-look|/usr/local/bin/s6-look|755|
 fedora/system/s6-setup-session|/usr/local/libexec/s6migrate/s6-setup-session|755|
 fedora/system/s6-companion|/usr/local/bin/s6-companion|755|
 fedora/system/s6-companion.desktop|/usr/local/share/applications/s6-companion.desktop|644|
+fedora/system/s6-looks|/usr/local/bin/s6-looks|755|
+fedora/system/s6-looks.desktop|/usr/local/share/applications/s6-looks.desktop|644|
 fedora/system/s6-look-heal.desktop|/etc/xdg/autostart/s6-look-heal.desktop|644|
 fedora/system/49-s6migrate.rules|/etc/polkit-1/rules.d/49-s6migrate.rules|644|
 fedora/system/zz-s6migrate.conf|/etc/sddm.conf.d/zz-s6migrate.conf|644|
@@ -21,10 +23,12 @@ fedora/app/s6ui.py|/usr/local/share/s6migrate/app/s6ui.py|644|
 fedora/app/setup.py|/usr/local/share/s6migrate/app/setup.py|644|
 fedora/app/ready.py|/usr/local/share/s6migrate/app/ready.py|644|
 fedora/app/companion.py|/usr/local/share/s6migrate/app/companion.py|644|
+fedora/app/looks.py|/usr/local/share/s6migrate/app/looks.py|644|
 fedora/app/qml/Btn.qml|/usr/local/share/s6migrate/app/qml/Btn.qml|644|
 fedora/app/qml/Card.qml|/usr/local/share/s6migrate/app/qml/Card.qml|644|
 fedora/app/qml/Choice.qml|/usr/local/share/s6migrate/app/qml/Choice.qml|644|
 fedora/app/qml/Companion.qml|/usr/local/share/s6migrate/app/qml/Companion.qml|644|
+fedora/app/qml/Looks.qml|/usr/local/share/s6migrate/app/qml/Looks.qml|644|
 fedora/app/qml/Field.qml|/usr/local/share/s6migrate/app/qml/Field.qml|644|
 fedora/app/qml/Frame.qml|/usr/local/share/s6migrate/app/qml/Frame.qml|644|
 fedora/app/qml/Glyph.qml|/usr/local/share/s6migrate/app/qml/Glyph.qml|644|

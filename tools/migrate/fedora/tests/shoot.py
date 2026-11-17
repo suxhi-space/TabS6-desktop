@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Render S6 Setup / S6 Companion pages offscreen in mock mode and save PNGs (for review on a computer).
-usage: shoot.py setup|companion OUTDIR [WIDTHxHEIGHT] [light|dark]"""
+usage: shoot.py setup|companion|looks OUTDIR [WIDTHxHEIGHT] [light|dark]"""
 import os, sys, time
 from pathlib import Path
 here = Path(__file__).resolve().parent
@@ -15,7 +15,7 @@ mode, out = sys.argv[1], Path(sys.argv[2])
 size = (sys.argv[3] if len(sys.argv) > 3 else "1280x800").split("x")
 theme = sys.argv[4] if len(sys.argv) > 4 else ""
 out.mkdir(parents=True, exist_ok=True)
-app, engine = s6ui.build(mode, "Setup.qml" if mode == "setup" else "Companion.qml")
+app, engine = s6ui.build(mode, {"setup": "Setup.qml", "looks": "Looks.qml"}.get(mode, "Companion.qml"))
 import shiboken6
 from PySide6.QtQuick import QQuickWindow
 win = shiboken6.wrapInstance(shiboken6.getCppPointer(engine.rootObjects()[0])[0], QQuickWindow)

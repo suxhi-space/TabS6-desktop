@@ -217,6 +217,19 @@ PY
   done
   systemctl --user start plasma-plasmashell.service 2>/dev/null || (plasmashell >/dev/null 2>&1 &)
 }
+# Menus for fingers: taller rows in KDE apps' menus (Darkly) and Firefox's touch density (its menus and toolbars).
+# On unless "normal" was chosen; Plasma's own menus already grow in touch mode.
+touch_menus() {
+  local m; m=$(getconf menus); [ -n "$m" ] || m=touch
+  darkly --group Style --key MenuItemHeight "$([ "$m" = touch ] && echo 8 || echo 3)"
+  local prof d=$([ "$m" = touch ] && echo 2 || echo 0)
+  for prof in "$HOME"/.mozilla/firefox/*/prefs.js "$HOME"/.config/mozilla/firefox/*/prefs.js; do
+    [ -f "$prof" ] || continue
+    prof=$(dirname "$prof")
+    { grep -v 'browser.uidensity' "$prof/user.js" 2>/dev/null; echo "user_pref(\"browser.uidensity\", $d);   // S6 Migrate: touch-size menus"; } > "$prof/user.js.s6" \
+      && mv "$prof/user.js.s6" "$prof/user.js"
+  done
+}
 # Darkly's Plasma style draws its panels and pop-ups solid: it has no see-through versions, which Plasma uses when blur
 # is on (Breeze has them). "Darkly (see-through)" is Darkly's style plus those, made from the installed one; it's
 # rebuilt when Darkly updates, and used instead of Darkly's when that was chosen.
@@ -534,6 +547,24 @@ effects)
   fi
   kwin_reload; setconf effects "$2"; echo "effects: $2"
   ;;
+appstyle)   # darkly|breeze: how apps and window borders are drawn
+  case "${2:-}" in darkly|breeze) ;; *) echo "darkly or breeze"; exit 2 ;; esac
+  [ "$2" = darkly ] && ! has_darkly && { echo "Darkly isn't installed yet (add it on the Style page: it's installed at the next restart)"; exit 1; }
+  use_style "$2"; setconf appstyle "$2"; kwin_reload; echo "app style: $2 (apps you open from now on)"
+  ;;
+plasmastyle) # breeze|darkly: the taskbar, menus and pop-ups (Darkly's here means the see-through version)
+  case "${2:-}" in
+    breeze) plasma-apply-desktoptheme default >/dev/null 2>&1 ;;
+    darkly) [ -d /usr/share/plasma/desktoptheme/darkly ] || [ -d /usr/share/plasma/desktoptheme/Darkly ] || { echo "Darkly isn't installed yet"; exit 1; }
+            kw --file plasmarc --group Theme --key name darkly; darkly_glass ;;
+    *) echo "breeze or darkly"; exit 2 ;;
+  esac
+  setconf plasmastyle "$2"; echo "Plasma style: $2"
+  ;;
+menus)      # touch|normal: menus (also what holding something opens) with bigger rows for fingers
+  case "${2:-}" in touch|normal) ;; *) echo "touch or normal"; exit 2 ;; esac
+  setconf menus "$2"; touch_menus; echo "menus: $2 (apps you open from now on)"
+  ;;
 kbd-style)  # KEY=VALUE...: S6 Keyboard's theme (auto light dark black tinted), accent (system or #RRGGBB),
             # borders and hints (true/false), height (short normal tall). The keyboard reads it within seconds.
   shift
@@ -685,6 +716,7 @@ heal)
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
   tray_tidy
   darkly_glass   # Darkly's Plasma style, see-through like Breeze
+  touch_menus    # menus with rows for fingers
   [ "$(getconf dolphin-default)" = 2 ] || dolphin_default   # once: Dolphin back to its own look
   # COSMIC Files arrived since it was chosen: open folders with it and pin it
   if [ "$(getconf files)" = cosmic ] && [ "$(xdg-mime query default inode/directory 2>/dev/null)" != "$(files_desktop)" ]; then
@@ -750,7 +782,10 @@ show-panels)
   plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."
   ;;
 status)
-  echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; for k in theme accent borders hints height; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
+  echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; echo "MENUS|$(getconf menus)"
+  echo "APPSTYLE|$(kreadconfig6 --file kdeglobals --group KDE --key widgetStyle 2>/dev/null | tr A-Z a-z)"
+  echo "PLASMASTYLE|$(case "$(kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null)" in s6-darkly|darkly|Darkly) echo darkly ;; *) echo breeze ;; esac)"
+  echo "HASDARKLY|$(has_darkly && echo yes || echo no)"; for k in theme accent borders hints height; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

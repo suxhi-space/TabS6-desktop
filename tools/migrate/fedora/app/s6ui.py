@@ -31,7 +31,7 @@ SHARE = Path(os.environ.get("S6_SHARE", "/usr/local/share/s6migrate"))
 HELPER = os.environ.get("S6_HELPER", "/usr/local/libexec/s6migrate/s6-helper")
 STATE = Path(os.environ.get("S6_STATE", "/var/lib/s6migrate"))
 MOCK = os.environ.get("S6_MOCK") == "1"
-VERSION = "0.4.19"
+VERSION = "0.4.20"
 
 
 def load_fonts():
@@ -533,8 +533,8 @@ def build(mode, qml_name):
         os.environ.setdefault("QT_IM_MODULE", "qtvirtualkeyboard")   # our own touch keyboard, before any desktop
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     app = QGuiApplication.instance() or QGuiApplication(sys.argv)
-    app.setApplicationName("S6 Migrate" if mode == "setup" else "S6 Companion")
-    app.setDesktopFileName("s6-companion" if mode == "companion" else "s6-setup")
+    app.setApplicationName({"setup": "S6 Migrate", "looks": "S6 Looks"}.get(mode, "S6 Companion"))
+    app.setDesktopFileName({"companion": "s6-companion", "looks": "s6-looks"}.get(mode, "s6-setup"))
     for ic in ("/usr/local/share/icons/hicolor/scalable/apps/s6-companion.svg", str(HERE.parent / "icons" / "s6-companion.svg")):
         if os.path.exists(ic):
             app.setWindowIcon(QIcon(ic)); break

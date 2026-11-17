@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=S6 Looks
+GenericName=Appearance
+Comment=Layout, style, keyboard, size and start-up for your Galaxy Tab S6
+Exec=/usr/local/bin/s6-looks
+Icon=preferences-desktop-theme-global
+Categories=Settings;DesktopSettings;
+Keywords=look;theme;style;appearance;layout;keyboard;dark;size;taskbar;dock;

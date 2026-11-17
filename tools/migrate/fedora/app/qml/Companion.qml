@@ -299,18 +299,6 @@ ApplicationWindow {
                 }
             }
             Card {
-                width: parent.width
-                Label2 { text: "Start-up screen"; display: true; font.pixelSize: 19; width: parent.width }
-                Segmented {
-                    width: parent.width
-                    value: (backend.read("/var/lib/s6migrate/boot-screen") || "verbose").trim()
-                    options: [{ id: "quiet", label: "Logo and progress bar", sub: "The Fedora logo with a thin bar while the tablet starts" },
-                              { id: "verbose", label: "Text", sub: "Every start-up message scrolling by (useful when something goes wrong)" }]
-                    onPicked: (id) => win.run("bootscreen", win.h(["boot-screen", id]), null, null)
-                }
-                Label2 { text: "Holding Volume Down while it starts still opens the boot menu."; font.pixelSize: 13; color: Theme.muted; width: parent.width }
-            }
-            Card {
                 id: pw
                 width: parent.width
                 property bool plugged: tb.bat.status !== "" && tb.bat.status !== "Discharging"
@@ -348,104 +336,20 @@ ApplicationWindow {
     Component {
         id: lookPage
         Column {
-            id: lk
             width: parent.width; spacing: 16
-            property var cur: ({})
-            property var extras: ({})
-            function loadExtras() { var x = {}; win.run("extras", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "extras"], function (l) { var f = l.split("|"); x[f[0]] = f.slice(1) }, function () {
-                if (backend.mock) x = { BBDX: ["installed", "loaded"], DARKLY: ["installed"] }; extras = x }) }
-            property string out: ""
-            function load() { var c = {}; win.run("lookst", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "status"], function (l) { var f = l.split("|"); c[f[0]] = f[1] }, function () { cur = c }) }
-            function apply(args) { out = "Applying..."; var last = ""; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l; last = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work" + (last ? ": " + last : "."); load() }) }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Look"
-                frame.subtitle = "Layout, size, effects and light or dark. Window buttons follow the layout. The layouts are also in System Settings as Global Themes."
-                frame.primary = ""; frame.secondary = ""; frame.note = lk.out
-                load(); loadExtras()
-            }
-            onOutChanged: frame.note = out
-            LayoutPicker { width: parent.width; effects: lk.cur.EFFECTS || win.setup.effects || "soft"; value: lk.cur.LAYOUT || win.setup.layout || "touch"; onPicked: (id) => lk.apply(["layout", id]) }
-            Item {
-                width: parent.width; height: 40
-                Label2 { anchors.verticalCenter: parent.verticalCenter; text: "Taskbar gone after turning on auto-hide?"; color: Theme.sub; font.pixelSize: 14 }
-                Btn { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: "Show the taskbar again"; onClicked: lk.apply(["show-panels"]) }
-            }
-            Toggle {
-                width: parent.width; title: "S6 Keyboard extras"
-                sub: "Emoji, clipboard and hide buttons on the on-screen keyboard. Off: the plain keyboard (takes effect the next time it opens)."
-                checked: !backend.exists(backend.home + "/.config/s6migrate/stock-keyboard")
-                onCheckedChanged: win.run("kbd", backend.mock ? ["true"] : ["/bin/sh", "-c", checked
-                    ? "rm -f \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"
-                    : "mkdir -p \"$HOME/.config/s6migrate\" && touch \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"], null, null)
-            }
-            Toggle {
-                width: parent.width; title: "Keyboard over the taskbar"
-                sub: "Like on a phone: the on-screen keyboard sits at the bottom of the screen, over the taskbar or dock, while it's open."
-                checked: (lk.cur.KBDOVER || "on") !== "off"
-                onCheckedChanged: if (((lk.cur.KBDOVER || "on") !== "off") !== checked) lk.apply(["kbd-over", checked ? "on" : "off"])
-            }
-            KeyboardStyle {
-                width: parent.width
-                theme: lk.cur.KBTHEME || "auto"; accent: lk.cur.KBACCENT || "system"
-                borders: lk.cur.KBBORDERS !== "false"; hints: lk.cur.KBHINTS !== "false"; kbheight: lk.cur.KBHEIGHT || "normal"
-                onChanged: lk.apply(["kbd-style", "theme=" + theme, "accent=" + accent, "borders=" + borders, "hints=" + hints, "height=" + kbheight])
-            }
-            Segmented {
-                width: parent.width; label: "After logging in"; value: lk.cur.SPLASH || "s6"
-                options: [{ id: "s6", label: "Loading bar", sub: "Your wallpaper with a thin progress bar while the desktop starts" },
-                          { id: "none", label: "None", sub: "Straight to the desktop, no loading screen" }]
-                onPicked: (id) => lk.apply(["splash", id])
-            }
-            Segmented {
-                width: parent.width; label: "File manager"; value: lk.cur.FILES || "dolphin"
-                options: [{ id: "dolphin", label: "Dolphin", sub: "KDE's file manager, set up for touch" },
-                          { id: "cosmic", label: "COSMIC Files", sub: "From the COSMIC desktop, written in Rust (installed at the next restart)" }]
-                onPicked: (id) => { if (id === "cosmic") win.run("sched", win.h(["schedule", "cosmicfiles"]), null, null); lk.apply(["files", id]) }
-            }
-            Label2 { text: "Size"; strong: true; color: Theme.sub; font.pixelSize: 15 }
-            Grid {
-                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
-                property real cw: frame.roomy ? (width - 28) / 3 : width
-                property string v: lk.cur.SIZE || win.setup.size || "larger"
-                Choice { width: parent.cw; title: "Standard"; sub: "The tablet's original size"; on: parent.v === "standard"; onPicked: lk.apply(["size", "standard"]) }
-                Choice { width: parent.cw; title: "Larger"; sub: "Recommended for touch"; on: parent.v === "larger"; onPicked: lk.apply(["size", "larger"]) }
-                Choice { width: parent.cw; title: "Largest"; sub: "Easiest to tap and read"; on: parent.v === "largest"; onPicked: lk.apply(["size", "largest"]) }
-            }
-            Label2 { text: "Effects"; strong: true; color: Theme.sub; font.pixelSize: 15 }
-            Grid {
-                width: parent.width; columns: frame.roomy ? 3 : 1; columnSpacing: 14; rowSpacing: 12
-                property real cw: frame.roomy ? (width - 28) / 3 : width
-                property string v: lk.cur.EFFECTS || win.setup.effects || "soft"
-                Choice { width: parent.cw; title: "Off"; sub: "Solid and simple; saves battery"; on: parent.v === "off"; onPicked: lk.apply(["effects", "off"]) }
-                Choice { width: parent.cw; title: "Soft"; sub: "Frosted panels and menus"; on: parent.v === "soft"; onPicked: lk.apply(["effects", "soft"]) }
-                Choice { width: parent.cw; title: "Glassy"; sub: "See-through panels, menus and background windows"; on: parent.v === "glassy"; onPicked: lk.apply(["effects", "glassy"]) }
+                frame.subtitle = "Layout, style, keyboard, size and start-up now have their own app: S6 Looks (also in the app menu)."
+                frame.primary = ""; frame.secondary = ""; frame.note = ""
             }
             Card {
-                id: exCard
                 width: parent.width
-                property bool bb: (lk.extras.BBDX || [""])[0] === "installed"
-                property bool dk: (lk.extras.DARKLY || [""])[0] === "installed"
-                property bool queued: backend.exists("/var/lib/s6migrate/maint/extras")
-                Row { spacing: 10
-                      Glyph { kind: exCard.bb && exCard.dk ? "ok" : "clock"; tint: exCard.bb && exCard.dk ? Theme.ok : Theme.muted; width: 22; height: 22 }
-                      Label2 { text: "Better Blur DX and Darkly"; strong: true } }
-                Label2 { width: parent.width; font.pixelSize: 14; color: Theme.muted
-                         text: (exCard.bb ? ((lk.extras.BBDX || [])[1] === "loaded" ? "Better Blur DX is on. " : "Better Blur DX is installed; Plasma's blur is used until it matches this Plasma version. ") : "Better Blur DX isn't installed (Plasma's own blur is used). ")
-                               + (exCard.dk ? "Darkly gives apps rounded, frosted surfaces." : "Darkly isn't installed (Breeze is used).") }
-                Flow {
-                    width: parent.width; spacing: 10; visible: !(exCard.bb && exCard.dk)
-                    Btn { text: exCard.queued ? "Added at the next restart" : "Add them at the next restart"; enabled: !exCard.queued
-                          onClicked: win.run("extrasi", win.h(["look-extras"]), function (l) { lk.out = l }, function () { exCard.queued = true }) }
-                    Btn { visible: exCard.queued; text: "Restart now"; primary: true; onClicked: backend.detach("systemctl reboot") }
-                }
-                Label2 { width: parent.width; font.pixelSize: 13; color: Theme.muted; visible: !(exCard.bb && exCard.dk)
-                         text: "They're added while the tablet restarts, before the login screen, never while your desktop is running." }
-            }
-            Label2 { text: "Appearance"; strong: true; color: Theme.sub; font.pixelSize: 15 }
-            Grid {
-                width: parent.width; columns: 2; columnSpacing: 14
-                Choice { width: (parent.width - 14) / 2; title: "Light"; on: !Theme.dark; onPicked: { Theme.dark = false; lk.apply(["theme", "light"]) } }
-                Choice { width: (parent.width - 14) / 2; title: "Dark"; on: Theme.dark; onPicked: { Theme.dark = true; lk.apply(["theme", "dark"]) } }
+                Row { spacing: 12
+                      Glyph { kind: "look"; tint: Theme.accent; width: 28; height: 28; anchors.verticalCenter: parent.verticalCenter }
+                      Label2 { text: "S6 Looks"; display: true; font.pixelSize: 22; anchors.verticalCenter: parent.verticalCenter } }
+                Label2 { width: parent.width; color: Theme.muted; font.pixelSize: 14
+                         text: "Layouts, light or dark, Darkly or Breeze, see-through and blur, S6 Keyboard and its themes, size and touch menus, the start-up screens and the file manager." }
+                Btn { text: "Open S6 Looks"; primary: true; onClicked: backend.detach("/usr/local/bin/s6-looks") }
             }
         }
     }

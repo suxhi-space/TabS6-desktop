@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# S6 Looks: how the tablet looks and feels (layout, style, keyboard, touch and size, start-up, files).
+exec /usr/bin/python3 /usr/local/share/s6migrate/app/looks.py "$@"

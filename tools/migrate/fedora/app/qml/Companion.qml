@@ -384,6 +384,12 @@ ApplicationWindow {
                 checked: (lk.cur.KBDOVER || "on") !== "off"
                 onCheckedChanged: if (((lk.cur.KBDOVER || "on") !== "off") !== checked) lk.apply(["kbd-over", checked ? "on" : "off"])
             }
+            KeyboardStyle {
+                width: parent.width
+                theme: lk.cur.KBTHEME || "auto"; accent: lk.cur.KBACCENT || "system"
+                borders: lk.cur.KBBORDERS !== "false"; hints: lk.cur.KBHINTS !== "false"; kbheight: lk.cur.KBHEIGHT || "normal"
+                onChanged: lk.apply(["kbd-style", "theme=" + theme, "accent=" + accent, "borders=" + borders, "hints=" + hints, "height=" + kbheight])
+            }
             Segmented {
                 width: parent.width; label: "After logging in"; value: lk.cur.SPLASH || "s6"
                 options: [{ id: "s6", label: "Loading bar", sub: "Your wallpaper with a thin progress bar while the desktop starts" },

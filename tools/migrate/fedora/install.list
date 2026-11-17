@@ -32,6 +32,7 @@ fedora/app/qml/Label2.qml|/usr/local/share/s6migrate/app/qml/Label2.qml|644|
 fedora/app/qml/Picker.qml|/usr/local/share/s6migrate/app/qml/Picker.qml|644|
 fedora/app/qml/SetupFrame.qml|/usr/local/share/s6migrate/app/qml/SetupFrame.qml|644|
 fedora/app/qml/Segmented.qml|/usr/local/share/s6migrate/app/qml/Segmented.qml|644|
+fedora/app/qml/KeyboardStyle.qml|/usr/local/share/s6migrate/app/qml/KeyboardStyle.qml|644|
 fedora/app/qml/LayoutPicker.qml|/usr/local/share/s6migrate/app/qml/LayoutPicker.qml|644|
 fedora/app/qml/LayoutPreview.qml|/usr/local/share/s6migrate/app/qml/LayoutPreview.qml|644|
 fedora/app/qml/Setup.qml|/usr/local/share/s6migrate/app/qml/Setup.qml|644|
@@ -75,6 +76,7 @@ fedora/keyboard/s6-keyboard.desktop|/usr/local/share/applications/s6-keyboard.de
 fedora/keyboard/S6Toolbar.qml|/usr/local/share/s6migrate/keyboard/S6Toolbar.qml|644|
 fedora/keyboard/S6Nav.qml|/usr/local/share/s6migrate/keyboard/S6Nav.qml|644|
 fedora/keyboard/S6Clips.qml|/usr/local/share/s6migrate/keyboard/S6Clips.qml|644|
+fedora/keyboard/S6Style.qml|/usr/local/share/s6migrate/keyboard/S6Style.qml|644|
 fedora/dolphin/s6-dolphin.qss|/usr/local/share/s6migrate/dolphin/s6-dolphin.qss|644|
 fedora/icons/s6-companion.svg|/usr/local/share/icons/hicolor/scalable/apps/s6-companion.svg|644|
 fedora/splash/Splash.qml|/usr/local/share/s6migrate/splash/Splash.qml|644|

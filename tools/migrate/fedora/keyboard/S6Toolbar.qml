@@ -11,16 +11,16 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: Device.gu(1); anchors.rightMargin: Device.gu(1)
         spacing: Device.gu(1)
-        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "face-smile"; display: AbstractButton.IconOnly
+        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "face-smile"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
                      onClicked: { Feedback.keyPressed(); keypad.state = "EMOJI" } }
-        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "edit-paste"; display: AbstractButton.IconOnly
+        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "edit-paste"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
                      onClicked: { Feedback.keyPressed(); fullScreenItem.s6clips = !fullScreenItem.s6clips } }
-        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "edit-undo"; display: AbstractButton.IconOnly
+        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "edit-undo"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
                      onClicked: { Feedback.keyPressed(); fullScreenItem.undo() } }
-        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "edit-redo"; display: AbstractButton.IconOnly
+        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "edit-redo"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
                      onClicked: { Feedback.keyPressed(); fullScreenItem.redo() } }
         Item { Layout.fillWidth: true }
-        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "go-down"; display: AbstractButton.IconOnly
+        ToolButton { Layout.fillHeight: true; Layout.preferredWidth: height * 1.6; icon.name: "go-down"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
                      onClicked: { Feedback.keyPressed(); fullScreenItem.s6clips = false; MaliitGeometry.shown = false } }
     }
 }

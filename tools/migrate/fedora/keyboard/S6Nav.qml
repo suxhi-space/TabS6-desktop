@@ -9,14 +9,14 @@ Item {
         anchors.left: parent.left; anchors.leftMargin: Device.gu(2)
         anchors.top: parent.top; anchors.bottom: parent.bottom
         width: height * 2
-        icon.name: "go-down"; display: AbstractButton.IconOnly
+        icon.name: "go-down"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
         onClicked: { Feedback.keyPressed(); fullScreenItem.s6clips = false; MaliitGeometry.shown = false }
     }
     ToolButton {
         anchors.right: parent.right; anchors.rightMargin: Device.gu(2)
         anchors.top: parent.top; anchors.bottom: parent.bottom
         width: height * 2
-        icon.name: "edit-paste"; display: AbstractButton.IconOnly
+        icon.name: "edit-paste"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text
         onClicked: { Feedback.keyPressed(); fullScreenItem.s6clips = !fullScreenItem.s6clips }
     }
 }

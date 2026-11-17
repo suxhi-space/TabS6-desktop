@@ -453,6 +453,25 @@ effects)
   fi
   kwin_reload; setconf effects "$2"; echo "effects: $2"
   ;;
+kbd-style)  # KEY=VALUE...: S6 Keyboard's theme (auto light dark black tinted), accent (system or #RRGGBB),
+            # borders and hints (true/false), height (short normal tall). The keyboard reads it within seconds.
+  shift
+  for kv in "$@"; do
+    k=${kv%%=*}; v=${kv#*=}
+    case "$k=$v" in
+      theme=auto|theme=light|theme=dark|theme=black|theme=tinted|accent=system|borders=true|borders=false|hints=true|hints=false|height=short|height=normal|height=tall) ;;
+      accent=\#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;;
+      *) echo "kbd-style: not understood: $kv"; exit 2 ;;
+    esac
+    setconf "kb-$k" "$v"
+  done
+  mkdir -p "$HOME/.config/s6migrate"
+  printf '{"theme": "%s", "accent": "%s", "borders": %s, "hints": %s, "height": "%s"}\n' "$(getconf kb-theme)" "$(getconf kb-accent)" \
+    "$( [ "$(getconf kb-borders)" = false ] && echo false || echo true)" "$( [ "$(getconf kb-hints)" = false ] && echo false || echo true)" \
+    "$(getconf kb-height)" | sed 's/"theme": ""/"theme": "auto"/; s/"accent": ""/"accent": "system"/; s/"height": ""/"height": "normal"/' \
+    > "$HOME/.config/s6migrate/keyboard.json"
+  echo "keyboard look saved"
+  ;;
 kbd-over)   # on|off: the on-screen keyboard over the taskbar while it's open (KWin script s6-kbd)
   case "${2:-on}" in
     on)  setconf kbd-over on;  kw --file kwinrc --group Plugins --key s6-kbdEnabled true ;;
@@ -649,7 +668,7 @@ show-panels)
   plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."
   ;;
 status)
-  echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
+  echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; for k in theme accent borders hints height; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

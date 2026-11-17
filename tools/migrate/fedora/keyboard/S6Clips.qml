@@ -9,6 +9,7 @@ Pane {
     property var items: []
     readonly property string source: "file://@CLIPS@"
     padding: Device.gu(1)
+    background: Rectangle { color: fullScreenItem.s6bg }   // the keyboard's own theme
     function load() {
         var x = new XMLHttpRequest()
         x.onreadystatechange = function () {
@@ -32,16 +33,16 @@ Pane {
         id: head
         width: parent.width; height: Device.gu(5)
         Label { anchors.left: parent.left; anchors.leftMargin: Device.gu(1); anchors.verticalCenter: parent.verticalCenter
-                text: "Clipboard"; font.pixelSize: parent.height * 0.42; font.bold: true }
+                text: "Clipboard"; font.pixelSize: parent.height * 0.42; font.bold: true; color: fullScreenItem.s6text }
         ToolButton { anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom; width: height * 1.6
-                     icon.name: "input-keyboard"; display: AbstractButton.IconOnly; onClicked: fullScreenItem.s6clips = false }
+                     icon.name: "input-keyboard"; display: AbstractButton.IconOnly; icon.color: fullScreenItem.s6text; onClicked: fullScreenItem.s6clips = false }
     }
     Label {
         visible: clips.items.length === 0
         anchors.centerIn: parent
         width: parent.width * 0.8; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
         text: "Text you copy shows up here. Tap it to type it in."
-        opacity: 0.7
+        opacity: 0.7; color: fullScreenItem.s6text
     }
     GridView {
         id: grid
@@ -56,9 +57,10 @@ Pane {
             Button {
                 anchors.fill: parent; anchors.margins: Device.gu(0.6)
                 onClicked: clips.insert(modelData.t)
+                background: Rectangle { radius: Device.gu(1.2); color: parent.down ? fullScreenItem.s6down : fullScreenItem.s6key }
                 contentItem: Label {
                     text: modelData.t; wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter; font.pixelSize: Device.gu(1.9)
+                    verticalAlignment: Text.AlignVCenter; font.pixelSize: Device.gu(1.9); color: fullScreenItem.s6text
                 }
             }
         }

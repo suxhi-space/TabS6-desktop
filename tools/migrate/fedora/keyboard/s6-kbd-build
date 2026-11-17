@@ -28,6 +28,18 @@ for d in ("/usr/share/hunspell", "/usr/share/myspell"):
         os.symlink(d, new + d)
 
 
+def soft_patch(name, a, b):
+    """A change that's nice to have: if this Maliit is shaped differently, it's left out (the rest still applies)."""
+    p = os.path.join(dest, name)
+    try:
+        s = open(p, encoding="utf-8").read()
+    except OSError:
+        print("skipped (no %s)" % name); return False
+    if s.count(a) != 1:
+        print("skipped in %s: change point found %d times: %r" % (name, s.count(a), a[:60])); return False
+    open(p, "w", encoding="utf-8").write(s.replace(a, b)); return True
+
+
 def patch(name, pairs):
     p = os.path.join(dest, name)
     s = open(p, encoding="utf-8").read()
@@ -45,7 +57,7 @@ patch("Keyboard.qml", [
      "    property bool s6clips: false                       // S6: clipboard history shown instead of the keys\n"
      "    readonly property real s6nav: Device.gu(5)         // S6: the strip under the keys\n"),
     (": Device.keyboardHeightPortrait)\n",
-     ": Device.keyboardHeightPortrait) * fullScreenItem.s6scale + fullScreenItem.s6nav\n"),
+     ": Device.keyboardHeightPortrait) * fullScreenItem.s6scale * (fullScreenItem.s6numrow ? 1.18 : 1) + fullScreenItem.s6nav\n"),
     ("                    height: parent.height\n                    width: parent.width\n                    anchors.bottom: parent.bottom\n",
      "                    height: parent.height - fullScreenItem.s6nav\n                    width: parent.width\n"
      "                    anchors.bottom: parent.bottom\n                    anchors.bottomMargin: fullScreenItem.s6nav\n"),
@@ -74,6 +86,7 @@ patch("Keyboard.qml", [
      "    readonly property bool s6hints: s6style.hints\n"
      "    readonly property real s6scale: s6style.scale\n"
      "    readonly property bool s6floating: s6style.floating\n"
+     "    readonly property bool s6numrow: s6style.numrow\n"
      "    readonly property real s6gap: s6floating ? Device.gu(1.5) : 0   // the floating keyboard sits a little above the edge\n"),
     # floating: narrower and centred (Maliit reports the keyboard's own rectangle, so KWin centres it by itself)
     ("        anchors.bottom: parent.bottom\n        anchors.left: parent.left\n\n        width: parent.width\n",
@@ -122,7 +135,12 @@ patch("WordRibbon.qml", [
      "    S6Toolbar { anchors.fill: parent; visible: listView.count === 0 }\n"),
 ])
 style = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "s6migrate", "keyboard.json")
-for f in ("S6Toolbar.qml", "S6Nav.qml", "S6Clips.qml", "S6Style.qml"):
+# Gboard's English layouts (letters with hints, number row, the two symbol pages) for ordinary text in English
+gboard = soft_patch("KeyboardContainer.qml",
+    '            return Keyboard.currentPluginPath + "/Keyboard_" + language + ".qml";\n',
+    '            if (language.indexOf("en") === 0) return fullScreenItem.s6numrow ? "S6Gboard_en_num.qml" : "S6Gboard_en.qml";   // S6: Gboard\n'
+    '            return Keyboard.currentPluginPath + "/Keyboard_" + language + ".qml";\n')
+for f in ("S6Toolbar.qml", "S6Nav.qml", "S6Clips.qml", "S6Style.qml", "S6Gboard_en.qml", "S6Gboard_en_num.qml", "S6GboardSymbols.qml"):
     s = open(os.path.join(ours, f), encoding="utf-8").read().replace("@CLIPS@", clips).replace("@KBSTYLE@", style)
     open(os.path.join(dest, f), "w", encoding="utf-8").write(s)
 open(os.path.join(new, "ok"), "w").write(stamp)

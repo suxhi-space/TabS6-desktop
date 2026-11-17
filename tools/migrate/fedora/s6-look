@@ -548,6 +548,15 @@ effects)
   fi
   kwin_reload; setconf effects "$2"; echo "effects: $2"
   ;;
+wallpaper)  # android|default: your Android home-screen wallpaper (brought over by S6 Migrate) or Fedora's
+  case "${2:-}" in
+    android) f=$(ls -t "${XDG_DATA_HOME:-$HOME/.local/share}"/wallpapers/S6Migrate/android-home.* 2>/dev/null | head -n 1) ;;
+    default) f=$(ls -S /usr/share/wallpapers/F[0-9]*/contents/images/* /usr/share/wallpapers/Fedora*/contents/images/* 2>/dev/null | head -n 1) ;;
+    *) echo "android or default"; exit 2 ;;
+  esac
+  [ -n "$f" ] || { echo "no $2 wallpaper found"; exit 1; }
+  plasma-apply-wallpaperimage "$f" >/dev/null 2>&1 && echo "wallpaper: $(basename "$f")" || { echo "couldn't set the wallpaper"; exit 1; }
+  ;;
 appstyle)   # darkly|breeze: how apps and window borders are drawn
   case "${2:-}" in darkly|breeze) ;; *) echo "darkly or breeze"; exit 2 ;; esac
   [ "$2" = darkly ] && ! has_darkly && { echo "Darkly isn't installed yet (add it on the Style page: it's installed at the next restart)"; exit 1; }
@@ -572,16 +581,16 @@ kbd-style)  # KEY=VALUE...: S6 Keyboard's theme (auto light dark black tinted), 
   for kv in "$@"; do
     k=${kv%%=*}; v=${kv#*=}
     case "$k=$v" in
-      theme=auto|theme=light|theme=dark|theme=black|theme=tinted|accent=system|borders=true|borders=false|hints=true|hints=false|height=short|height=normal|height=tall|mode=docked|mode=floating) ;;
+      theme=auto|theme=light|theme=dark|theme=black|theme=tinted|accent=system|borders=true|borders=false|hints=true|hints=false|height=short|height=normal|height=tall|mode=docked|mode=floating|numrow=true|numrow=false) ;;
       accent=\#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;;
       *) echo "kbd-style: not understood: $kv"; exit 2 ;;
     esac
     setconf "kb-$k" "$v"
   done
   mkdir -p "$HOME/.config/s6migrate"
-  printf '{"theme": "%s", "accent": "%s", "borders": %s, "hints": %s, "height": "%s", "mode": "%s"}\n' "$(getconf kb-theme)" "$(getconf kb-accent)" \
+  printf '{"theme": "%s", "accent": "%s", "borders": %s, "hints": %s, "height": "%s", "mode": "%s", "numrow": %s}\n' "$(getconf kb-theme)" "$(getconf kb-accent)" \
     "$( [ "$(getconf kb-borders)" = false ] && echo false || echo true)" "$( [ "$(getconf kb-hints)" = false ] && echo false || echo true)" \
-    "$(getconf kb-height)" "$(getconf kb-mode)" | sed 's/"theme": ""/"theme": "auto"/; s/"accent": ""/"accent": "system"/; s/"height": ""/"height": "normal"/; s/"mode": ""/"mode": "docked"/' \
+    "$(getconf kb-height)" "$(getconf kb-mode)" "$( [ "$(getconf kb-numrow)" = false ] && echo false || echo true)" | sed 's/"theme": ""/"theme": "auto"/; s/"accent": ""/"accent": "system"/; s/"height": ""/"height": "normal"/; s/"mode": ""/"mode": "docked"/' \
     > "$HOME/.config/s6migrate/keyboard.json"
   echo "keyboard look saved"
   ;;
@@ -791,7 +800,8 @@ status)
   echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; echo "MENUS|$(getconf menus)"
   echo "APPSTYLE|$(kreadconfig6 --file kdeglobals --group KDE --key widgetStyle 2>/dev/null | tr A-Z a-z)"
   echo "PLASMASTYLE|$(case "$(kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null)" in s6-darkly|darkly|Darkly) echo darkly ;; *) echo breeze ;; esac)"
-  echo "HASDARKLY|$(has_darkly && echo yes || echo no)"; for k in theme accent borders hints height mode; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
+  echo "HASDARKLY|$(has_darkly && echo yes || echo no)"
+  echo "WALLANDROID|$(ls -t "${XDG_DATA_HOME:-$HOME/.local/share}"/wallpapers/S6Migrate/android-home.* 2>/dev/null | head -n 1)"; for k in theme accent borders hints height mode numrow; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

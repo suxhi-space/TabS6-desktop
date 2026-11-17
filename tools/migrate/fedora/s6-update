@@ -142,8 +142,19 @@ rollback)
 self)
   [ "$(id -u)" = 0 ] || die "run as root"
   base="https://raw.githubusercontent.com/$SELF_REPO/$SELF_REF"
+  # S6 Migrate isn't on the repository's main branch yet: if the branch asked for hasn't got it, use the one it's
+  # developed on (a tablet set up before the update ZIP wrote self-source kept looking at main and failed)
+  if ! curl -fsSL -A "$UA" -o /dev/null "$base/tools/migrate/fedora/install.list"; then
+    for ref in claude/android-tablet-desktop-ui-755uqh main; do
+      [ "$ref" = "$SELF_REF" ] && continue
+      if curl -fsSL -A "$UA" -o /dev/null "https://raw.githubusercontent.com/$SELF_REPO/$ref/tools/migrate/fedora/install.list"; then
+        say "S6 Migrate isn't on $SELF_REF; using $ref"; SELF_REF=$ref; base="https://raw.githubusercontent.com/$SELF_REPO/$ref"
+        [ -s "$ST/self-source" ] || echo "$SELF_REPO@$ref" > "$ST/self-source"; break
+      fi
+    done
+  fi
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-  curl -fsSL -A "$UA" "$base/tools/migrate/fedora/install.list" -o "$T/install.list" || die "S6 Migrate's repository isn't reachable (it may still be private)"
+  curl -fsSL -A "$UA" "$base/tools/migrate/fedora/install.list" -o "$T/install.list" || die "couldn't download S6 Migrate from $SELF_REPO@$SELF_REF: check the internet connection (curl -I https://raw.githubusercontent.com)"
   newv=$(curl -fsSL -A "$UA" "$base/tools/migrate/fedora/app/s6ui.py" | sed -n 's/^VERSION = "\(.*\)"/\1/p')
   curv=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' /usr/local/share/s6migrate/app/s6ui.py 2>/dev/null)
   [ -n "$newv" ] || die "could not read the newest version"

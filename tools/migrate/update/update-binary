@@ -109,9 +109,13 @@ done
 
 ui " "
 ui "4/4 Look extras"
-mkdir -p "$S/maint"; : > "$S/maint/extras"
-ui "  Darkly, Better Blur DX, Papirus icons and the Inter font: installed at the next start, before the login"
-ui "  screen (needs Wi-Fi; the progress is shown)."
+if [ -f "$S/extras-done" ]; then
+  ui "  already added earlier: nothing to do at the next start (S6 Companion > Look can add them again)"
+else
+  mkdir -p "$S/maint"; : > "$S/maint/extras"
+  ui "  Darkly, Better Blur DX, Papirus icons and the Inter font: installed once at the next start, before the"
+  ui "  login screen (needs Wi-Fi; the progress is shown)."
+fi
 ui " "
 ui "Done. Reboot to System."
 sync

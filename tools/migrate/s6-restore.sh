@@ -73,6 +73,36 @@ touch "$LOG" 2>/dev/null || LOG=/dev/null
 say "Tab S6 Migration Assistant restore v$VERSION  $( [ $DRY = 1 ] && echo '(dry run: nothing is changed)')"
 say "Log: $LOG"
 
+# From S6 Companion each root step went through pkexec: one password prompt per step, a dozen per app. Ask once
+# instead: the helper's root session takes s6-restore's commands over a pipe only this script holds, and ends
+# with it. (In a terminal, sudo remembers the password by itself; during first setup none is needed.)
+SUDO_FILE=$SUDO                                   # for a downloaded .rpm: the root session only takes repo names
+asroot() { # asroot CMD ARGS... : run one command in the root session
+  local rc out err
+  [ -d "/proc/${S6ROOT_PID:-0}" ] || { echo "S6 Migrate: the admin session ended" >&2; return 126; }
+  printf '%s\0' "$#" "$@" >&7 2>/dev/null || { echo "S6 Migrate: the admin session ended" >&2; return 126; }
+  IFS= read -r -d '' rc <&8 || { echo "S6 Migrate: the admin session ended" >&2; return 126; }
+  IFS= read -r -d '' out <&8; IFS= read -r -d '' err <&8
+  out=${out%$'\n'}; [ -n "$out" ] && printf '%s\n' "$out"
+  [ -n "$err" ] && printf '%s\n' "$err" >&2
+  return "$rc"
+}
+root_untar() { # root_untar DIR PART... : unpack one archive (split in parts) as root
+  local d=$1; shift
+  if [ "$SUDO" = asroot ]; then asroot untar "$d" "$@"; else cat "$@" | $SUDO tar -xf - -C "$d"; fi
+}
+if [ "$SUDO" = pkexec ] && [ $DRY = 0 ] && [ -x "${S6R_HELPER:-/usr/local/libexec/s6migrate/s6-helper}" ]; then
+  say "Asking for your password once (it is used for every app)..."
+  coproc S6ROOT { exec pkexec "${S6R_HELPER:-/usr/local/libexec/s6migrate/s6-helper}" root-session 2>/dev/null; }
+  exec 7>&"${S6ROOT[1]}" 8<&"${S6ROOT[0]}"
+  if IFS= read -r -d '' hello <&8 && [ "$hello" = s6root ]; then
+    SUDO=asroot; S6ROOT_PID=$S6ROOT_PID   # kept after the session ends, so a step fails instead of the script
+  else
+    say "No admin permission was given, so nothing was changed. Try again and enter your password once."
+    exit 1
+  fi
+fi
+
 # ------------------------------------------------------------------ 1. find the package
 step "1/7 Find your package"
 if [ -z "$PKG" ]; then
@@ -376,7 +406,7 @@ restore_tree() { # restore_tree ARCHIVE_BASENAME HOST_PARENT OWNER : unpack <pkg
   if [ $DRY = 1 ]; then say "    would restore $(basename "$base") -> ${parent#$WD} (owner $owner)"; return 0; fi
   local tmp="$WD/local/tmp/s6m/x-$pkg"
   $SUDO rm -rf "$tmp"; $SUDO mkdir -p "$tmp" "$parent"
-  cat "$base".tar.* | $SUDO tar -xf - -C "$tmp" 2>>"$LOG" || { say "    could not unpack $(basename "$base")"; return 1; }
+  root_untar "$tmp" "$base".tar.* >>"$LOG" 2>&1 || { say "    could not unpack $(basename "$base")"; return 1; }
   $SUDO rm -rf "$parent/$pkg"
   $SUDO mv "$tmp/$pkg" "$parent/$pkg"
   $SUDO chown -R "$owner" "$parent/$pkg"
@@ -452,7 +482,7 @@ install_alt() { # install_alt NAME METHOD TARGET
       if [ $DRY = 1 ]; then say "  would download $url and install it"; return 0; fi
       f="$STAGE/$asset"
       curl -fsSL -o "$f" "$url" || { say "  $name: download failed"; return 1; }
-      run $SUDO dnf install -y "$f" ;;
+      run $SUDO_FILE dnf install -y "$f" ;;
     *) say "  $name: unknown install method $method"; return 1 ;;
   esac
 }

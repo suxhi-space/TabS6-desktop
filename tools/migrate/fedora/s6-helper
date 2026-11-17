@@ -36,6 +36,7 @@
 #   schedule-linux-apps USER PART    queue the Linux versions of your apps for the restart (before the first login)
 #   schedule repair|update|extras|codecs|cosmicfiles   queue maintenance for the next restart (s6-maint runs it before the login screen)
 #   unschedule repair|update|extras  take a queued job back
+#   root-session                     (s6-restore) one password for moving all your Android apps, not one per step
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ST=${S6H_STATE:-/var/lib/s6migrate}
@@ -528,6 +529,62 @@ schedule|unschedule)
   case "$job" in repair|update|extras|codecs|cosmicfiles) ;; *) die "unknown job: $job" ;; esac
   mkdir -p "$ST/maint"
   if [ "$act" = schedule ]; then date > "$ST/maint/$job"; echo "$job: at the next restart"; else rm -f "$ST/maint/$job"; echo "$job: not queued"; fi
+  ;;
+
+root-session)
+  # Moving your Android apps needs root a dozen times per app. Asking for the password each time was hundreds of
+  # prompts, so s6-restore opens this once (one password) and sends it its commands over a pipe only it holds.
+  # It ends when s6-restore does. Only the commands s6-restore uses are run, and only on its own folders.
+  uid=${PKEXEC_UID:-}; [[ "$uid" =~ ^[0-9]+$ ]] && [ "$uid" -ge 1000 ] || die "root-session runs only through pkexec"
+  u=$(id -nu "$uid" 2>/dev/null); valid_user "$u" || die "root-session: unknown user"
+  H=$(getent passwd "$u" | cut -d: -f6)
+  writable() { # every path is in s6-restore's folders: Waydroid's data, Bluetooth pairings, S6's own system files
+    local p r
+    for p in "$@"; do
+      r=$(readlink -m -- "$p") || return 1
+      case "$r" in
+        "$H"/.local/share/waydroid/*|/var/lib/waydroid/*|/var/lib/bluetooth|/var/lib/bluetooth/*|/etc/s6migrate|/etc/s6migrate/*) ;;
+        /etc/systemd/system|/etc/systemd/system/s6migrate-waydroid-share.service) ;;
+        *) return 1 ;;
+      esac
+    done
+  }
+  allowed() { # allowed CMD ARGS... : the shapes s6-restore sends
+    local c=$1; shift
+    case "$c" in
+      mkdir) [ "${1:-}" = -p ] && shift; [ $# -gt 0 ] && writable "$@" ;;
+      rm) [ "${1:-}" = -rf ] && shift; [ $# -gt 0 ] && writable "$@" ;;
+      chmod|chown) [ "${1:-}" = -R ] && shift; [ $# -gt 1 ] || return 1
+        [[ "$1" =~ ^([0-7]{3,4}|[ugoa]*[-+=][rwxX]+(,[ugoa]*[-+=][rwxX]+)*|[0-9]+:[0-9]+)$ ]] && shift && writable "$@" ;;
+      cp) [ "${1:-}" = -r ] && shift; [ $# -gt 1 ] && writable "${@: -1}" ;;
+      mv) [ $# = 2 ] && writable "$@" ;;
+      install) [ "${1:-}" = -m ] && [[ "${2:-}" =~ ^[0-7]{3,4}$ ]] && [ $# = 4 ] && writable "$4" ;;
+      stat) [ "${1:-}" = -c ] && [ $# = 3 ] ;;
+      untar) [ $# -gt 1 ] && writable "$1" ;;
+      waydroid) [ "${1:-}" = shell ] ;;
+      timedatectl) [ "${1:-}" = set-timezone ] && [ $# = 2 ] ;;
+      hostnamectl) [ "${1:-}" = set-hostname ] ;;
+      systemctl) case "$*" in "restart bluetooth"|daemon-reload|"enable --now s6migrate-waydroid-share.service") ;; *) return 1 ;; esac ;;
+      dnf) [ "${1:-}" = install ] && [ "${2:-}" = -y ] && [ $# = 3 ] && [[ "$3" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] ;;  # names from Fedora's repos only
+      *) return 1 ;;
+    esac
+  }
+  log "root-session for $u"
+  printf 's6root\0'
+  while IFS= read -r -d '' n; do
+    [[ "$n" =~ ^[0-9]{1,4}$ ]] && [ "$n" -gt 0 ] || exit 2
+    argv=(); for ((i = 0; i < n; i++)); do IFS= read -r -d '' a || exit 0; argv+=("$a"); done
+    ef=$(mktemp)
+    if ! allowed "${argv[@]}"; then
+      log "root-session refused: ${argv[*]}"; out=$'\n126'; echo "S6 Migrate: not allowed: ${argv[0]}" > "$ef"
+    elif [ "${argv[0]}" = untar ]; then   # untar DIR PART...: one archive split in parts
+      out=$(cat -- "${argv[@]:2}" </dev/null | tar -xf - -C "${argv[1]}" 2>"$ef"; printf '\n%s' "$?")
+    else
+      out=$("${argv[@]}" </dev/null 2>"$ef"; printf '\n%s' "$?")
+    fi
+    rc=${out##*$'\n'}; out=${out%$'\n'*}
+    printf '%s\0%s\0%s\0' "$rc" "$out" "$(cat "$ef")"; rm -f "$ef"
+  done
   ;;
 
 update-system) /usr/local/bin/s6-update system "${1:-}" ;;

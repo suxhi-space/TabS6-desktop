@@ -7,6 +7,8 @@ import QtQuick 2.9
 //   borders keys drawn as keys (true) or only their letters (false), like Gboard's "Key borders"
 //   hints   the small numbers and symbols on the keys (long-press them)
 //   height  short | normal | tall
+//   mode    docked (full width along the bottom) | floating (narrower, rounded, raised a little; still at the bottom
+//           centre: KWin places the keyboard there, and moving it froze the tablet)
 Item {
     id: st
     readonly property string source: "file://@KBSTYLE@"
@@ -23,7 +25,8 @@ Item {
     readonly property color accentText: lum(accent) > 0.62 ? "#1B1B1F" : "#FFFFFF"
     readonly property bool borders: cfg.borders !== false
     readonly property bool hints: cfg.hints !== false
-    readonly property real scale: cfg.height === "short" ? 0.88 : cfg.height === "tall" ? 1.12 : 1.0
+    readonly property real scale: (cfg.height === "short" ? 0.88 : cfg.height === "tall" ? 1.12 : 1.0) * (floating ? 0.9 : 1.0)
+    readonly property bool floating: cfg.mode === "floating"
 
     readonly property color base: theme === "black" ? "#000000" : dark ? "#1B1B1F" : "#E8EAED"
     readonly property color bg: theme === "tinted" ? Qt.tint(base, shade(accent, dark ? 0.16 : 0.20)) : base

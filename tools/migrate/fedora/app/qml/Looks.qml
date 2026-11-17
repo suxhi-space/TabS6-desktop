@@ -153,16 +153,16 @@ ApplicationWindow {
                     : "mkdir -p \"$HOME/.config/s6migrate\" && touch \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"], null, null)
             }
             Toggle {
-                width: parent.width; title: "Keyboard over the taskbar"
-                sub: "Like on a phone: the keyboard sits at the bottom of the screen, over the taskbar or dock, while it's open. New: try it, and switch it off if the keyboard jumps."
+                width: parent.width; title: "Hide the taskbar while typing"
+                sub: "Like on a phone: while the full keyboard is open, the taskbar or dock hides and comes back when it closes."
                 checked: win.cur.KBDOVER === "on"
                 onCheckedChanged: if ((win.cur.KBDOVER === "on") !== checked) win.apply(["kbd-over", checked ? "on" : "off"])
             }
             KeyboardStyle {
                 width: parent.width
                 theme: win.cur.KBTHEME || "auto"; accent: win.cur.KBACCENT || "system"
-                borders: win.cur.KBBORDERS !== "false"; hints: win.cur.KBHINTS !== "false"; kbheight: win.cur.KBHEIGHT || "normal"
-                onChanged: win.apply(["kbd-style", "theme=" + theme, "accent=" + accent, "borders=" + borders, "hints=" + hints, "height=" + kbheight])
+                borders: win.cur.KBBORDERS !== "false"; hints: win.cur.KBHINTS !== "false"; kbheight: win.cur.KBHEIGHT || "normal"; mode: win.cur.KBMODE || "docked"
+                onChanged: win.apply(["kbd-style", "theme=" + theme, "accent=" + accent, "borders=" + borders, "hints=" + hints, "height=" + kbheight, "mode=" + mode])
             }
         }
     }

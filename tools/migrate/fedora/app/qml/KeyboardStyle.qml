@@ -10,6 +10,7 @@ Column {
     property bool borders: true
     property bool hints: true
     property string kbheight: "normal"
+    property string mode: "docked"
     signal changed()
     spacing: 14
 
@@ -118,6 +119,12 @@ Column {
         width: parent.width; title: "Number and symbol hints"; checked: ks.hints
         sub: "The small numbers and symbols on the keys: hold a key to type them."
         onCheckedChanged: if (checked !== ks.hints) { ks.hints = checked; ks.changed() }
+    }
+    Segmented {
+        width: parent.width; label: "Position"; value: ks.mode
+        options: [{ id: "docked", label: "Docked", sub: "Full width along the bottom, like a phone" },
+                  { id: "floating", label: "Floating", sub: "Smaller and rounded, at the bottom centre (Plasma keeps keyboards there)" }]
+        onPicked: (id) => { ks.mode = id; ks.changed() }
     }
     Segmented {
         width: parent.width; label: "Keyboard height"; value: ks.kbheight

@@ -1,8 +1,8 @@
 {
     "KPlugin": {
         "Id": "s6-kbd",
-        "Name": "S6 Keyboard Over The Taskbar",
-        "Description": "While the on-screen keyboard is open, it sits at the bottom of the screen over the taskbar or dock, like on a phone",
+        "Name": "S6 Taskbar Steps Aside For The Keyboard",
+        "Description": "While the full on-screen keyboard is open, the taskbar or dock hides, like on a phone",
         "Authors": [ { "Name": "S6 Migrate" } ],
         "License": "GPL-2.0-only",
         "Version": "1.0",

@@ -1,8 +1,8 @@
-// S6 Migrate: the on-screen keyboard over the taskbar, like on a phone.
-// KWin puts the keyboard just above any panel that keeps its space free at the bottom of the screen. While the
-// keyboard is open, the bottom panels here stop keeping that space ("windows go below"), so it sits at the very
-// bottom over them; when it closes they keep their space again. The taskbar itself never disappears.
-// It never moves the keyboard itself: KWin places it once the space is free. (Moving it froze the tablet: the app
+// S6 Migrate: the taskbar steps aside while the full on-screen keyboard is open, like on a phone.
+// KWin puts the keyboard just above a taskbar that keeps its space, so while the full-width keyboard is open the
+// bottom panels hide (auto-hide), and the keyboard gets the bottom of the screen; when it closes they come back.
+// A floating (narrower) keyboard leaves the taskbar alone.
+// It never moves the keyboard itself: KWin places it. (An earlier version moved it and froze the tablet: the app
 // shrank around the keyboard, KWin put the keyboard back, the script moved it again, without end.)
 var lowered = [];      // ids of the panels changed here, to put back exactly those
 var busy = false;
@@ -13,11 +13,18 @@ function plasma(js, done) {
              function (out) { if (done) done(String(out || "")); });
 }
 
+function fullWidth() {   // the docked keyboard, not the floating one
+    try {
+        var area = workspace.clientArea(KWin.FullScreenArea, kbd);
+        return kbd.frameGeometry.width >= area.width * 0.95;
+    } catch (e) { return true; }
+}
+
 function opened() {
-    if (lowered.length || busy) return;
+    if (lowered.length || busy || !fullWidth()) return;
     busy = true;
     plasma("var ids = []; panels().forEach(function (p) { if (p.location == 'bottom' && p.hiding == 'none') " +
-           "{ p.hiding = 'windowsgobelow'; ids.push(p.id); } }); print(ids.join(','));",
+           "{ p.hiding = 'autohide'; ids.push(p.id); } }); print(ids.join(','));",
            function (out) {
                busy = false;
                lowered = out.trim() ? out.trim().split(",") : [];

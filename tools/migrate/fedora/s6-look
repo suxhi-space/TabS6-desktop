@@ -572,16 +572,16 @@ kbd-style)  # KEY=VALUE...: S6 Keyboard's theme (auto light dark black tinted), 
   for kv in "$@"; do
     k=${kv%%=*}; v=${kv#*=}
     case "$k=$v" in
-      theme=auto|theme=light|theme=dark|theme=black|theme=tinted|accent=system|borders=true|borders=false|hints=true|hints=false|height=short|height=normal|height=tall) ;;
+      theme=auto|theme=light|theme=dark|theme=black|theme=tinted|accent=system|borders=true|borders=false|hints=true|hints=false|height=short|height=normal|height=tall|mode=docked|mode=floating) ;;
       accent=\#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;;
       *) echo "kbd-style: not understood: $kv"; exit 2 ;;
     esac
     setconf "kb-$k" "$v"
   done
   mkdir -p "$HOME/.config/s6migrate"
-  printf '{"theme": "%s", "accent": "%s", "borders": %s, "hints": %s, "height": "%s"}\n' "$(getconf kb-theme)" "$(getconf kb-accent)" \
+  printf '{"theme": "%s", "accent": "%s", "borders": %s, "hints": %s, "height": "%s", "mode": "%s"}\n' "$(getconf kb-theme)" "$(getconf kb-accent)" \
     "$( [ "$(getconf kb-borders)" = false ] && echo false || echo true)" "$( [ "$(getconf kb-hints)" = false ] && echo false || echo true)" \
-    "$(getconf kb-height)" | sed 's/"theme": ""/"theme": "auto"/; s/"accent": ""/"accent": "system"/; s/"height": ""/"height": "normal"/' \
+    "$(getconf kb-height)" "$(getconf kb-mode)" | sed 's/"theme": ""/"theme": "auto"/; s/"accent": ""/"accent": "system"/; s/"height": ""/"height": "normal"/; s/"mode": ""/"mode": "docked"/' \
     > "$HOME/.config/s6migrate/keyboard.json"
   echo "keyboard look saved"
   ;;
@@ -716,8 +716,9 @@ heal)
   fi
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
   tray_tidy
-  # a taskbar left in "windows go below" (the keyboard script, if the session ended while the keyboard was open)
-  if [ "$(getconf kbd-over)" != on ] && grep -q '^panelVisibility=3' "${XDG_CONFIG_HOME:-$HOME/.config}/plasmashellrc" 2>/dev/null; then
+  # a taskbar left hidden (the keyboard script, if the session ended while the keyboard was open): panels never hide
+  # by themselves here, a hidden one may not come back on a touch screen
+  if grep -q '^panelVisibility=[13]' "${XDG_CONFIG_HOME:-$HOME/.config}/plasmashellrc" 2>/dev/null; then
     plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null 2>&1
   fi
   darkly_glass   # Darkly's Plasma style, see-through like Breeze
@@ -790,7 +791,7 @@ status)
   echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; echo "MENUS|$(getconf menus)"
   echo "APPSTYLE|$(kreadconfig6 --file kdeglobals --group KDE --key widgetStyle 2>/dev/null | tr A-Z a-z)"
   echo "PLASMASTYLE|$(case "$(kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null)" in s6-darkly|darkly|Darkly) echo darkly ;; *) echo breeze ;; esac)"
-  echo "HASDARKLY|$(has_darkly && echo yes || echo no)"; for k in theme accent borders hints height; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
+  echo "HASDARKLY|$(has_darkly && echo yes || echo no)"; for k in theme accent borders hints height mode; do echo "KB$(echo $k | tr a-z A-Z)|$(getconf kb-$k)"; done; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

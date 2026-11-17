@@ -26,6 +26,28 @@ PlasmoidItem {
         st = s
     }
     function run(args) { sh.connectSource(cmd + " " + args) }
+    function q(t) { return "'" + String(t).replace(/'/g, "'\\''") + "'" }   // one shell argument
+    // a tile's page: Wi-Fi networks, Bluetooth devices (kept fresh while it's open)
+    property var nets: []
+    property var devs: []
+    property bool scanning: false
+    property string page: "main"
+    function pageShown(p) { page = p; if (p === "wifi") { listWifi(); scanWifi() } else if (p === "bt") listBt() }
+    function listWifi() { sh.connectSource(cmd + " wifi-list") }
+    function listBt() { sh.connectSource(cmd + " bt-list") }
+    function scanWifi() { scanning = true; sh.connectSource(cmd + " wifi-scan") }
+    function connectWifi(ssid) { run("wifi-connect " + q(ssid)) }
+    function disconnectWifi() { run("wifi-disconnect") }
+    function btConnect(mac, on) { run((on ? "bt-connect " : "bt-disconnect ") + mac) }
+    function parseList(out, tag) {
+        var r = []
+        String(out).split("\n").forEach(function (l) {
+            var f = l.split("|"); if (f[0] !== tag) return
+            if (tag === "NET") r.push({ ssid: f[1], signal: parseInt(f[2]) || 0, secure: f[3] === "1", active: f[4] === "1", saved: f[5] === "1" })
+            else r.push({ mac: f[1], name: f[2], connected: f[3] === "1", icon: f[4] || "" })
+        })
+        return r
+    }
     function refresh() { sh.connectSource(cmd + " status") }
     // what the panel calls
     function toggle(k) { var s = Object.assign({}, st); if (k !== "mute") s[k] = s[k] === "on" ? "off" : "on"; st = s; run("toggle " + k) }
@@ -46,17 +68,22 @@ PlasmoidItem {
         connectedSources: []
         onNewData: (source, data) => {
             if (source.endsWith(" status")) root.parse(data["stdout"])
+            else if (source.endsWith(" wifi-list")) root.nets = root.parseList(data["stdout"], "NET")
+            else if (source.endsWith(" bt-list")) root.devs = root.parseList(data["stdout"], "DEV")
+            else if (source.endsWith(" wifi-scan")) { root.scanning = false; root.listWifi() }
             else again.restart()
             disconnectSource(source)
         }
     }
-    Timer { id: again; interval: 700; onTriggered: root.refresh() }
+    Timer { id: again; interval: 700; onTriggered: { root.refresh(); if (root.page === "wifi") root.listWifi(); else if (root.page === "bt") root.listBt() } }
+    Timer { interval: 4000; repeat: true; running: root.expanded && root.page !== "main"
+            onTriggered: root.page === "wifi" ? root.listWifi() : root.listBt() }
     Timer { interval: root.expanded ? 3000 : 15000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refresh() }
-    onExpandedChanged: if (expanded) refresh()
+    onExpandedChanged: if (expanded) refresh(); else page = "main"
 
     compactRepresentation: MouseArea {
         id: cr
-        readonly property real ic: Math.min(height, width) * 0.5 > 0 ? Math.max(16, Math.min(24, parent ? parent.height * 0.42 : 20)) : 20
+        readonly property real ic: Kirigami.Units.iconSizes.smallMedium   // the same size as the tray's icons
         Layout.minimumWidth: row.implicitWidth + Kirigami.Units.smallSpacing * 2
         Layout.preferredWidth: Layout.minimumWidth
         hoverEnabled: true
@@ -73,7 +100,9 @@ PlasmoidItem {
         }
     }
     fullRepresentation: QuickPanel {
+        id: panel
         backend: root; pal: root.pal
+        Connections { target: root; function onExpandedChanged() { if (!root.expanded) panel.page = "main" } }
         Layout.preferredWidth: implicitWidth; Layout.preferredHeight: implicitHeight
         Layout.minimumWidth: implicitWidth; Layout.minimumHeight: implicitHeight
     }

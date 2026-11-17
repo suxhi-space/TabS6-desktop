@@ -16,9 +16,18 @@ Canvas {
         function A(x, y, r, a0, a1, fill) { c.beginPath(); c.arc(x*s, y*s, r*s, a0, a1); fill ? c.fill() : c.stroke() }
         function R(x, y, w, h, r) { c.beginPath(); c.roundedRect(x*s, y*s, w*s, h*s, r*s, r*s); c.stroke() }
         switch (name) {
-        case "wifi":
-            A(12, 19, 15, -Math.PI*0.76, -Math.PI*0.24); A(12, 19, 10, -Math.PI*0.74, -Math.PI*0.26); A(12, 19, 5, -Math.PI*0.7, -Math.PI*0.3); A(12, 19, 1.5, 0, 7, true)
+        case "wifi":   // level 0..1 (signal): the arcs it doesn't reach are faint
+            c.globalAlpha = level >= 0 && level < 0.75 ? 0.3 : 1; A(12, 19, 15, -Math.PI*0.76, -Math.PI*0.24)
+            c.globalAlpha = level >= 0 && level < 0.45 ? 0.3 : 1; A(12, 19, 10, -Math.PI*0.74, -Math.PI*0.26)
+            c.globalAlpha = level >= 0 && level < 0.2 ? 0.3 : 1; A(12, 19, 5, -Math.PI*0.7, -Math.PI*0.3)
+            c.globalAlpha = 1; A(12, 19, 1.5, 0, 7, true)
             if (!on) L([3, 3, 21, 21]); break
+        case "back": L([15, 6, 9, 12, 15, 18]); break
+        case "check": L([5, 12.5, 10, 17.5, 19, 7]); break
+        case "refresh": A(12, 12, 7.5, -Math.PI*0.35, Math.PI*1.45); L([17.5, 3.5, 18.5, 7.5, 14.5, 8.5]); break
+        case "plus": L([12, 5, 12, 19]); L([5, 12, 19, 12]); break
+        case "headset": A(12, 13, 8, Math.PI, 0); R(3, 13, 4.5, 7, 2); R(16.5, 13, 4.5, 7, 2); break
+        case "device": R(6, 2.5, 12, 19, 2.5); L([10.5, 18.5, 13.5, 18.5]); break
         case "bt": L([7, 7.5, 17, 16.5, 12, 21, 12, 3, 17, 7.5, 7, 16.5]); break
         case "plane": c.beginPath(); c.moveTo(12*s, 2*s); c.lineTo(13.5*s, 9*s); c.lineTo(22*s, 14*s); c.lineTo(22*s, 16*s); c.lineTo(13.5*s, 13.5*s)
             c.lineTo(13*s, 19*s); c.lineTo(15.5*s, 21*s); c.lineTo(15.5*s, 22.5*s); c.lineTo(12*s, 21.5*s); c.lineTo(8.5*s, 22.5*s); c.lineTo(8.5*s, 21*s)

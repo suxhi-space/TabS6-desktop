@@ -64,6 +64,10 @@ fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QuickPanel.qml|/usr/shar
 fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QsTile.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QsTile.qml|644|
 fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QsSlider.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QsSlider.qml|644|
 fedora/plasmoid/org.s6migrate.quicksettings/contents/ui/QsIcon.qml|/usr/share/plasma/plasmoids/org.s6migrate.quicksettings/contents/ui/QsIcon.qml|644|
+fedora/plasmoid/org.s6migrate.clock/metadata.json|/usr/share/plasma/plasmoids/org.s6migrate.clock/metadata.json|644|
+fedora/plasmoid/org.s6migrate.clock/contents/config/main.xml|/usr/share/plasma/plasmoids/org.s6migrate.clock/contents/config/main.xml|644|
+fedora/plasmoid/org.s6migrate.clock/contents/ui/main.qml|/usr/share/plasma/plasmoids/org.s6migrate.clock/contents/ui/main.qml|644|
+fedora/plasmoid/org.s6migrate.clock/contents/ui/ClockPanel.qml|/usr/share/plasma/plasmoids/org.s6migrate.clock/contents/ui/ClockPanel.qml|644|
 fedora/system/s6-keys|/usr/local/libexec/s6migrate/s6-keys|755|
 fedora/system/s6-keys.service|/etc/systemd/system/s6-keys.service|644|
 fedora/osd/Osd.qml|/usr/local/share/s6migrate/osd/Osd.qml|644|

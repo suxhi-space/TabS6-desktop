@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Id": "org.s6migrate.clock",
+        "Name": "S6 Clock and Notifications",
+        "Description": "Time and date in the taskbar; tap for your notifications and a calendar you can fold away, like Windows 11",
+        "Icon": "preferences-system-time",
+        "Category": "Date and Time",
+        "Authors": [ { "Name": "S6 Migrate" } ],
+        "License": "GPL-2.0-only",
+        "Version": "1.0",
+        "Website": "https://github.com/suxhi-space/TabS6-desktop"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

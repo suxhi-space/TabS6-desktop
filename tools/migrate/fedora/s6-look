@@ -104,6 +104,8 @@ s6_icons() { # s6_icons BASE(Papirus|Papirus-Dark) -> prints the theme name to u
   col=${col:-yellow}; src=/usr/share/icons/Papirus
   [ -d "$src/48x48/places" ] && ls "$src/48x48/places/folder-$col.svg" >/dev/null 2>&1 || { echo "$base"; return; }
   name="S6-$base"; out="${XDG_DATA_HOME:-$HOME/.local/share}/icons/$name"
+  # icons Papirus hasn't got come from Breeze: its dark set in dark mode (the light set drew dark icons on dark panels)
+  local fb=breeze; case "$base" in *Dark*) fb=breeze-dark ;; esac
   rm -rf "$out"; mkdir -p "$out"
   for d in "$src"/*/places; do
     sz=$(basename "$(dirname "$d")"); ls "$d/folder-$col".svg >/dev/null 2>&1 || continue
@@ -115,7 +117,7 @@ s6_icons() { # s6_icons BASE(Papirus|Papirus-Dark) -> prints the theme name to u
     ln -sf "$d/folder-$col.svg" "$out/$sz/places/inode-directory.svg"   # plain folders in the file list
     dirs="$dirs${dirs:+,}$sz/places"
   done
-  { printf '[Icon Theme]\nName=S6 %s\nComment=Papirus with %s folders (S6 Migrate)\nInherits=%s,breeze,hicolor\nDirectories=%s\n' "$base" "$col" "$base" "$dirs"
+  { printf '[Icon Theme]\nName=S6 %s\nComment=Papirus with %s folders (S6 Migrate)\nInherits=%s,%s,hicolor\nDirectories=%s\n' "$base" "$col" "$base" "$fb" "$dirs"
     for x in ${dirs//,/ }; do   # each folder size exactly as Papirus defines it, so it's picked at every size
       if grep -q "^\[$x\]" "$src/index.theme"; then printf '\n'; sed -n "/^\[${x//\//\\/}\]/,/^\$/p" "$src/index.theme" | sed '/^$/d'
       else sz=${x%%/*}; n=${sz%%x*}; printf '\n[%s]\nContext=Places\nSize=%s\nType=Fixed\n' "$x" "$n"; fi
@@ -170,29 +172,98 @@ files_desktop() {
 files_apply() { xdg-mime default "$(files_desktop)" inode/directory 2>/dev/null; }
 # Tray tidy (every login): where S6 Quick Settings is in a panel, the tray's own Wi-Fi, sound, battery, Bluetooth,
 # brightness and keyboard icons are switched off (not just tucked away), so nothing shows twice.
-LAYOUT_V=3   # raise when the layouts change: each S6 layout is applied again at the next login (pinned apps kept)
-tray_tidy() {
-  plasma_js '
-var QS = "org.s6migrate.quicksettings";
-var OFF = ["org.kde.plasma.networkmanagement", "org.kde.plasma.volume", "org.kde.plasma.battery", "org.kde.plasma.bluetooth",
-           "org.kde.plasma.brightness", "org.kde.plasma.keyboardindicator", "org.kde.plasma.manage-inputmethod"];
-function list(v) { return typeof v === "string" ? (v ? v.split(",") : []) : (v || []); }
-var ps = panels();
-for (var i = 0; i < ps.length; i++) {
-  if (ps[i].widgets(QS).length == 0) continue;
-  var sts = ps[i].widgets("org.kde.plasma.systemtray");
-  for (var j = 0; j < sts.length; j++) { try {
-    var c = desktopById(sts[j].readConfig("SystrayContainmentId"));
-    c.currentConfigGroup = ["General"];
-    var extra = list(c.readConfig("extraItems")).filter(function (x) { return OFF.indexOf(x) < 0; });
-    if (extra.length) c.writeConfig("extraItems", extra);
-    var hid = list(c.readConfig("hiddenItems"));
-    for (var k = 0; k < OFF.length; k++) if (hid.indexOf(OFF[k]) < 0) hid.push(OFF[k]);
-    c.writeConfig("hiddenItems", hid);
-    var shown = list(c.readConfig("shownItems")).filter(function (x) { return OFF.indexOf(x) < 0; });
-    c.writeConfig("shownItems", shown);
-  } catch (e) { } }
-}' >/dev/null 2>&1
+LAYOUT_V=4   # raise when the layouts change: each S6 layout is applied again at the next login (pinned apps kept)
+tray_tidy() { # the tray shows apps' icons only: Wi-Fi, sound, battery, brightness and Bluetooth are in Quick Settings
+  # (and notifications in the S6 clock, when it's there). Changing the tray while Plasma runs didn't stick (Plasma
+  # wrote its own copy back), so its saved settings are corrected with Plasma stopped, once, when needed.
+  local f="${XDG_CONFIG_HOME:-$HOME/.config}/plasma-org.kde.plasma.desktop-appletsrc" todo
+  [ -f "$f" ] || return 0
+  todo=$(python3 - "$f" <<'PY'
+import re, sys
+QS, CLOCK = "org.s6migrate.quicksettings", "org.s6migrate.clock"
+OFF = ["org.kde.plasma.networkmanagement", "org.kde.plasma.volume", "org.kde.plasma.battery", "org.kde.plasma.bluetooth",
+       "org.kde.plasma.brightness", "org.kde.plasma.keyboardindicator", "org.kde.plasma.manage-inputmethod"]
+groups, cur = {}, None
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = line.rstrip("\n")
+    m = re.match(r"^((\[[^\]]*\])+)$", line)
+    if m: cur = tuple(re.findall(r"\[([^\]]*)\]", line)); groups.setdefault(cur, {}); continue
+    if cur is not None and "=" in line:
+        k, v = line.split("=", 1); groups[cur][k] = v
+plugins = [g.get("plugin", "") for g in groups.values()]
+if QS not in plugins: sys.exit(0)
+off = OFF
+# notifications are in the S6 clock; Plasma's notification icon still has to run (it shows the pop-ups), so it's
+# tucked away under ^ rather than turned off
+tuck = ["org.kde.plasma.notifications"] if CLOCK in plugins else []
+for g, kv in groups.items():
+    if len(g) != 2 or g[0] != "Containments" or kv.get("plugin") != "org.kde.plasma.private.systemtray": continue
+    gen = groups.get(g + ("General",), {})
+    lst = lambda k: [x for x in gen.get(k, "").split(",") if x]
+    extra = [x for x in lst("extraItems") if x not in off]
+    hidden = [x for x in lst("hiddenItems") if x not in off] + [x for x in tuck if x not in lst("hiddenItems")]
+    shown = [x for x in lst("shownItems") if x not in off and x not in tuck]
+    known = lst("knownItems") + [x for x in off if x not in lst("knownItems")]   # known: Plasma won't add them back
+    want = {"extraItems": ",".join(extra), "hiddenItems": ",".join(hidden), "shownItems": ",".join(shown),
+            "knownItems": ",".join(known), "scaleIconsToFit": "false", "iconSpacing": "2"}
+    for k, v in want.items():
+        if gen.get(k, "") != v: print("%s\t%s\t%s" % (g[1], k, v))
+PY
+)
+  [ -n "$todo" ] || return 0
+  systemctl --user stop plasma-plasmashell.service 2>/dev/null || pkill -x plasmashell; sleep 1
+  printf '%s\n' "$todo" | while IFS=$'\t' read -r id k v; do
+    kw --file "$f" --group Containments --group "$id" --group General --key "$k" "$v"
+  done
+  systemctl --user start plasma-plasmashell.service 2>/dev/null || (plasmashell >/dev/null 2>&1 &)
+}
+# Darkly's Plasma style draws its panels and pop-ups solid: it has no see-through versions, which Plasma uses when blur
+# is on (Breeze has them). "Darkly (see-through)" is Darkly's style plus those, made from the installed one; it's
+# rebuilt when Darkly updates, and used instead of Darkly's when that was chosen.
+darkly_glass() {
+  local src="" d out="${XDG_DATA_HOME:-$HOME/.local/share}/plasma/desktoptheme/s6-darkly"
+  for d in /usr/share/plasma/desktoptheme/darkly /usr/share/plasma/desktoptheme/Darkly; do [ -d "$d" ] && src=$d && break; done
+  [ -n "$src" ] || return 0
+  local stamp; stamp=$(stat -c %Y "$src/metadata.json" "$src" 2>/dev/null | tr '\n' ' ')
+  if [ "$(cat "$out/.s6stamp" 2>/dev/null)" != "$stamp" ]; then
+    python3 - "$src" "$out" <<'PY' || return 0
+import gzip, json, os, re, shutil, sys
+src, out = sys.argv[1:3]
+shutil.rmtree(out, ignore_errors=True); os.makedirs(out)
+for n in os.listdir(src):                      # everything of Darkly's, as it is
+    if n not in ("metadata.json", "metadata.desktop", "translucent", "plasmarc"):
+        os.symlink(os.path.join(src, n), os.path.join(out, n))
+try: meta = json.load(open(os.path.join(src, "metadata.json")))
+except Exception: meta = {"KPlugin": {}}
+k = meta.setdefault("KPlugin", {})
+k.update({"Id": "s6-darkly", "Name": "Darkly (see-through)",
+          "Description": "Darkly's Plasma style with see-through panels and pop-ups, blurred behind like Breeze (made by S6 Migrate from Darkly)"})
+json.dump(meta, open(os.path.join(out, "metadata.json"), "w"), indent=1)
+def glass(svg, alpha):                          # the background parts let the blur show through
+    def tag(m):
+        t = m.group(0)
+        if "ColorScheme-Background" not in t: return t
+        if re.search(r'style="', t): return re.sub(r'style="([^"]*)"', lambda s: 'style="%s;fill-opacity:%s"' % (s.group(1).rstrip(";"), alpha), t, count=1)
+        return t[:-2] + ' style="fill-opacity:%s"/>' % alpha if t.endswith("/>") else t[:-1] + ' style="fill-opacity:%s">' % alpha
+    return re.sub(r"<(path|rect|circle|ellipse)\b[^>]*>", tag, svg)
+for rel, alpha in (("widgets/panel-background", "0.72"), ("dialogs/background", "0.80"), ("widgets/background", "0.80"), ("widgets/tooltip", "0.85")):
+    for ext in (".svg", ".svgz"):
+        f = os.path.join(src, rel + ext)
+        if not os.path.exists(f): continue
+        raw = open(f, "rb").read()
+        text = (gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw).decode("utf-8")
+        dst = os.path.join(out, "translucent", rel + ".svg")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        open(dst, "w", encoding="utf-8").write(glass(text, alpha))
+        break
+open(os.path.join(out, "plasmarc"), "w").write("[ContrastEffect]\nenabled=true\ncontrast=0.3\nintensity=1.9\nsaturation=1.7\n"
+                                                 "[BlurBehindEffect]\nenabled=true\n[AdaptiveTransparency]\nenabled=true\n")
+PY
+    echo "$stamp" > "$out/.s6stamp"
+  fi
+  case "$(kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null)" in
+    darkly|Darkly) plasma-apply-desktoptheme s6-darkly >/dev/null 2>&1 ;;
+  esac
 }
 # Back to Dolphin's own look: undo what S6 set (toolbar layout, stylesheet launcher and service, view settings).
 dolphin_default() {
@@ -209,7 +280,11 @@ dolphin_default() {
   kwriteconfig6 --file dolphinrc --group MainWindow --group "Toolbar mainToolBar" --key IconSize --delete 2>/dev/null
   kwriteconfig6 --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key IconSize --delete 2>/dev/null
   kwriteconfig6 --file dolphinrc --group MainWindow --group "Toolbar s6FileActions" --key ToolButtonStyle --delete 2>/dev/null
-  setconf dolphin-default 1
+  # Darkly draws no box behind Dolphin's address bar (its own default, written out in case it was changed)
+  darkly --group Style --key DisableDolphinUrlNavigatorBackground true
+  # a Dolphin still running in the background (it opens folders for other apps) kept the old look until it restarted
+  pkill -u "$(id -u)" -f 'dolphin .*-stylesheet' 2>/dev/null
+  setconf dolphin-default 2
 }
 kwin_reload() { busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 || true; }
 panel_opacity() { # 0 adaptive, 1 opaque, 2 translucent: for every panel (Plasma keeps it in plasmashellrc)
@@ -323,6 +398,12 @@ var HIDE = ["org.kde.plasma.networkmanagement", "org.kde.plasma.volume", "org.kd
             "org.kde.plasma.brightness", "org.kde.plasma.keyboardindicator", "org.kde.plasma.manage-inputmethod"];
 // The clock like Windows 11: time with the date under it (beside it on a thin top bar)
 function clock(p, beside) {
+  // the S6 clock: time over date, and your notifications and a calendar when tapped (like Windows 11)
+  if (knownWidgetTypes.indexOf("org.s6migrate.clock") >= 0) {
+    var s = p.addWidget("org.s6migrate.clock");
+    try { s.currentConfigGroup = ["General"]; s.writeConfig("beside", !!beside); } catch (e) { }
+    return;
+  }
   var c = p.addWidget("org.kde.plasma.digitalclock");
   try { c.currentConfigGroup = ["Appearance"];
         c.writeConfig("showDate", true); c.writeConfig("dateDisplayFormat", beside ? "BesideTime" : "BelowTime");
@@ -603,7 +684,8 @@ heal)
   fi
   polish; keyboard   # icons, font and keyboard, once the extras arrived (they're installed at a restart)
   tray_tidy
-  [ "$(getconf dolphin-default)" = 1 ] || dolphin_default   # once: Dolphin back to its own look
+  darkly_glass   # Darkly's Plasma style, see-through like Breeze
+  [ "$(getconf dolphin-default)" = 2 ] || dolphin_default   # once: Dolphin back to its own look
   # COSMIC Files arrived since it was chosen: open folders with it and pin it
   if [ "$(getconf files)" = cosmic ] && [ "$(xdg-mime query default inode/directory 2>/dev/null)" != "$(files_desktop)" ]; then
     files_apply; [ "$(files_desktop)" = "$COSMIC_FILES" ] && setconf panels-pending 1

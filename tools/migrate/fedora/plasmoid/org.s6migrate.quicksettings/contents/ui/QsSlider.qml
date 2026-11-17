@@ -11,7 +11,7 @@ Rectangle {
     signal moved(real v)               // while dragging (throttled by the caller)
     signal released(real v)
     signal iconTapped()
-    height: 52; radius: 26
+    height: 48; radius: 24
     color: pal.tile
     readonly property real shown: drag.pressed ? drag.live : value
     Rectangle {
@@ -20,7 +20,7 @@ Rectangle {
         Behavior on width { enabled: !drag.pressed; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
     }
     QsIcon {
-        x: 16; anchors.verticalCenter: parent.verticalCenter; width: 22; height: 22
+        x: 16; anchors.verticalCenter: parent.verticalCenter; width: 20; height: 20
         name: s.icon; on: s.iconOn; color: s.shown * s.width > 40 ? pal.accentFg : pal.fg
         MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: s.iconTapped(); z: 2 }
     }

@@ -5,7 +5,11 @@
 #                                   brightness volume muted battery charging
 #   s6-quick toggle wifi|bt|airplane|dark|night|keyboard|saver|mute
 #   s6-quick brightness 0-100       s6-quick volume 0-100
-#   s6-quick open settings|wifi|bt|display|sound|battery|lock|power|screenshot
+#   s6-quick open settings|wifi|bt|display|sound|battery|colors|night|keyboard|lock|power|screenshot
+#   s6-quick wifi-list              NET|ssid|signal|secure|active|saved  (strongest first)
+#   s6-quick wifi-scan | wifi-connect SSID | wifi-disconnect
+#   s6-quick bt-list                DEV|mac|name|connected|icon
+#   s6-quick bt-connect MAC | bt-disconnect MAC
 PD=(org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl org.kde.Solid.PowerManagement.Actions.BrightnessControl)
 num() { busctl --user call "$@" 2>/dev/null | awk '{print $2}'; }   # busctl (systemd): qdbus6 isn't on Fedora under that name
 kr() { kreadconfig6 "$@" 2>/dev/null; }
@@ -62,8 +66,12 @@ toggle)
     bt) if bluetoothctl show | grep -q "Powered: yes"; then bluetoothctl power off; else rfkill unblock bluetooth; bluetoothctl power on; fi >/dev/null ;;
     airplane) if [ "$(rfkill list | grep -c 'Soft blocked: no')" -gt 0 ]; then rfkill block all; else rfkill unblock all; fi ;;
     dark) if kr --file kdeglobals --group General --key ColorScheme | grep -qi dark; then s6-look theme light; else s6-look theme dark; fi >/dev/null ;;
+    # Night light: "always on" while on. In KWin's default (automatic) mode it waits for your location, which the
+    # tablet doesn't give, so switching it on from here did nothing.
     night) if [ "$(kr --file kwinrc --group NightColor --key Active)" = true ]; then kw --file kwinrc --group NightColor --key Active false
-           else kw --file kwinrc --group NightColor --key Active true; fi; busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 ;;
+           else kw --file kwinrc --group NightColor --key Active true; kw --file kwinrc --group NightColor --key Mode Constant
+                [ -n "$(kr --file kwinrc --group NightColor --key NightTemperature)" ] || kw --file kwinrc --group NightColor --key NightTemperature 4200
+           fi; busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 ;;
     keyboard) if vk; then t=false; else t=true; fi
               busctl --user set-property org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard enabled b $t ;;
     saver) [ "$(powerprofilesctl get)" = power-saver ] && powerprofilesctl set balanced || powerprofilesctl set power-saver ;;
@@ -78,10 +86,46 @@ open)
   case "${2:-settings}" in
     settings) systemsettings ;; wifi) systemsettings kcm_networkmanagement ;; bt) systemsettings kcm_bluetooth ;;
     display) systemsettings kcm_kscreen ;; sound) systemsettings kcm_pulseaudio ;; battery) systemsettings kcm_powerdevilprofilesconfig ;;
+    colors) systemsettings kcm_colors ;; night) systemsettings kcm_nightlight ;; keyboard) systemsettings kcm_virtualkeyboard ;;
     lock) loginctl lock-session ;;
     power) busctl --user call org.kde.LogoutPrompt /LogoutPrompt org.kde.LogoutPrompt promptAll ;;
     screenshot) sleep 0.4; spectacle -r ;;
   esac >/dev/null 2>&1 &
   ;;
-*) sed -n '3,8p' "$0"; exit 2 ;;
+wifi-list)
+  # every network once (its strongest signal), the one you're on first, then saved ones, then by signal
+  nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null | python3 -c '
+import re, subprocess, sys
+saved = set()
+for name in subprocess.run(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], capture_output=True, text=True).stdout.splitlines():
+    f = re.split(r"(?<!\\):", name)
+    if len(f) == 2 and f[1] == "802-11-wireless": saved.add(f[0].replace("\\:", ":"))
+nets = {}
+for line in sys.stdin:
+    f = [x.replace("\\:", ":") for x in re.split(r"(?<!\\):", line.rstrip("\n"))]
+    if len(f) < 4 or not f[1]: continue
+    use, ssid, sig, sec = f[0] == "*", f[1], int(f[2] or 0), f[3] not in ("", "--")
+    o = nets.get(ssid)
+    if not o or use or sig > o[0]: nets[ssid] = (sig, sec, bool(use or (o and o[2])))
+for ssid, (sig, sec, use) in sorted(nets.items(), key=lambda kv: (not kv[1][2], kv[0] not in saved, -kv[1][0])):
+    print("NET|%s|%d|%d|%d|%d" % (ssid.replace("|", "/"), sig, sec, use, ssid in saved))
+' ;;
+wifi-scan) nmcli device wifi rescan >/dev/null 2>&1 ;;
+wifi-connect)
+  # a saved network connects straight away; for a new secured one, Plasma asks for the password itself (its own
+  # password window), so the password never goes through here
+  [ -n "${2:-}" ] || exit 2
+  ( nmcli connection up id "$2" >/dev/null 2>&1 || nmcli device wifi connect "$2" >/dev/null 2>&1 ) &
+  ;;
+wifi-disconnect) d=$(nmcli -t -f DEVICE,TYPE device | sed -n 's/:wifi$//p' | head -1); [ -n "$d" ] && nmcli device disconnect "$d" >/dev/null 2>&1 ;;
+bt-list)
+  conn=$(bluetoothctl devices Connected 2>/dev/null | awk '{print $2}')
+  bluetoothctl devices Paired 2>/dev/null | while read -r _ mac name; do
+    [ -n "$mac" ] || continue
+    icon=$(bluetoothctl info "$mac" 2>/dev/null | sed -n 's/^\s*Icon: //p' | head -1)
+    printf 'DEV|%s|%s|%d|%s\n' "$mac" "${name//|//}" "$(grep -qx "$mac" <<< "$conn" && echo 1 || echo 0)" "${icon:-bluetooth}"
+  done ;;
+bt-connect) [[ "${2:-}" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] && (bluetoothctl connect "$2" >/dev/null 2>&1 &) ;;
+bt-disconnect) [[ "${2:-}" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] && (bluetoothctl disconnect "$2" >/dev/null 2>&1 &) ;;
+*) sed -n '3,12p' "$0"; exit 2 ;;
 esac

@@ -81,6 +81,8 @@ fedora/splash/Splash.qml|/usr/local/share/s6migrate/splash/Splash.qml|644|
 fedora/s6-report|/usr/local/bin/s6-report|755|
 fedora/kwin/s6-fit/metadata.json|/usr/share/kwin/scripts/s6-fit/metadata.json|644|
 fedora/kwin/s6-fit/contents/code/main.js|/usr/share/kwin/scripts/s6-fit/contents/code/main.js|644|
+fedora/kwin/s6-kbd/metadata.json|/usr/share/kwin/scripts/s6-kbd/metadata.json|644|
+fedora/kwin/s6-kbd/contents/code/main.js|/usr/share/kwin/scripts/s6-kbd/contents/code/main.js|644|
 fedora/plymouth/s6/s6.plymouth|/usr/share/plymouth/themes/s6/s6.plymouth|644|
 fedora/plymouth/s6/s6.script|/usr/share/plymouth/themes/s6/s6.script|644|
 fedora/system/90-s6-hide-internal.rules|/etc/udev/rules.d/90-s6-hide-internal.rules|644|

@@ -56,6 +56,49 @@ patch("Keyboard.qml", [
      "                } // keyboardComp\n\n"
      "                S6Nav { anchors.bottom: parent.bottom; width: parent.width; height: fullScreenItem.s6nav }\n"),
 ])
+# Gboard-style colours: the keys are drawn by KDE's button style (Breeze) unless given their own background.
+# Dark or light follows your colour scheme; Enter takes your accent colour (the one carried over from Android).
+patch("Keyboard.qml", [
+    ("    property bool landscape: width > height\n",
+     "    property bool landscape: width > height\n"
+     "    SystemPalette { id: s6sys }   // S6: your colour scheme (works with Qt 5 and Qt 6 builds of Maliit)\n"
+     "    readonly property bool s6dark: (s6sys.window.r * 0.299 + s6sys.window.g * 0.587 + s6sys.window.b * 0.114) < 0.5\n"
+     "    readonly property color s6accent: s6sys.highlight\n"
+     "    readonly property color s6accentText: s6sys.highlightedText\n"
+     "    readonly property color s6bg: s6dark ? \"#1B1B1F\" : \"#E8EAED\"\n"
+     "    readonly property color s6key: s6dark ? \"#36363B\" : \"#FFFFFF\"\n"
+     "    readonly property color s6fn: s6dark ? \"#4A4A52\" : \"#C9CDD4\"\n"
+     "    readonly property color s6down: s6dark ? \"#62626C\" : \"#A9AEB7\"\n"
+     "    readonly property color s6text: s6dark ? \"#E6E5EA\" : \"#1B1B1F\"\n"),
+    ("                height: canvas.height\n",
+     "                height: canvas.height\n"
+     "                background: Rectangle { color: fullScreenItem.s6bg }   // S6\n"),
+    ("                    color: \"#888888\"\n                    anchors.bottom: wordRibbon.visible",
+     "                    color: \"transparent\"   // S6: no line above the keys\n                    anchors.bottom: wordRibbon.visible"),
+])
+patch("keys/CharKey.qml", [
+    ("            hoverEnabled: false\n",
+     "            hoverEnabled: false\n"
+     "            // S6: Gboard-style key: rounded, letter keys light, the others darker, Enter in your accent colour\n"
+     "            readonly property bool s6fnKey: key.noMagnifier && key.action !== \"space\"\n"
+     "            readonly property bool s6enter: key.action === \"return\"\n"
+     "            icon.color: s6enter ? fullScreenItem.s6accentText : fullScreenItem.s6text\n"
+     "            background: Rectangle {\n"
+     "                radius: Math.min(width, height) * 0.2\n"
+     "                color: keyButton.down ? (keyButton.s6enter ? Qt.darker(fullScreenItem.s6accent, 1.25) : fullScreenItem.s6down)\n"
+     "                     : keyButton.s6enter ? fullScreenItem.s6accent : keyButton.s6fnKey ? fullScreenItem.s6fn : fullScreenItem.s6key\n"
+     "                Behavior on color { ColorAnimation { duration: 90 } }\n"
+     "            }\n"),
+    ("                font.weight: Font.Light\n                anchors.right: parent.right\n",
+     "                font.weight: Font.Normal\n"
+     "                color: keyButton.s6enter ? fullScreenItem.s6accentText : fullScreenItem.s6text\n"
+     "                anchors.right: parent.right\n"),
+])
+# The key next to "?123" is always the emoji key (it became a language key whenever Fedora enabled more languages)
+patch("keys/LanguageKey.qml", [
+    ("    readonly property bool altLangs: Keyboard.enabledLanguages.length > 1\n",
+     "    readonly property bool altLangs: false   // S6: always the emoji key\n"),
+])
 patch("WordRibbon.qml", [
     ("        spacing: Device.gu(2)\n    }\n",
      "        spacing: Device.gu(2)\n    }\n\n"

@@ -126,6 +126,11 @@ polish() { # polish light|dark
   local th=${1:-$(getconf theme)} ic
   # windows stay on screen when the tablet turns (KWin script s6-fit)
   [ -f /usr/share/kwin/scripts/s6-fit/metadata.json ] && kw --file kwinrc --group Plugins --key s6-fitEnabled true
+  # the on-screen keyboard sits over the taskbar while it's open, like on a phone (KWin script s6-kbd)
+  if [ -f /usr/share/kwin/scripts/s6-kbd/metadata.json ] && [ "$(getconf kbd-over)" != off ] \
+     && [ "$(kreadconfig6 --file kwinrc --group Plugins --key s6-kbdEnabled 2>/dev/null)" != true ]; then
+    kw --file kwinrc --group Plugins --key s6-kbdEnabled true; kwin_reload
+  fi
   if [ -d /usr/share/icons/Papirus ]; then [ "$th" = dark ] && ic=Papirus-Dark || ic=Papirus; ic=$(s6_icons "$ic")
   else [ "$th" = dark ] && ic=breeze-dark || ic=breeze; fi
   if [ -x /usr/libexec/plasma-changeicons ] && pgrep -u "$(id -u)" -x plasmashell >/dev/null; then /usr/libexec/plasma-changeicons "$ic" >/dev/null 2>&1
@@ -448,6 +453,14 @@ effects)
   fi
   kwin_reload; setconf effects "$2"; echo "effects: $2"
   ;;
+kbd-over)   # on|off: the on-screen keyboard over the taskbar while it's open (KWin script s6-kbd)
+  case "${2:-on}" in
+    on)  setconf kbd-over on;  kw --file kwinrc --group Plugins --key s6-kbdEnabled true ;;
+    off) setconf kbd-over off; kw --file kwinrc --group Plugins --key s6-kbdEnabled false ;;
+    *) echo "usage: s6-look kbd-over on|off"; exit 2 ;;
+  esac
+  kwin_reload; echo "keyboard over the taskbar: $2"
+  ;;
 dolphin)
   if [ "${2:-}" = default ]; then dolphin_default; echo "file manager: Dolphin's own settings"; exit 0; fi
   case "${2:-plasma}" in
@@ -636,7 +649,7 @@ show-panels)
   plasma_js 'panels().forEach(function (p) { p.hiding = "none" })' >/dev/null && echo "Your panels stay visible again."
   ;;
 status)
-  echo "SPLASH|$(getconf splash)"; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
+  echo "SPLASH|$(getconf splash)"; echo "KBDOVER|$(getconf kbd-over)"; echo "FILES|$(getconf files)"; echo "LAYOUT|$(getconf layout)"; echo "SIZE|$(getconf size)"; echo "THEME|$(getconf theme)"; echo "EFFECTS|$(getconf effects)"
   ;;
 *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Id": "s6-kbd",
+        "Name": "S6 Keyboard Over The Taskbar",
+        "Description": "While the on-screen keyboard is open, it sits at the bottom of the screen over the taskbar or dock, like on a phone",
+        "Authors": [ { "Name": "S6 Migrate" } ],
+        "License": "GPL-2.0-only",
+        "Version": "1.0",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}

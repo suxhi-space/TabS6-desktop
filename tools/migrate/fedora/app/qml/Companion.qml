@@ -359,7 +359,7 @@ ApplicationWindow {
             function apply(args) { out = "Applying..."; var last = ""; win.run("look", backend.mock ? ["true"] : ["/usr/local/bin/s6-look"].concat(args), function (l) { lk.out = l; last = l }, function (c) { lk.out = c === 0 ? "Done." : "That didn't work" + (last ? ": " + last : "."); load() }) }
             Component.onCompleted: {
                 frame.eyebrow = ""; frame.title = "Look"
-                frame.subtitle = "Layout, size, effects and light or dark. Window buttons and the file manager follow the layout. The layouts are also in System Settings as Global Themes."
+                frame.subtitle = "Layout, size, effects and light or dark. Window buttons follow the layout. The layouts are also in System Settings as Global Themes."
                 frame.primary = ""; frame.secondary = ""; frame.note = lk.out
                 load(); loadExtras()
             }
@@ -377,6 +377,12 @@ ApplicationWindow {
                 onCheckedChanged: win.run("kbd", backend.mock ? ["true"] : ["/bin/sh", "-c", checked
                     ? "rm -f \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"
                     : "mkdir -p \"$HOME/.config/s6migrate\" && touch \"$HOME/.config/s6migrate/stock-keyboard\"; pkill -f maliit-keyboard"], null, null)
+            }
+            Toggle {
+                width: parent.width; title: "Keyboard over the taskbar"
+                sub: "Like on a phone: the on-screen keyboard sits at the bottom of the screen, over the taskbar or dock, while it's open."
+                checked: (lk.cur.KBDOVER || "on") !== "off"
+                onCheckedChanged: if (((lk.cur.KBDOVER || "on") !== "off") !== checked) lk.apply(["kbd-over", checked ? "on" : "off"])
             }
             Segmented {
                 width: parent.width; label: "After logging in"; value: lk.cur.SPLASH || "s6"

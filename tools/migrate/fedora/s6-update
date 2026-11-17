@@ -148,6 +148,10 @@ self)
   curv=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' /usr/local/share/s6migrate/app/s6ui.py 2>/dev/null)
   [ -n "$newv" ] || die "could not read the newest version"
   [ "$newv" = "$curv" ] && [ "${2:-}" != --force ] && { say "S6 Migrate $curv is up to date."; exit 0; }
+  # Never go back to an older version (e.g. a source that hasn't got the newest changes yet)
+  if [ -n "$curv" ] && [ "${2:-}" != --force ] && [ "$(printf '%s\n%s\n' "$curv" "$newv" | sort -V | tail -n 1)" = "$curv" ]; then
+    say "S6 Migrate $curv is newer than $newv at $SELF_REPO@$SELF_REF: kept."; exit 0
+  fi
   n=0
   while IFS='|' read -r a dest mode owner; do
     case "$a" in ''|'#'*) continue ;; esac

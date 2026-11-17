@@ -77,6 +77,9 @@ fi
 n_s6=0
 # @S6FILES@
 ui "  S6 Migrate updated to $S6_FIX_VERSION ($n_s6 files: S6 Companion, S6 Setup, tools)"
+# "Update S6 Migrate" in S6 Companion reads from where this ZIP was built (unless you chose another source)
+[ -s "$S/self-source" ] || { echo "suxhi-space/TabS6-desktop@claude/android-tablet-desktop-ui-755uqh" > "$S/self-source"
+  ui "  next time: S6 Companion > Updates > Update S6 Migrate updates it without TWRP"; }
 
 ui " "
 ui "2/4 Taskbar"

@@ -221,8 +221,11 @@ Kirigami.ApplicationWindow {
                     Kirigami.FormData.label: "From your Android tablet:"
                     visible: (win.cur.WALLANDROID || "") !== ""
                     source: win.cur.WALLANDROID ? "file://" + win.cur.WALLANDROID : ""
+                    // a fixed-size preview: the picture's own size made it spill over the buttons below
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 16; Layout.preferredHeight: Kirigami.Units.gridUnit * 10
-                    fillMode: Image.PreserveAspectCrop; sourceSize.width: 512; asynchronous: true
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 16; Layout.maximumHeight: Kirigami.Units.gridUnit * 10
+                    implicitWidth: Kirigami.Units.gridUnit * 16; implicitHeight: Kirigami.Units.gridUnit * 10
+                    clip: true; fillMode: Image.PreserveAspectCrop; sourceSize.width: 512; asynchronous: true
                 }
                 QQC2.Button { visible: (win.cur.WALLANDROID || "") !== ""; text: "Use my Android wallpaper"; icon.name: "smartphone"
                               onClicked: win.apply(["wallpaper", "android"]) }

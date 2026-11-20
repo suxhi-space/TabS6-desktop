@@ -3,6 +3,7 @@
 # s6-sound - get the Tab S6's speakers (four Cirrus CS35L41 amps) and microphones (CS48L33) working, and report.
 #   s6-sound fix USER     (root) keep PipeWire running if the microphone node fails, switch on the DSP's routes
 #                         for the speakers and the microphones, save them, restart USER's sound, write the report
+#   s6-sound routes       (root) only the routes (also run at every start by s6-selfcheck)
 #   s6-sound report       (root) only the report: /var/lib/s6migrate/sound-report.txt (the report ZIP includes it)
 #
 # What it found on the tablet: the DSP, the four amps and the codec all come up, and the card registers, but the DSP's
@@ -25,23 +26,56 @@ nofail() { # a PipeWire object that can't open its device must not stop all soun
   done
 }
 
-routes() { # the DSP's mixer routes: frontend MultiMedia1 -> speakers (Secondary TDM), microphones (Quinary MI2S) -> MultiMedia2
-  local ctl n=0 all
+# The settings Samsung's Android uses (its mixer_paths_tavil.xml: "speaker"/"spk", "audio-record", "main-sub-mic"),
+# for Linux: the amps take the audio straight from the TDM bus (PCM Source ASP) because Samsung's speaker-protection
+# program for the amps' own DSP isn't loaded here. Each setting is applied only if this kernel has that control.
+ROUTES='SEC_TDM_RX_0 Audio Mixer MultiMedia1|1
+SEC_TDM_RX_0 Channels|Four
+FL PCM Source|ASP
+FR PCM Source|ASP
+RL PCM Source|ASP
+RR PCM Source|ASP
+FL ASPRX1 Slot Position|0
+FR ASPRX1 Slot Position|1
+RL ASPRX1 Slot Position|2
+RR ASPRX1 Slot Position|3
+FL AMP Enable Switch|1
+FR AMP Enable Switch|1
+RL AMP Enable Switch|1
+RR AMP Enable Switch|1
+FL AMP Mute|Unmuted
+FR AMP Mute|Unmuted
+RL AMP Mute|Unmuted
+RR AMP Mute|Unmuted
+FL AMP PCM Gain|17
+FR AMP PCM Gain|17
+RL AMP PCM Gain|17
+RR AMP PCM Gain|17
+FL Digital PCM Volume|817
+FR Digital PCM Volume|817
+RL Digital PCM Volume|817
+RR Digital PCM Volume|817
+MultiMedia2 Mixer QUIN_MI2S_TX|1
+QUIN_MI2S_TX Channels|Two
+ASP1TX1 Input 1|IN1L
+ASP1TX2 Input 1|IN1R
+IN1L Volume|15
+IN1R Volume|15
+IN1L Digital Volume|128
+IN1R Digital Volume|128'
+
+routes() { # switch on the speakers (all four amps) and the microphones, like Android does, and save them
+  local all n=0 miss=0 name val
   all=$(amixer -c "$CARD" controls 2>/dev/null | sed -n "s/.*name='\(.*\)'.*/\1/p")
   [ -n "$all" ] || { say "The sound card's controls couldn't be read (card $CARD)."; return 1; }
-  while IFS= read -r ctl; do
-    case "$ctl" in
-      "SEC_TDM_RX_0 Audio Mixer MultiMedia1"|"SEC_TDM_RX_0 Audio Mixer MultiMedia2"|"MultiMedia2 Mixer QUIN_MI2S_TX"|"MultiMedia2 Mixer QUIN_MI2S_TX_0")
-        # MultiMedia1 plays to the speakers; MultiMedia2 records the microphones (not both ways round)
-        case "$ctl" in *"Audio Mixer MultiMedia2") continue ;; esac
-        amixer -c "$CARD" cset name="$ctl" on >/dev/null 2>&1 && { say "route on: $ctl"; n=$((n+1)); } ;;
-    esac
-  done <<< "$all"
-  if [ $n = 0 ]; then
-    say "None of the known route names were found. Candidates (for the report):"
-    grep -i -E "MultiMedia1|MultiMedia2|TDM|MI2S" <<< "$all" | head -40 | sed 's/^/  /'
-  fi
-  alsactl store "$CARD" 2>/dev/null && say "Routes saved (they come back at every start)."
+  while IFS='|' read -r name val; do
+    [ -n "$name" ] || continue
+    if grep -qxF "$name" <<< "$all"; then
+      amixer -c "$CARD" cset name="$name" "$val" >/dev/null 2>&1 && n=$((n+1)) || say "couldn't set: $name = $val"
+    else miss=$((miss+1)); fi
+  done <<< "$ROUTES"
+  say "Sound routes set: $n (not on this kernel: $miss)"
+  alsactl store "$CARD" 2>/dev/null && say "Saved: they come back at every start."
 }
 
 report() {
@@ -84,6 +118,7 @@ case "${1:-}" in
   fix) [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
        nofail; routes; report; [ -n "${2:-}" ] && user_sound "$2"
        say "If it's still silent, send the report: flash S6Migrate-REPORT.zip in TWRP (it includes the sound report)." ;;
+  routes) [ "$(id -u)" = 0 ] || exit 1; routes ;;
   report) [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }; report ;;
   *) sed -n '3,6p' "$0"; exit 2 ;;
 esac

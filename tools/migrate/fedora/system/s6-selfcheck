@@ -73,4 +73,10 @@ for f in /etc/pipewire/pipewire.conf.d/*.conf; do
   sed -i 's/^\([[:space:]]*{[[:space:]]*factory[[:space:]]*=[[:space:]]*adapter\)[[:space:]]*$/\1\n        flags = [ nofail ]/' "$f"
   grep -q nofail "$f" && log "PipeWire: $(basename "$f") may now fail without stopping all sound"
 done
+# Sound: the speakers' and microphones' routes, once the sound card is up (its DSP starts a few seconds into boot)
+if [ -x /usr/local/libexec/s6migrate/s6-sound ]; then
+  # in the foreground: systemd ends a one-shot service's background work when it finishes
+  for i in $(seq 1 20); do grep -q -i 'SMT860\|SM-T860' /proc/asound/cards 2>/dev/null && break; sleep 2; done
+  /usr/local/libexec/s6migrate/s6-sound routes 2>&1 | while read -r l; do log "$l"; done
+fi
 exit 0

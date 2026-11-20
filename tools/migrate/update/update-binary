@@ -89,6 +89,36 @@ for hd in "$ROOT"/home/*; do
 done
 
 ui " "
+ui "Fresh KDE desktop"
+# KDE as Fedora ships it: S6's desktop changes (panels, tray, clock, styles, Global Themes) are moved into a backup
+# folder, never deleted; files, apps and the wallpaper stay. S6 changes nothing on the desktop at login after this.
+nr=0
+for hd in "$ROOT"/home/*; do
+  [ -d "$hd/.config" ] || continue
+  own=$(stat -c '%u:%g' "$hd"); bk="$hd/.config/s6migrate/kde-backup-$(date +%Y%m%d-%H%M)"
+  mkdir -p "$bk/config" "$bk/share"
+  wall=$(sed -n 's#^Image=\(file://\)\{0,1\}##p' "$hd/.config/plasma-org.kde.plasma.desktop-appletsrc" 2>/dev/null | head -n 1)
+  [ -n "$wall" ] && [ -d "$ROOT$wall" ] && { wall=$(ls "$ROOT$wall"/contents/images/* 2>/dev/null | tail -n 1); wall=${wall#$ROOT}; }
+  for f in plasma-org.kde.plasma.desktop-appletsrc plasmashellrc kwinrc kdeglobals darklyrc breezerc ksplashrc plasmarc dolphinrc kwinrulesrc; do
+    [ -f "$hd/.config/$f" ] && mv "$hd/.config/$f" "$bk/config/"
+  done
+  for d in plasma/look-and-feel/org.s6migrate.splash plasma/look-and-feel/org.s6migrate.touch plasma/look-and-feel/org.s6migrate.centered \
+           plasma/look-and-feel/org.s6migrate.traditional plasma/look-and-feel/org.s6migrate.topdock plasma/look-and-feel/org.s6migrate.plasma \
+           plasma/desktoptheme/s6-darkly icons/S6-Papirus icons/S6-Papirus-Dark kxmlgui5/dolphin applications/org.kde.dolphin.desktop \
+           dbus-1/services/org.freedesktop.FileManager1.service; do
+    [ -e "$hd/.local/share/$d" ] && { mkdir -p "$bk/share/$(dirname "$d")"; mv "$hd/.local/share/$d" "$bk/share/$d"; }
+  done
+  # the on-screen keyboard stays S6 Keyboard; windows still fit the screen when it turns
+  printf '[Wayland]\nInputMethod=/usr/local/share/applications/s6-keyboard.desktop\nVirtualKeyboardEnabled=true\n\n[Plugins]\ns6-fitEnabled=true\n' > "$hd/.config/kwinrc"
+  c="$hd/.config/s6migrate/look.conf"; mkdir -p "$(dirname "$c")"; touch "$c"
+  grep -v -E '^(ui|panels-pending|wall-restore|size-pending|accent-pending)=' "$c" > "$c.tmp"
+  { echo "ui=stock"; echo "panels-pending=0"; [ -n "$wall" ] && [ -f "$ROOT$wall" ] && echo "wall-restore=$wall"; } >> "$c.tmp"; mv "$c.tmp" "$c"
+  chown -R "$own" "$hd/.config/s6migrate" "$hd/.config/kwinrc"
+  nr=$((nr+1))
+done
+ui "  $nr account(s): KDE's own desktop at the next login (your old settings: ~/.config/s6migrate/kde-backup-*)"
+
+ui " "
 ui "2/4 Taskbar"
 n=0
 for hd in "$ROOT"/home/*; do
@@ -102,11 +132,12 @@ done
 [ $n -gt 0 ] && ui "  hidden taskbar made visible again ($n account(s))" || ui "  no hidden taskbars"
 
 ui " "
-ui "3/4 Your layout, with S6 Quick Settings"
+ui "3/4 S6 layout (only where it's still chosen)"
 n=0
 for hd in "$ROOT"/home/*; do
   c="$hd/.config/s6migrate/look.conf"
   [ -f "$c" ] || continue
+  grep -q '^ui=stock' "$c" && continue   # a fresh KDE desktop: no S6 layout
   own=$(stat -c '%u:%g' "$hd")
   grep -v '^panels-pending=' "$c" > "$c.tmp"; echo "panels-pending=1" >> "$c.tmp"; mv "$c.tmp" "$c"; chown "$own" "$c"
   n=$((n+1))

@@ -455,7 +455,7 @@ layout)
   esac
   fj="var FILES = \"$(files_desktop)\";"
   if [ "${3:-}" = --print ]; then printf '%s\n%s\n%s\n' "$fj" "$js_common" "$js"; exit 0; fi
-  plasma_js "$fj $js_common $js" && setconf layout "$name" && setconf layout-v "$LAYOUT_V" && echo "layout: $name"
+  plasma_js "$fj $js_common $js" && setconf layout "$name" && setconf layout-v "$LAYOUT_V" && setconf ui s6 && echo "layout: $name"
   # Dolphin is left as Dolphin made it (S6's file manager tweaks were taken out; "s6-look dolphin touch" still has them)
   # Only placement changes: window buttons left or right (and the title's place); your style, wallpaper, pinned apps
   # and Quick Settings stay as they are
@@ -689,6 +689,12 @@ layout-js)
   bash "$SELF" layout "${2:-touch}" --print
   ;;
 heal)
+  # Stock KDE (chosen after the reset): S6 changes nothing on the desktop at login, only the keyboard
+  if [ "$(getconf ui)" = stock ]; then
+    w=$(getconf wall-restore)   # the wallpaper you had, once, after the reset to a fresh desktop
+    if [ -n "$w" ] && [ -f "$w" ]; then sleep 4; plasma-apply-wallpaperimage "$w" >/dev/null 2>&1 && setconf wall-restore ""; fi
+    keyboard "$(getconf theme)" >/dev/null 2>&1; exit 0
+  fi
   # The parts of "prepare" that need the running desktop, once, right at the first login.
   sz=$(getconf size-pending)
   if [ -n "$sz" ]; then sleep 3; bash "$SELF" size "$sz" >/dev/null 2>&1 && setconf size-pending ""; fi

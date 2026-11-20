@@ -96,6 +96,21 @@ if [ -n "$EDEV" ] && mount -o ro "$EDEV" "$ESP" 2>/dev/null; then
 else
   grep -E " /cache " /proc/mounts > "$OUT/esp-not-mounted.txt" 2>&1
 fi
+# Samsung's own audio routing from Android's vendor partition (read only): mixer_paths lists the exact DSP and amp
+# switches Android uses for each speaker and microphone, which the Fedora side needs to match
+VEN=/tmp/s6report-vendor; mkdir -p "$VEN"
+VDEV=$(readlink -f /dev/block/by-name/vendor 2>/dev/null)
+if [ -n "$VDEV" ] && mount -o ro "$VDEV" "$VEN" 2>/dev/null; then
+  mkdir -p "$OUT/vendor-audio"
+  for f in "$VEN"/etc/*mixer_paths* "$VEN"/etc/*audio_platform_info* "$VEN"/etc/*audio_policy* "$VEN"/etc/*audio_effects* \
+           "$VEN"/etc/audio/* "$VEN"/etc/*sound_trigger* "$VEN"/etc/*cs35l41* "$VEN"/etc/*amp*; do
+    [ -f "$f" ] && cp "$f" "$OUT/vendor-audio/" 2>/dev/null
+  done
+  ls -la "$VEN/etc" "$VEN/firmware" "$VEN"/etc/acdbdata 2>/dev/null > "$OUT/vendor-audio/listing.txt"
+  umount "$VEN"
+else
+  echo "vendor partition not readable" > "$OUT/vendor-audio-not-mounted.txt"
+fi
 mkdir -p "$OUT/boot"
 ls -laR "$ROOT/boot" > "$OUT/boot/listing.txt" 2>&1
 cp_if "$ROOT/boot/loader" "boot/loader"

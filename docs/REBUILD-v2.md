@@ -54,3 +54,74 @@ self-contained opt-in module that records its changes (rule 1) and touches no KD
 4. S6 Companion v2 (fixes, updates, Android, Undo; no Look page).
 5. Switch ZIP builds v2 only; update ZIP for existing installs offers "clean up v1" (reverts v1's leftovers from
    its own lists) for anyone who doesn't reinstall.
+
+## Full list of planned changes (v2 base)
+
+Everything below is recorded in `/var/lib/s6migrate/changes.list` as it happens; "Undo" reverts it.
+
+### A. Programs S6 installs (its own files only, all under /usr/local)
+| Path | What |
+|---|---|
+| `/usr/local/bin/s6-companion` | S6 Companion (welcome / tools app) |
+| `/usr/local/bin/s6-update` | update S6 itself from GitHub; check t860-fedora releases |
+| `/usr/local/bin/s6-restore` | restore from the Android backup (files, wallpaper, Wi-Fi, Bluetooth, apps) |
+| `/usr/local/bin/s6-android` | start/stop Waydroid, list/launch/remove Android apps |
+| `/usr/local/bin/s6-report` | a report for troubleshooting |
+| `/usr/local/bin/s6-undo` | list and revert S6's system changes |
+| `/usr/local/libexec/s6migrate/s6-helper` | the root side (run through pkexec; checks every argument) |
+| `/usr/local/libexec/s6migrate/s6-sound` | speaker/mic routes, report |
+| `/usr/local/libexec/s6migrate/s6-usb` | USB-C host/device |
+| `/usr/local/share/s6migrate/app/` | Setup + Companion UI (Python + QML) |
+| `/usr/local/share/applications/s6-companion.desktop` | menu entry |
+| `/usr/local/share/icons/hicolor/scalable/apps/s6-companion.svg` | icon |
+
+### B. System settings S6 changes (each recorded, original kept)
+| Change | Why | When |
+|---|---|---|
+| new `/etc/NetworkManager/conf.d/60-s6migrate-wifi.conf` (power saving off) | Wi-Fi "!" / drops | install |
+| saved Wi-Fi networks: band 2.4 GHz (`802-11-wireless.band bg`) | 5 GHz barely works on this radio data | install; switch in Companion |
+| new `/etc/modprobe.d/s6migrate-wifi-country.conf` (your country) | correct channels | install |
+| edit `/etc/pipewire/pipewire.conf.d/51-tabs6-mic.conf`: add `flags = [ nofail ]` | a failing mic node stopped all sound | install |
+| ALSA mixer routes saved to `/var/lib/alsa/asound.state` (Fedora's alsa-restore loads them at boot) | speakers (4 amps) and mics silent | install; "Fix sound" |
+| new `/etc/polkit-1/rules.d/49-s6migrate.rules` | password once for S6's helper; none for the USB-C button | install |
+| user account created (`useradd`, `wheel`), password set (`chpasswd`); t860-fedora's default `fedora` account removed | one account, yours | Setup |
+| time zone, language/region, device name (`timedatectl`, `localectl`, `hostnamectl`) | your choices | Setup |
+| Wi-Fi networks from Android added to NetworkManager | connects at first start | Setup |
+| Bluetooth pairings from Android into `/var/lib/bluetooth` (optional) | devices reconnect | Setup |
+| Linux versions of your apps (Flathub / Fedora) | your choice per app | Setup |
+| Waydroid: `waydroid init`, `waydroid-container` enabled, folder sharing unit `s6migrate-waydroid-share.service` | Android apps | only if chosen, after the kernel check passes |
+
+### C. Temporary during first boot only (removed when Setup finishes, removal recorded)
+| Change | Why |
+|---|---|
+| account `s6setup` + autologin `/etc/sddm.conf.d/zz-s6migrate.conf` | Setup runs before any account exists |
+| `/etc/sudoers.d/50-s6migrate-firstrun` | Setup's steps without password prompts |
+| autostart of S6 Setup in the `s6setup` account | opens Setup |
+
+### D. Your home folder
+| Change | Note |
+|---|---|
+| restored files in Pictures, Downloads, Documents, Music, Videos, `~/Android/<folder>` | from the backup |
+| wallpaper set once with KDE's `plasma-apply-wallpaperimage` | KDE's own tool; nothing re-applied |
+| `~/.config/s6migrate/` | S6's own state only |
+| **no edits to any KDE settings file** | rule 3 |
+
+### E. Never touched (v1 did; v2 won't)
+PAM, authselect, SELinux, `/etc/sudoers` (beyond C), boot entries / kernel command line, Plymouth, SDDM theme,
+`kwinrc`, `kdeglobals`, `plasma-org.kde.plasma.desktop-appletsrc`, `plasmashellrc`, `dolphinrc`, `darklyrc`,
+`ksplashrc`, KWin scripts, Global Themes, icon themes, Maliit's files, dnf settings, sysctl/journald/systemd tune-ups,
+COPR repositories.
+
+### F. System updates
+Not on first boot. In Companion: "Check for updates" uses Fedora's own offline updates (`dnf offline`), installed
+during a restart by Fedora's standard mechanism, only when you press it. No S6 service.
+
+### G. Add-ons afterwards, one at a time (each: own files, recorded, removable, tested on the tablet first)
+1. Android app manager (your apps, launch, menu entries, uninstall)
+2. Control centre (Googlebook-style; added to the panel once, on request; removable)
+3. Clock + notifications
+4. On-screen keyboard (Gboard-style, built as its own keyboard, not patches)
+5. Layouts (placement only)
+6. Look extras (Darkly, Better Blur): opt-in installs with clean removal
+7. Text selection bar (KDE input permission)
+8. Boot screen (logo + bar) / verbose switch

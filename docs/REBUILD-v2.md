@@ -118,7 +118,11 @@ during a restart by Fedora's standard mechanism, only when you press it. No S6 s
 
 ### G. Add-ons afterwards, one at a time (each: own files, recorded, removable, tested on the tablet first)
 1. Android app manager (your apps, launch, menu entries, uninstall)
-2. Control centre (Googlebook-style; added to the panel once, on request; removable)
+2. Control centre (Googlebook-style; added to the panel once, on request; removable). It replaces KDE's own tray
+   entries for Wi-Fi, sound, battery, brightness and Bluetooth: those are switched off in KDE's tray settings once,
+   when the add-on is installed (recorded; removing the add-on switches them back), so nothing shows twice. App tray
+   icons, the keyboard, clipboard and notifications stay in the tray (hidden ones behind ^, like Windows). The
+   battery percentage is drawn inside the battery icon, like Android.
 3. Clock + notifications
 4. On-screen keyboard (Gboard-style, built as its own keyboard, not patches)
 5. Layouts (placement only)

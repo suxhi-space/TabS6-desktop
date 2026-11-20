@@ -41,7 +41,7 @@ ApplicationWindow {
     property bool android: true            // set up Android app support (Waydroid) after login
     property string layout: "touch"
     property string size: "larger"
-    property string effects: "soft"
+    property string effects: "on"
     property bool tune: true
     property bool codecs: true
     property bool online: false
@@ -394,9 +394,8 @@ ApplicationWindow {
                 }
                 Segmented {
                     width: parent.cw; label: "Effects"; value: win.effects; onPicked: (id) => win.effects = id
-                    options: [{ id: "off", label: "Off", sub: "Solid and simple; saves battery" },
-                              { id: "soft", label: "Soft", sub: "Frosted panels and menus (recommended)" },
-                              { id: "glassy", label: "Glassy", sub: "See-through panels, menus and windows" }]
+                    options: [{ id: "on", label: "On", sub: "Frosted taskbar and menus (recommended)" },
+                              { id: "off", label: "Off", sub: "Solid and simple; saves battery" }]
                 }
                 Segmented {
                     width: parent.cw; label: "Appearance"; value: win.dark ? "dark" : "light"; onPicked: (id) => win.dark = id === "dark"

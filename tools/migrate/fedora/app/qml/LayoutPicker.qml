@@ -5,7 +5,7 @@ import "."
 Grid {
     id: lp
     property string value: "touch"
-    property string effects: "soft"
+    property string effects: "on"
     signal picked(string id)
     readonly property var options: [
         { id: "touch", name: "Touch", sub: "One bar with big icons, made for fingers" },

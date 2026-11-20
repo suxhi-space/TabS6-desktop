@@ -50,7 +50,7 @@ for f in "$ROOT"/home/*/S6-report-*.txt "$ROOT"/home/*/S6-look-settings-*.tar.gz
 done
 ui "  your reports and restore logs: $n"
 mkdir -p "$OUT/s6migrate"
-for f in maint.log ready.log selfcheck.log repair.log setup.json package.info region.env last-update attempts; do cp_if "$S/$f" "s6migrate/$f"; done
+for f in maint.log ready.log selfcheck.log repair.log setup.json package.info region.env last-update attempts sound-report.txt; do cp_if "$S/$f" "s6migrate/$f"; done
 cp_if "$S/freeze-reports" "s6migrate/freeze-reports"
 cp_if "$S/setup-home/s6-setup.log" "s6migrate/s6-setup.log"
 ls -la "$S" > "$OUT/s6migrate/listing.txt" 2>&1; ls -la "$S/maint" >> "$OUT/s6migrate/listing.txt" 2>&1

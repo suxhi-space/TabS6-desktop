@@ -1,0 +1,89 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-sound - get the Tab S6's speakers (four Cirrus CS35L41 amps) and microphones (CS48L33) working, and report.
+#   s6-sound fix USER     (root) keep PipeWire running if the microphone node fails, switch on the DSP's routes
+#                         for the speakers and the microphones, save them, restart USER's sound, write the report
+#   s6-sound report       (root) only the report: /var/lib/s6migrate/sound-report.txt (the report ZIP includes it)
+#
+# What it found on the tablet: the DSP, the four amps and the codec all come up, and the card registers, but the DSP's
+# routes stay off ("no backend DAIs enabled for MultiMedia2": no UCM profile switched them on), and PipeWire stopped
+# entirely because t860-fedora's microphone node couldn't open without its route.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ST=${S6S_STATE:-/var/lib/s6migrate}
+REP="$ST/sound-report.txt"
+CARD=${S6S_CARD:-0}
+say() { echo "$*"; }
+
+nofail() { # a PipeWire object that can't open its device must not stop all sound
+  local f
+  for f in /etc/pipewire/pipewire.conf.d/*.conf; do
+    [ -f "$f" ] && grep -q 'factory *= *adapter' "$f" && ! grep -q 'nofail' "$f" || continue
+    cp -n "$f" "$f.s6orig" 2>/dev/null
+    sed -i 's/^\([[:space:]]*{[[:space:]]*factory[[:space:]]*=[[:space:]]*adapter\)[[:space:]]*$/\1\n        flags = [ nofail ]/' "$f"
+    grep -q nofail "$f" && say "PipeWire: $(basename "$f") can no longer stop all sound"
+  done
+}
+
+routes() { # the DSP's mixer routes: frontend MultiMedia1 -> speakers (Secondary TDM), microphones (Quinary MI2S) -> MultiMedia2
+  local ctl n=0 all
+  all=$(amixer -c "$CARD" controls 2>/dev/null | sed -n "s/.*name='\(.*\)'.*/\1/p")
+  [ -n "$all" ] || { say "The sound card's controls couldn't be read (card $CARD)."; return 1; }
+  while IFS= read -r ctl; do
+    case "$ctl" in
+      "SEC_TDM_RX_0 Audio Mixer MultiMedia1"|"SEC_TDM_RX_0 Audio Mixer MultiMedia2"|"MultiMedia2 Mixer QUIN_MI2S_TX"|"MultiMedia2 Mixer QUIN_MI2S_TX_0")
+        # MultiMedia1 plays to the speakers; MultiMedia2 records the microphones (not both ways round)
+        case "$ctl" in *"Audio Mixer MultiMedia2") continue ;; esac
+        amixer -c "$CARD" cset name="$ctl" on >/dev/null 2>&1 && { say "route on: $ctl"; n=$((n+1)); } ;;
+    esac
+  done <<< "$all"
+  if [ $n = 0 ]; then
+    say "None of the known route names were found. Candidates (for the report):"
+    grep -i -E "MultiMedia1|MultiMedia2|TDM|MI2S" <<< "$all" | head -40 | sed 's/^/  /'
+  fi
+  alsactl store "$CARD" 2>/dev/null && say "Routes saved (they come back at every start)."
+}
+
+report() {
+  mkdir -p "$ST"
+  {
+    echo "S6 sound report $(date '+%F %T')"
+    echo; echo "== cards"; cat /proc/asound/cards 2>&1; aplay -l 2>&1; arecord -l 2>&1
+    echo; echo "== kernel"; dmesg 2>/dev/null | grep -i -E "cs35l41|cs48l|remoteproc.*adsp|q6|apr|asoc|MultiMedia|snd" | tail -60
+    echo; echo "== UCM for this card"
+    grep -rl -i -E "SM-T860|SMT860|gts6l|sm8150" /usr/share/alsa/ucm2 2>/dev/null | head -20
+    ls -la /usr/share/alsa/ucm2/conf.d 2>/dev/null | grep -i -E "860|sm8|qcom|samsung" ; alsaucm -c hw:"$CARD" list _verbs 2>&1 | head -20
+    echo; echo "== PipeWire drop-ins"; for f in /etc/pipewire/pipewire.conf.d/* /etc/wireplumber/wireplumber.conf.d/*; do [ -f "$f" ] && { echo "--- $f"; cat "$f"; }; done
+    echo; echo "== mixer (all controls and values)"; amixer -c "$CARD" contents 2>&1
+  } > "$REP" 2>&1
+  say "Sound report saved: $REP"
+}
+
+user_sound() { # restart USER's PipeWire and show what it sees
+  local u=$1 uid
+  uid=$(id -u "$u" 2>/dev/null) || return 0
+  runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+    systemctl --user reset-failed pipewire.service wireplumber.service 2>/dev/null
+  runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+    systemctl --user restart pipewire.service wireplumber.service pipewire-pulse.service 2>/dev/null
+  sleep 3
+  { echo; echo "== PipeWire for $u"
+    runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user is-active pipewire wireplumber 2>&1
+    runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" wpctl status 2>&1 | head -60
+    runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" journalctl --user -b -u pipewire -u wireplumber --no-pager 2>/dev/null | tail -60
+  } >> "$REP" 2>&1
+  if runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user is-active -q pipewire 2>/dev/null; then
+    say "Sound restarted: PipeWire is running."
+    runuser -u "$u" -- env XDG_RUNTIME_DIR="/run/user/$uid" wpctl status 2>/dev/null | sed -n '/Sinks:/,/Sources:/p' | head -8
+  else
+    say "PipeWire still isn't running; the report has its messages."
+  fi
+}
+
+case "${1:-}" in
+  fix) [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+       nofail; routes; report; [ -n "${2:-}" ] && user_sound "$2"
+       say "If it's still silent, send the report: flash S6Migrate-REPORT.zip in TWRP (it includes the sound report)." ;;
+  report) [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }; report ;;
+  *) sed -n '3,6p' "$0"; exit 2 ;;
+esac

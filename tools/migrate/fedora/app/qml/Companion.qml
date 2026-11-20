@@ -59,7 +59,7 @@ ApplicationWindow {
             var migrate = setup.migrate !== "no", android = setup.android !== "no"
             if (migrate) for (var i = 0; i < found.length; i++)
                 t.push({ title: "Your wallpaper and settings from Android" + (found.length > 1 ? " (part " + (i + 1) + ")" : ""), argv: ["/usr/local/bin/s6-restore", "--settings-only", "--skip-verify", "--yes", found[i]] })
-            var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "soft"
+            var lay = setup.layout || "touch", size = setup.size || "larger", theme = setup.theme || "light", eff = setup.effects || "on"
             // Queued for the next restart (added before the login screen), never installed under the running desktop.
             if (eff !== "off" && !backend.exists("/var/lib/s6migrate/last-update")) t.push({ title: "Better blur and the Darkly style: added at the next restart", argv: h(["look-extras"]), optional: true })
             // S6 Setup prepares the desktop before the first login; older setups get it applied here.
@@ -593,8 +593,8 @@ ApplicationWindow {
                         { t: "Wi-Fi isn't connecting", d: "Restarts Wi-Fi and the tablet's Wi-Fi driver helper.", a: win.h(["fix", "wifi"]) },
                         { t: "Bluetooth won't connect", d: "Restarts Bluetooth.", a: win.h(["fix", "bluetooth"]) },
                         { t: "Screen doesn't rotate", d: "Restarts the rotation sensors and auto-rotate.", a: win.h(["fix", "sensors"]) },
-                        { t: "No sound", d: "Restarts the sound system for your account.", a: win.sh("systemctl --user restart wireplumber pipewire pipewire-pulse") },
-                        { t: "Touch keyboard doesn't appear", d: "Turns the on-screen keyboard back on.", a: win.sh("kwriteconfig6 --file kwinrc --group Wayland --key InputMethod /usr/share/applications/com.github.maliit.keyboard.desktop && kwriteconfig6 --file kwinrc --group Wayland --key VirtualKeyboardEnabled true && qdbus6 org.kde.KWin /KWin reconfigure") },
+                        { t: "No sound or microphone", d: "Switches on the speakers' and microphones' routes, keeps the sound system running, restarts it and saves a sound report (the report ZIP includes it).", a: win.h(["fix", "sound", backend.userName]) },
+                        { t: "Touch keyboard doesn't appear", d: "Turns the on-screen keyboard back on.", a: win.sh("kwriteconfig6 --file kwinrc --group Wayland --key InputMethod /usr/local/share/applications/s6-keyboard.desktop && kwriteconfig6 --file kwinrc --group Wayland --key VirtualKeyboardEnabled true && busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure") },
                         { t: "Android apps misbehave", d: "Checks Android for apps and repairs what it can.", a: backend.mock ? ["true"] : ["/usr/bin/env", "S6D_SUDO=pkexec", "/usr/local/bin/s6-doctor", "--fix"] }
                     ]
                     delegate: Card {

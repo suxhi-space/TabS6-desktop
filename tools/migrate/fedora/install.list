@@ -73,6 +73,7 @@ fedora/plasmoid/org.s6migrate.clock/contents/config/main.xml|/usr/share/plasma/p
 fedora/plasmoid/org.s6migrate.clock/contents/ui/main.qml|/usr/share/plasma/plasmoids/org.s6migrate.clock/contents/ui/main.qml|644|
 fedora/plasmoid/org.s6migrate.clock/contents/ui/ClockPanel.qml|/usr/share/plasma/plasmoids/org.s6migrate.clock/contents/ui/ClockPanel.qml|644|
 fedora/system/s6-keys|/usr/local/libexec/s6migrate/s6-keys|755|
+fedora/system/s6-sound|/usr/local/libexec/s6migrate/s6-sound|755|
 fedora/system/s6-keys.service|/etc/systemd/system/s6-keys.service|644|
 fedora/osd/Osd.qml|/usr/local/share/s6migrate/osd/Osd.qml|644|
 fedora/osd/OsdItem.qml|/usr/local/share/s6migrate/osd/OsdItem.qml|644|

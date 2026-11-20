@@ -15,6 +15,8 @@ PlasmoidItem {
         fg: fg, sub: Qt.rgba(fg.r, fg.g, fg.b, 0.66),
         tile: Qt.rgba(fg.r, fg.g, fg.b, 0.08), tileIcon: Qt.rgba(fg.r, fg.g, fg.b, 0.14) })
     property date now: new Date()
+    // the short date without the year ("11/20", "20.11"): the bar stays narrow
+    readonly property string dayFormat: Qt.locale().dateFormat(Locale.ShortFormat).replace(/[^dMy]*y+[^dMy]*/g, "") || "M/d"
     preferredRepresentation: compactRepresentation
     toolTipMainText: Qt.formatDate(now, "dddd, MMMM d, yyyy")
     toolTipSubText: notes.count === 0 ? "No new notifications" : notes.count === 1 ? "1 notification" : notes.count + " notifications"
@@ -37,7 +39,7 @@ PlasmoidItem {
     compactRepresentation: MouseArea {
         id: cr
         readonly property bool beside: Plasmoid.configuration.beside || (parent && parent.height < 34)
-        Layout.minimumWidth: (beside ? besideText.implicitWidth : Math.max(t.implicitWidth, d.implicitWidth)) + Kirigami.Units.largeSpacing * 2 + (dot.visible ? 10 : 0)
+        Layout.minimumWidth: (beside ? besideText.implicitWidth : Math.max(t.implicitWidth, d.implicitWidth)) + Kirigami.Units.smallSpacing * 3 + (dot.visible ? 8 : 0)
         Layout.preferredWidth: Layout.minimumWidth
         hoverEnabled: true
         onClicked: root.expanded = !root.expanded
@@ -47,12 +49,12 @@ PlasmoidItem {
             anchors.centerIn: parent; spacing: 0
             Text { id: t; anchors.right: parent.right; text: Qt.formatTime(root.now, Qt.locale().timeFormat(Locale.ShortFormat))
                    color: root.fg; font.pixelSize: Kirigami.Theme.defaultFont.pixelSize * 1.0; font.weight: Font.DemiBold }
-            Text { id: d; anchors.right: parent.right; text: Qt.formatDate(root.now, Qt.locale().dateFormat(Locale.ShortFormat))
+            Text { id: d; anchors.right: parent.right; text: Qt.formatDate(root.now, root.dayFormat)
                    color: root.fg; opacity: 0.85; font.pixelSize: Kirigami.Theme.defaultFont.pixelSize * 0.9 }
         }
         Text { id: besideText; visible: cr.beside; anchors.centerIn: parent; color: root.fg; font.weight: Font.DemiBold
                font.pixelSize: Kirigami.Theme.defaultFont.pixelSize
-               text: Qt.formatDate(root.now, "ddd MMM d") + "   " + Qt.formatTime(root.now, Qt.locale().timeFormat(Locale.ShortFormat)) }
+               text: Qt.formatDate(root.now, "ddd d") + "  " + Qt.formatTime(root.now, Qt.locale().timeFormat(Locale.ShortFormat)) }
         Rectangle {   // something new arrived
             id: dot
             visible: notes.unreadNotificationsCount > 0

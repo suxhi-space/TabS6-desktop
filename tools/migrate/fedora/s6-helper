@@ -19,7 +19,7 @@
 #   fallback                         (internal) setup could not start: back to the "fedora" account and the text assistant
 #   end-firstrun USER                remove the temporary first-run permissions (S6 Companion, when done)
 #   waydroid-init GAPPS(0|1)         download Android for apps (Waydroid)
-#   fix wifi|bluetooth|sensors|sound-system|waydroid
+#   fix wifi|bluetooth|sensors|sound [USER]|waydroid   (sound: s6-sound fix: routes, PipeWire, a report)
 #   save-prefs USER KEY=VALUE...     layout, size, codecs, tune, migrate (read by S6 Companion at the first login)
 #   tune NAME on|off                 tune-ups: memory logs shutdown downloads background protect codecs wifisave
 #   tune-status                      TUNE|name|on/off for each
@@ -309,6 +309,9 @@ fix)
     bluetooth) systemctl restart bluetooth; echo "Bluetooth restarted." ;;
     sensors) systemctl restart hexagonrpcd-sdsp.service iio-sensor-proxy.service 2>/dev/null; echo "Rotation sensors restarted." ;;
     waydroid) systemctl restart waydroid-container.service; echo "Android app support restarted." ;;
+    sound|sound-system)   # the speakers' and microphones' routes, PipeWire kept running, a report (s6-sound)
+      u=${2:-${PKEXEC_UID:+$(id -nu "$PKEXEC_UID" 2>/dev/null)}}; valid_user "${u:-x}" || u=""
+      /usr/local/libexec/s6migrate/s6-sound fix $u ;;
     *) die "unknown fix: ${1:-}" ;;
   esac
   ;;
@@ -399,7 +402,7 @@ prepare-look)
   u=${1:-}; valid_user "$u" && id "$u" >/dev/null 2>&1 || die "unknown user"
   hd=$(getent passwd "$u" | cut -d: -f6)
   runuser -u "$u" -- env HOME="$hd" XDG_CONFIG_HOME="$hd/.config" XDG_DATA_HOME="$hd/.local/share" \
-    /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-soft}" "${6:-}"
+    /usr/local/bin/s6-look prepare "${2:-touch}" "${3:-larger}" "${4:-light}" "${5:-on}" "${6:-}"
   ;;
 
 storage)

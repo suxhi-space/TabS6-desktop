@@ -5,8 +5,8 @@ import "."
 Rectangle {
     id: pv
     property string layout: "touch"
-    property string effects: "soft"     // off soft glassy: how see-through the bars are
-    readonly property real barOpacity: effects === "glassy" ? 0.72 : effects === "soft" ? 0.9 : 1.0
+    property string effects: "on"       // on | off: how see-through the bars are
+    readonly property real barOpacity: effects === "off" ? 1.0 : 0.85
     readonly property bool buttonsLeft: layout === "topdock"
     readonly property real winRadius: layout === "traditional" ? 2 : layout === "plasma" ? 3 : 6
     radius: 8
@@ -30,7 +30,7 @@ Rectangle {
             }
         }
         // a frosted sidebar when effects are glassy
-        Rectangle { visible: pv.effects === "glassy"; y: 14; width: winr.width * 0.28; height: winr.height - 14; radius: pv.winRadius; color: Theme.accent; opacity: 0.18 }
+        Rectangle { visible: false; y: 14; width: winr.width * 0.28; height: winr.height - 14; radius: pv.winRadius; color: Theme.accent; opacity: 0.18 }
     }
     // top bar (top bar and dock)
     Rectangle { visible: pv.layout === "topdock"; width: parent.width; height: parent.height * 0.09; color: Qt.rgba(pv.bar.r, pv.bar.g, pv.bar.b, pv.barOpacity)

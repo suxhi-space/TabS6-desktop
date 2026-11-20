@@ -44,7 +44,7 @@ Kirigami.ApplicationWindow {
     function load() {
         var c = {}
         run("lookst", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "status"], function (l) { var f = l.split("|"); c[f[0]] = f[1] },
-            function () { if (backend.mock) c = { LAYOUT: "touch", EFFECTS: "soft", SIZE: "larger", HASDARKLY: "yes", APPSTYLE: "darkly", PLASMASTYLE: "darkly" }; cur = c })
+            function () { if (backend.mock) c = { LAYOUT: "touch", EFFECTS: "on", SIZE: "larger", HASDARKLY: "yes", APPSTYLE: "darkly", PLASMASTYLE: "darkly" }; cur = c })
         var x = {}
         run("extras", backend.mock ? ["true"] : ["/usr/local/bin/s6-look", "extras"], function (l) { var f = l.split("|"); x[f[0]] = f.slice(1) },
             function () { if (backend.mock) x = { BBDX: ["installed", "loaded"], DARKLY: ["installed"] }; extras = x })
@@ -141,7 +141,7 @@ Kirigami.ApplicationWindow {
                             contentItem: ColumnLayout {
                                 spacing: Kirigami.Units.smallSpacing
                                 LayoutPreview { Layout.fillWidth: true; Layout.preferredHeight: width * 0.55; layout: lay.modelData.id
-                                                effects: win.cur.EFFECTS || "soft" }
+                                                effects: win.cur.EFFECTS || "on" }
                                 QQC2.RadioButton { text: lay.modelData.name; checked: lay.on; font.bold: true
                                                    onClicked: win.apply(["layout", lay.modelData.id]) }
                                 QQC2.Label { Layout.fillWidth: true; text: lay.modelData.sub; wrapMode: Text.Wrap; opacity: 0.7 }
@@ -186,13 +186,10 @@ Kirigami.ApplicationWindow {
                     currentIndex: win.cur.PLASMASTYLE === "darkly" ? 0 : 1
                     onActivated: (i) => win.apply(["plasmastyle", i === 0 ? "darkly" : "breeze"])
                 }
-                QQC2.ButtonGroup { id: fxGroup }
-                QQC2.RadioButton { Kirigami.FormData.label: "Effects:"; text: "Off: solid, saves battery"; QQC2.ButtonGroup.group: fxGroup
-                                   checked: win.cur.EFFECTS === "off"; onClicked: win.apply(["effects", "off"]) }
-                QQC2.RadioButton { text: "Soft: frosted panels and menus"; QQC2.ButtonGroup.group: fxGroup
-                                   checked: (win.cur.EFFECTS || "soft") === "soft"; onClicked: win.apply(["effects", "soft"]) }
-                QQC2.RadioButton { text: "Glassy: see-through panels, menus and background windows"; QQC2.ButtonGroup.group: fxGroup
-                                   checked: win.cur.EFFECTS === "glassy"; onClicked: win.apply(["effects", "glassy"]) }
+                QQC2.Switch { Kirigami.FormData.label: "Effects:"; text: "Blur behind the taskbar and menus, see-through bars"
+                              checked: win.cur.EFFECTS !== "off"; onToggled: win.apply(["effects", checked ? "on" : "off"]) }
+                QQC2.Switch { Kirigami.FormData.label: "Title bars:"; text: "See-through and blurred, blending with the app's toolbar"
+                              checked: win.cur.TITLEBARS === "clear"; onToggled: win.apply(["titlebars", checked ? "clear" : "solid"]) }
                 QQC2.Label {
                     Kirigami.FormData.label: "Better Blur and Darkly:"
                     Layout.fillWidth: true; wrapMode: Text.Wrap

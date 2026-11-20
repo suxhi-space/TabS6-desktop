@@ -1,6 +1,6 @@
 import QtQuick
 
-// A thick pill slider (Android 15 style): the filled part carries the icon; drag or tap anywhere on it.
+// A pill slider (Googlebook / Android style): the filled part carries the icon; drag or tap anywhere on it.
 Rectangle {
     id: s
     property var pal
@@ -16,18 +16,18 @@ Rectangle {
     readonly property real shown: drag.pressed ? drag.live : value
     Rectangle {
         width: Math.max(height, s.width * s.shown); height: parent.height; radius: parent.radius
-        color: pal.accent
+        color: pal.onTile
         Behavior on width { enabled: !drag.pressed; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
     }
     QsIcon {
         x: 16; anchors.verticalCenter: parent.verticalCenter; width: 20; height: 20
-        name: s.icon; on: s.iconOn; color: s.shown * s.width > 40 ? pal.accentFg : pal.fg
+        name: s.icon; on: s.iconOn; color: s.shown * s.width > 40 ? pal.onInk : pal.fg
         MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: s.iconTapped(); z: 2 }
     }
     Text {
         anchors.right: parent.right; anchors.rightMargin: 18; anchors.verticalCenter: parent.verticalCenter
         text: Math.round(s.shown * 100) + "%"; font.pixelSize: 13; font.weight: Font.DemiBold
-        color: s.shown > 0.88 ? pal.accentFg : pal.sub
+        color: s.shown > 0.88 ? pal.onInk : pal.sub
     }
     MouseArea {
         id: drag

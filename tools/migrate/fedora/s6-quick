@@ -3,13 +3,14 @@
 # s6-quick - the commands behind S6 Quick Settings (the Android-style panel in the taskbar), in your own session.
 #   s6-quick status                 key=value lines: wifi ssid bt btdev airplane dark night keyboard saver
 #                                   brightness volume muted battery charging
-#   s6-quick toggle wifi|bt|airplane|dark|night|keyboard|saver|mute
+#   s6-quick toggle wifi|bt|airplane|dark|night|keyboard|saver|mute|mic|usb
 #   s6-quick brightness 0-100       s6-quick volume 0-100
 #   s6-quick open settings|wifi|bt|display|sound|battery|colors|night|keyboard|lock|power|screenshot
 #   s6-quick wifi-list              NET|ssid|signal|secure|active|saved  (strongest first)
 #   s6-quick wifi-scan | wifi-connect SSID | wifi-disconnect
 #   s6-quick bt-list                DEV|mac|name|connected|icon
 #   s6-quick bt-connect MAC | bt-disconnect MAC
+#   s6-quick tiles a,b,c            which tiles the panel shows, in order (kept in ~/.config/s6migrate/quicksettings)
 PD=(org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement/Actions/BrightnessControl org.kde.Solid.PowerManagement.Actions.BrightnessControl)
 num() { busctl --user call "$@" 2>/dev/null | awk '{print $2}'; }   # busctl (systemd): qdbus6 isn't on Fedora under that name
 kr() { kreadconfig6 "$@" 2>/dev/null; }
@@ -52,6 +53,9 @@ status)
   echo "night=$([ "$(kr --file kwinrc --group NightColor --key Active)" = true ] && echo on || echo off)"
   echo "keyboard=$(vk && echo on || echo off)"
   echo "saver=$([ "$(powerprofilesctl get 2>/dev/null)" = power-saver ] && echo on || echo off)"
+  echo "mic=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -q MUTED && echo off || echo on)"
+  echo "tiles=$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/s6migrate/quicksettings" 2>/dev/null | head -n 1)"
+  echo "usb=$([ "$(cat /sys/class/usb_role/*/role 2>/dev/null | head -n 1)" = host ] && echo on || echo off)"
   echo "brightness=$(br_get)"
   v=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
   echo "volume=$(awk '{printf "%d", $2 * 100}' <<< "${v:-Volume: 0.5}")"
@@ -76,6 +80,9 @@ toggle)
               busctl --user set-property org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard enabled b $t ;;
     saver) [ "$(powerprofilesctl get)" = power-saver ] && powerprofilesctl set balanced || powerprofilesctl set power-saver ;;
     mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    mic) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle ;;
+    usb) if [ "$(cat /sys/class/usb_role/*/role 2>/dev/null | head -n 1)" = host ]; then r=device; else r=host; fi
+         pkexec /usr/local/libexec/s6migrate/s6-usb "$r" >/dev/null ;;
     *) echo "unknown toggle"; exit 2 ;;
   esac
   ;;
@@ -92,6 +99,9 @@ open)
     screenshot) sleep 0.4; spectacle -r ;;
   esac >/dev/null 2>&1 &
   ;;
+tiles)
+  [[ "${2:-}" =~ ^[a-z,]{0,200}$ ]] || exit 2
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/s6migrate"; echo "$2" > "${XDG_CONFIG_HOME:-$HOME/.config}/s6migrate/quicksettings" ;;
 wifi-list)
   # every network once (its strongest signal), the one you're on first, then saved ones, then by signal
   nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan no 2>/dev/null | python3 -c '

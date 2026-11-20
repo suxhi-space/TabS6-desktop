@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: GPL-2.0-only
+# s6-usb - the USB-C port: plug in drives, keyboards, hubs (host) or back to the tablet's USB network for SSH (device).
+#   s6-usb host | device | status
+# Uses t860-fedora's usb-role (it powers the port for host mode; it goes back to device at every start). Polkit lets
+# the person at the tablet run this without a password: it can only flip the port.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ur=$(command -v usb-role || ls /usr/local/libexec/usb-role /usr/libexec/usb-role 2>/dev/null | head -n 1)
+role() { cat /sys/class/usb_role/*/role 2>/dev/null | head -n 1; }
+case "${1:-status}" in
+  host|device)
+    [ "$(id -u)" = 0 ] || { echo "run through pkexec"; exit 1; }
+    [ -n "$ur" ] || { echo "t860-fedora's usb-role isn't installed"; exit 1; }
+    "$ur" "$1" >/dev/null 2>&1 || { echo "couldn't switch the port"; exit 1; }
+    echo "USB-C: $(role)" ;;
+  status) echo "USB=$(role)" ;;
+  *) sed -n '3,4p' "$0"; exit 2 ;;
+esac

@@ -7,3 +7,10 @@ polkit.addRule(function(action, subject) {
         if (subject.isInGroup("wheel") && subject.local && subject.active) return polkit.Result.AUTH_ADMIN_KEEP;
     }
 });
+
+// The USB-C port's role (s6-usb host|device): the person at the tablet, no password; it can only flip the port.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/local/libexec/s6migrate/s6-usb" && subject.local && subject.active)
+        return polkit.Result.YES;
+});

@@ -15,7 +15,11 @@ PlasmoidItem {
     readonly property var pal: ({
         accent: Kirigami.Theme.highlightColor, accentFg: Kirigami.Theme.highlightedTextColor,
         fg: fg, sub: Qt.rgba(fg.r, fg.g, fg.b, 0.66),
-        tile: Qt.rgba(fg.r, fg.g, fg.b, 0.08), tileIcon: Qt.rgba(fg.r, fg.g, fg.b, 0.12) })
+        tile: Qt.rgba(fg.r, fg.g, fg.b, 0.08), tileIcon: Qt.rgba(fg.r, fg.g, fg.b, 0.12),
+        // "on" is light, like Googlebook's and macOS's tiles (in a light theme: your accent colour)
+        onTile: dark ? Qt.rgba(0.93, 0.94, 0.96, 1) : Kirigami.Theme.highlightColor,
+        onInk: dark ? "#16181D" : Kirigami.Theme.highlightedTextColor })
+    readonly property bool dark: (fg.r * 0.299 + fg.g * 0.587 + fg.b * 0.114) > 0.5   // light text: a dark theme
     preferredRepresentation: compactRepresentation
     toolTipMainText: "Quick settings"
     toolTipSubText: (st.wifi === "on" ? (st.ssid || "Wi-Fi on") : "Wi-Fi off") + (parseInt(st.battery) >= 0 ? " · battery " + st.battery + "%" : "")
@@ -39,6 +43,7 @@ PlasmoidItem {
     function connectWifi(ssid) { run("wifi-connect " + q(ssid)) }
     function disconnectWifi() { run("wifi-disconnect") }
     function btConnect(mac, on) { run((on ? "bt-connect " : "bt-disconnect ") + mac) }
+    function saveTiles(list) { var s = Object.assign({}, st); s.tiles = list.join(","); st = s; run("tiles " + list.join(",")) }
     function parseList(out, tag) {
         var r = []
         String(out).split("\n").forEach(function (l) {
